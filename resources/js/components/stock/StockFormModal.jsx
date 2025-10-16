@@ -1,0 +1,171 @@
+import React, { useState, useEffect } from "react";
+
+function StockFormModal({ stock, onClose, onSubmit }) {
+    const [formData, setFormData] = useState({
+        name: "",
+        category: "Produk",
+        buyPrice: "",
+        quantity: "",
+        unit: "",
+    });
+
+    useEffect(() => {
+        if (stock) {
+            setFormData(stock);
+        }
+    }, [stock]);
+
+    const handleChange = (e) => {
+        const { name, value } = e.target;
+        setFormData((prev) => ({
+            ...prev,
+            [name]: value,
+        }));
+    };
+
+    const handleSubmit = (e) => {
+        e.preventDefault();
+        onSubmit(formData);
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto">
+                {/* Modal Header */}
+                <div className="bg-gradient-to-r from-green-600 to-green-500 text-white p-6 rounded-t-2xl">
+                    <div className="flex justify-between items-center">
+                        <h2 className="text-xl font-bold">
+                            {stock ? "Edit Stok" : "Tambah Stok Baru"}
+                        </h2>
+                        <button
+                            onClick={onClose}
+                            className="text-white hover:bg-white/20 p-2 rounded-lg transition-colors"
+                        >
+                            <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                strokeWidth={2}
+                                stroke="currentColor"
+                                className="size-6"
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="M6 18L18 6M6 6l12 12"
+                                />
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+
+                {/* Modal Body */}
+                <form onSubmit={handleSubmit} className="p-6">
+                    <div className="space-y-4">
+                        {/* Nama Stok */}
+                        <div>
+                            <label className="block text-sm font-semibold text-gray-700 mb-2">
+                                Nama Stok *
+                            </label>
+                            <input
+                                type="text"
+                                name="name"
+                                value={formData.name}
+                                onChange={handleChange}
+                                placeholder="Contoh: Nasi Putih"
+                                className="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:border-green-500 focus:outline-none transition-colors text-sm"
+                                required
+                            />
+                        </div>
+
+                        {/* Kategori */}
+                        <div>
+                            <label className="block text-sm font-semibold text-gray-700 mb-2">
+                                Kategori *
+                            </label>
+                            <select
+                                name="category"
+                                value={formData.category}
+                                onChange={handleChange}
+                                className="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:border-green-500 focus:outline-none transition-colors text-sm"
+                                required
+                            >
+                                <option value="Produk">Produk</option>
+                                <option value="Bahan">Bahan</option>
+                            </select>
+                        </div>
+
+                        {/* Harga Beli */}
+                        <div>
+                            <label className="block text-sm font-semibold text-gray-700 mb-2">
+                                Harga Beli (Rp) *
+                            </label>
+                            <input
+                                type="number"
+                                name="buyPrice"
+                                value={formData.buyPrice}
+                                onChange={handleChange}
+                                placeholder="Contoh: 5000"
+                                className="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:border-green-500 focus:outline-none transition-colors text-sm"
+                                required
+                                min="0"
+                            />
+                        </div>
+
+                        {/* Jumlah */}
+                        <div>
+                            <label className="block text-sm font-semibold text-gray-700 mb-2">
+                                Jumlah *
+                            </label>
+                            <input
+                                type="number"
+                                name="quantity"
+                                value={formData.quantity}
+                                onChange={handleChange}
+                                placeholder="Contoh: 50"
+                                className="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:border-green-500 focus:outline-none transition-colors text-sm"
+                                required
+                                min="0"
+                            />
+                        </div>
+
+                        {/* Satuan */}
+                        <div>
+                            <label className="block text-sm font-semibold text-gray-700 mb-2">
+                                Satuan *
+                            </label>
+                            <input
+                                type="text"
+                                name="unit"
+                                value={formData.unit}
+                                onChange={handleChange}
+                                placeholder="Contoh: Porsi, Kg, Pack"
+                                className="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:border-green-500 focus:outline-none transition-colors text-sm"
+                                required
+                            />
+                        </div>
+                    </div>
+
+                    {/* Modal Footer */}
+                    <div className="flex gap-3 mt-6">
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            className="flex-1 px-4 py-2 border-2 border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-semibold transition-colors text-sm"
+                        >
+                            Batal
+                        </button>
+                        <button
+                            type="submit"
+                            className="flex-1 px-4 py-2 bg-gradient-to-r from-green-600 to-green-500 text-white rounded-lg hover:from-green-700 hover:to-green-600 font-semibold shadow-lg transition-all text-sm"
+                        >
+                            {stock ? "Update" : "Simpan"}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+}
+
+export default StockFormModal;
