@@ -35,6 +35,7 @@ Route::get('/compositions', [CompositionController::class, 'index']);
 Route::get('/dashboard/summary', [DashboardController::class, 'getSummary']);
 Route::get('/dashboard/low-stock', [DashboardController::class, 'getLowStockAlerts']);
 Route::get('/reports/inventory', [ReportController::class, 'getInventoryReport']);
+Route::get('/reports/sales', [ReportController::class, 'getSalesReport']);
 Route::get('/reports/categories', [ReportController::class, 'getCategories']);
 
 // Protected routes

@@ -7,6 +7,7 @@ use App\Models\TblNotifikasi;
 use App\Models\TblBahan;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Validator;
 
 class NotificationController extends Controller
 {
@@ -27,6 +28,49 @@ class NotificationController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Terjadi kesalahan saat mengambil data notifikasi',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Create new notification
+     */
+    public function store(Request $request)
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'judul' => 'required|string|max:255',
+                'pesan' => 'required|string',
+                'tipe' => 'required|string|in:info,warning,error,low_stock,transaction',
+                'status' => 'nullable|string|in:unread,read'
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Validation error',
+                    'errors' => $validator->errors()
+                ], 422);
+            }
+
+            $notification = TblNotifikasi::create([
+                'judul' => $request->judul,
+                'pesan' => $request->pesan,
+                'tipe' => $request->tipe,
+                'status' => $request->status ?? 'unread'
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Notifikasi berhasil dibuat',
+                'data' => $notification
+            ], 201);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Terjadi kesalahan saat membuat notifikasi',
                 'error' => $e->getMessage()
             ], 500);
         }

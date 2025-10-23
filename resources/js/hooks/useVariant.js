@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
-import axios from 'axios';
-import { useAuth } from '../contexts/AuthContext';
+import { useState, useEffect, useCallback } from "react";
+import axios from "axios";
+import { useAuth } from "../contexts/AuthContext";
 
 export const useVariant = () => {
     const { isAuthenticated } = useAuth();
@@ -17,15 +17,18 @@ export const useVariant = () => {
         setLoading(true);
         setError(null);
         try {
-            const response = await axios.get('/api/variants');
+            const response = await axios.get("/api/variants");
             if (response.data.success) {
                 setVariants(response.data.data);
             } else {
                 setError(response.data.message);
             }
         } catch (err) {
-            console.error('Error fetching variants:', err);
-            setError(err.response?.data?.message || 'Terjadi kesalahan saat mengambil data varian');
+            console.error("Error fetching variants:", err);
+            setError(
+                err.response?.data?.message ||
+                    "Terjadi kesalahan saat mengambil data varian"
+            );
         } finally {
             setLoading(false);
         }
@@ -34,14 +37,17 @@ export const useVariant = () => {
     const fetchProducts = useCallback(async () => {
         if (!isAuthenticated) return;
         try {
-            const response = await axios.get('/api/variants/products/list');
+            const response = await axios.get("/api/variants/products/list");
             if (response.data.success) {
                 setProducts(response.data.data);
             } else {
-                console.error('Error fetching products:', response.data.message);
+                console.error(
+                    "Error fetching products:",
+                    response.data.message
+                );
             }
         } catch (err) {
-            console.error('Error fetching products:', err);
+            console.error("Error fetching products:", err);
         }
     }, [isAuthenticated]);
 
@@ -59,31 +65,52 @@ export const useVariant = () => {
 
     const createVariant = async (variantData) => {
         try {
-            const response = await axios.post('/api/variants', variantData);
+            const response = await axios.post("/api/variants", variantData);
             if (response.data.success) {
                 refreshData();
                 return { success: true, message: response.data.message };
             } else {
-                return { success: false, message: response.data.message || 'Gagal menambahkan varian' };
+                return {
+                    success: false,
+                    message:
+                        response.data.message || "Gagal menambahkan varian",
+                };
             }
         } catch (err) {
-            console.error('Error creating variant:', err);
-            return { success: false, message: err.response?.data?.message || 'Terjadi kesalahan saat menambahkan varian' };
+            console.error("Error creating variant:", err);
+            return {
+                success: false,
+                message:
+                    err.response?.data?.message ||
+                    "Terjadi kesalahan saat menambahkan varian",
+            };
         }
     };
 
     const updateVariant = async (id, variantData) => {
         try {
-            const response = await axios.put(`/api/variants/${id}`, variantData);
+            const response = await axios.put(
+                `/api/variants/${id}`,
+                variantData
+            );
             if (response.data.success) {
                 refreshData();
                 return { success: true, message: response.data.message };
             } else {
-                return { success: false, message: response.data.message || 'Gagal memperbarui varian' };
+                return {
+                    success: false,
+                    message:
+                        response.data.message || "Gagal memperbarui varian",
+                };
             }
         } catch (err) {
-            console.error('Error updating variant:', err);
-            return { success: false, message: err.response?.data?.message || 'Terjadi kesalahan saat memperbarui varian' };
+            console.error("Error updating variant:", err);
+            return {
+                success: false,
+                message:
+                    err.response?.data?.message ||
+                    "Terjadi kesalahan saat memperbarui varian",
+            };
         }
     };
 
@@ -94,11 +121,42 @@ export const useVariant = () => {
                 refreshData();
                 return { success: true, message: response.data.message };
             } else {
-                return { success: false, message: response.data.message || 'Gagal menghapus varian' };
+                return {
+                    success: false,
+                    message: response.data.message || "Gagal menghapus varian",
+                };
             }
         } catch (err) {
-            console.error('Error deleting variant:', err);
-            return { success: false, message: err.response?.data?.message || 'Terjadi kesalahan saat menghapus varian' };
+            console.error("Error deleting variant:", err);
+
+            // Handle specific error cases
+            if (err.response?.status === 404) {
+                // Refresh data if variant not found (might be already deleted)
+                refreshData();
+                return {
+                    success: false,
+                    message:
+                        "Varian tidak ditemukan. Mungkin sudah dihapus sebelumnya.",
+                };
+            } else if (err.response?.status === 400) {
+                console.log(
+                    "400 Error - Variant cannot be deleted:",
+                    err.response?.data?.message
+                );
+                return {
+                    success: false,
+                    message:
+                        err.response?.data?.message ||
+                        "Varian tidak dapat dihapus karena masih digunakan dalam komposisi atau transaksi.",
+                };
+            }
+
+            return {
+                success: false,
+                message:
+                    err.response?.data?.message ||
+                    "Terjadi kesalahan saat menghapus varian",
+            };
         }
     };
 
@@ -115,6 +173,6 @@ export const useVariant = () => {
         createVariant,
         updateVariant,
         deleteVariant,
-        refreshData
+        refreshData,
     };
 };

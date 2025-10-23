@@ -184,7 +184,7 @@ function InventoryReport() {
                                 Total Produk
                             </p>
                             <h3 className="text-2xl font-bold text-gray-800">
-                                {inventoryData?.summary?.totalProducts || 0}
+                                {inventoryData?.summary?.total_products || 0}
                             </h3>
                             <p className="text-xs text-gray-500 mt-1">Item</p>
                         </div>
@@ -193,7 +193,7 @@ function InventoryReport() {
                                 Total Stok
                             </p>
                             <h3 className="text-2xl font-bold text-blue-600">
-                                {inventoryData?.summary?.totalStock || 0}
+                                {inventoryData?.summary?.total_stock || 0}
                             </h3>
                             <p className="text-xs text-gray-500 mt-1">Unit</p>
                         </div>
@@ -203,7 +203,7 @@ function InventoryReport() {
                             </p>
                             <h3 className="text-xl font-bold text-orange-600">
                                 {formatCurrency(
-                                    inventoryData?.summary?.totalBuyValue || 0
+                                    inventoryData?.summary?.total_buy_value || 0
                                 )}
                             </h3>
                             <p className="text-xs text-gray-500 mt-1">
@@ -216,7 +216,8 @@ function InventoryReport() {
                             </p>
                             <h3 className="text-xl font-bold text-green-600">
                                 {formatCurrency(
-                                    inventoryData?.summary?.totalSellValue || 0
+                                    inventoryData?.summary?.total_sell_value ||
+                                        0
                                 )}
                             </h3>
                             <p className="text-xs text-gray-500 mt-1">

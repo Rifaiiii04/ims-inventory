@@ -38,7 +38,7 @@ function CompositionTable({ data, onEdit, onDelete, onViewDetail }) {
                     <thead className="bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
                         <tr>
                             <th className="px-4 sm:px-6 py-3 sm:py-4 text-left text-xs sm:text-sm font-semibold text-gray-600 uppercase tracking-wider">
-                                Varian
+                                Varian/Produk
                             </th>
                             <th className="px-4 sm:px-6 py-3 sm:py-4 text-left text-xs sm:text-sm font-semibold text-gray-600 uppercase tracking-wider">
                                 Produk
@@ -57,24 +57,31 @@ function CompositionTable({ data, onEdit, onDelete, onViewDetail }) {
                     <tbody className="bg-white divide-y divide-gray-200">
                         {data.map((composition) => (
                             <tr
-                                key={composition.variant_id}
+                                key={composition.id}
                                 className="hover:bg-gray-50 transition-colors"
                             >
                                 <td className="px-4 sm:px-6 py-3 sm:py-4 whitespace-nowrap">
                                     <div className="flex items-center">
                                         <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center mr-3">
                                             <span className="text-blue-600 font-semibold text-sm">
-                                                {composition.variant_name
+                                                {(
+                                                    composition.variant_name ||
+                                                    composition.product_name ||
+                                                    "N"
+                                                )
                                                     .charAt(0)
                                                     .toUpperCase()}
                                             </span>
                                         </div>
                                         <div>
                                             <div className="text-sm font-medium text-gray-900">
-                                                {composition.variant_name}
+                                                {composition.variant_name ||
+                                                    composition.product_name}
                                             </div>
                                             <div className="text-xs text-gray-500">
-                                                ID: {composition.variant_id}
+                                                ID:{" "}
+                                                {composition.variant_id ||
+                                                    composition.product_id}
                                             </div>
                                         </div>
                                     </div>
@@ -88,16 +95,16 @@ function CompositionTable({ data, onEdit, onDelete, onViewDetail }) {
                                     <div className="flex items-center">
                                         <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center mr-3">
                                             <span className="text-green-600 font-semibold text-sm">
-                                                {composition.ingredients_count}
+                                                {composition.quantity}
                                             </span>
                                         </div>
                                         <div>
                                             <div className="text-sm font-medium text-gray-900">
-                                                {composition.ingredients_count}{" "}
-                                                bahan
+                                                {composition.quantity}{" "}
+                                                {composition.ingredient_unit}
                                             </div>
                                             <div className="text-xs text-gray-500">
-                                                Klik untuk detail
+                                                {composition.ingredient_name}
                                             </div>
                                         </div>
                                     </div>
@@ -165,7 +172,7 @@ function CompositionTable({ data, onEdit, onDelete, onViewDetail }) {
                                         </button>
                                         <button
                                             onClick={() =>
-                                                onDelete(composition)
+                                                onDelete(composition.id)
                                             }
                                             className="text-red-600 hover:text-red-900 p-1 rounded-lg hover:bg-red-50 transition-colors"
                                             title="Hapus komposisi"

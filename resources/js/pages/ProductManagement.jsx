@@ -54,7 +54,7 @@ function ProductManagement() {
         ) {
             const result = await deleteProduct(id);
             if (!result.success) {
-                alert(result.message);
+                alert(`Error: ${result.message}`);
             }
         }
     };

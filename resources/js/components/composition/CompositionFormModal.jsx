@@ -3,16 +3,19 @@ import React, { useState, useEffect } from "react";
 function CompositionFormModal({
     composition,
     variants,
+    products,
     ingredients,
     onClose,
     onSubmit,
 }) {
     const [formData, setFormData] = useState({
+        product_id: "",
         variant_id: "",
         ingredients: [], // Array untuk multiple bahan
     });
     const [errors, setErrors] = useState({});
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [selectedProduct, setSelectedProduct] = useState(null);
 
     // State untuk form tambah bahan
     const [newIngredient, setNewIngredient] = useState({
@@ -23,18 +26,35 @@ function CompositionFormModal({
     useEffect(() => {
         if (composition) {
             setFormData({
+                product_id: composition.product_id || "",
                 variant_id: composition.variant_id || "",
                 ingredients: composition.ingredients || [],
             });
         }
     }, [composition]);
 
+    // Filter variants berdasarkan produk yang dipilih
+    const filteredVariants = selectedProduct 
+        ? variants.filter(variant => variant.product_id === selectedProduct.id)
+        : variants;
+
     const handleChange = (e) => {
         const { name, value } = e.target;
-        setFormData((prev) => ({
-            ...prev,
-            [name]: value,
-        }));
+        
+        if (name === 'product_id') {
+            const product = products.find(p => p.id == value);
+            setSelectedProduct(product);
+            setFormData((prev) => ({
+                ...prev,
+                [name]: value,
+                variant_id: "", // Reset variant when product changes
+            }));
+        } else {
+            setFormData((prev) => ({
+                ...prev,
+                [name]: value,
+            }));
+        }
 
         // Clear error when user starts typing
         if (errors[name]) {
@@ -101,7 +121,12 @@ function CompositionFormModal({
     const validateForm = () => {
         const newErrors = {};
 
-        if (!formData.variant_id) {
+        if (!formData.product_id) {
+            newErrors.product_id = "Produk harus dipilih";
+        }
+
+        // Variant hanya wajib jika produk memiliki variants
+        if (selectedProduct && filteredVariants.length > 0 && !formData.variant_id) {
             newErrors.variant_id = "Varian harus dipilih";
         }
 
@@ -126,7 +151,8 @@ function CompositionFormModal({
             // Kirim setiap bahan sebagai komposisi terpisah
             for (const ingredient of formData.ingredients) {
                 const submitData = {
-                    variant_id: formData.variant_id,
+                    product_id: formData.product_id,
+                    variant_id: formData.variant_id || null, // Bisa null jika tidak ada variant
                     ingredient_id: ingredient.ingredient_id,
                     quantity: ingredient.quantity,
                 };
@@ -190,34 +216,79 @@ function CompositionFormModal({
                     className="flex-1 overflow-y-auto p-6"
                 >
                     <div className="space-y-4">
-                        {/* Varian */}
+                        {/* Produk */}
                         <div>
                             <label className="block text-sm font-semibold text-gray-700 mb-2">
-                                Varian *
+                                Produk *
                             </label>
                             <select
-                                name="variant_id"
-                                value={formData.variant_id}
+                                name="product_id"
+                                value={formData.product_id}
                                 onChange={handleChange}
                                 className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors ${
-                                    errors.variant_id
+                                    errors.product_id
                                         ? "border-red-300 bg-red-50"
                                         : "border-gray-300"
                                 }`}
                             >
-                                <option value="">Pilih Varian</option>
-                                {variants.map((variant) => (
-                                    <option key={variant.id} value={variant.id}>
-                                        {variant.name} - {variant.product_name}
+                                <option value="">Pilih Produk</option>
+                                {products.map((product) => (
+                                    <option key={product.id} value={product.id}>
+                                        {product.name}
                                     </option>
                                 ))}
                             </select>
-                            {errors.variant_id && (
+                            {errors.product_id && (
                                 <p className="mt-1 text-sm text-red-600">
-                                    {errors.variant_id}
+                                    {errors.product_id}
                                 </p>
                             )}
                         </div>
+
+                        {/* Varian - Hanya tampil jika produk memiliki variants */}
+                        {selectedProduct && filteredVariants.length > 0 && (
+                            <div>
+                                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                                    Varian *
+                                </label>
+                                <select
+                                    name="variant_id"
+                                    value={formData.variant_id}
+                                    onChange={handleChange}
+                                    className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors ${
+                                        errors.variant_id
+                                            ? "border-red-300 bg-red-50"
+                                            : "border-gray-300"
+                                    }`}
+                                >
+                                    <option value="">Pilih Varian</option>
+                                    {filteredVariants.map((variant) => (
+                                        <option key={variant.id} value={variant.id}>
+                                            {variant.name}
+                                        </option>
+                                    ))}
+                                </select>
+                                {errors.variant_id && (
+                                    <p className="mt-1 text-sm text-red-600">
+                                        {errors.variant_id}
+                                    </p>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Info jika produk tidak memiliki variant */}
+                        {selectedProduct && filteredVariants.length === 0 && (
+                            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                                <div className="flex items-center">
+                                    <svg className="w-5 h-5 text-blue-500 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                                    </svg>
+                                    <p className="text-sm text-blue-700">
+                                        Produk ini tidak memiliki varian. Komposisi akan ditambahkan langsung ke produk.
+                                    </p>
+                                </div>
+                            </div>
+                        )}
 
                         {/* Tambah Bahan */}
                         <div className="border-2 border-dashed border-gray-300 rounded-xl p-4">

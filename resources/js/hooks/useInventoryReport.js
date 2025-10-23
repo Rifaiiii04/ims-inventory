@@ -34,21 +34,6 @@ export const useInventoryReport = () => {
         } catch (err) {
             console.error("Error fetching inventory report:", err);
             console.error("Error details:", err.response?.data);
-
-            // Set fallback data if API fails
-            const fallbackData = {
-                summary: {
-                    total_products: 18,
-                    total_stock: 574,
-                    total_buy_value: 1984200,
-                    total_sell_value: 3307000,
-                    low_stock_items: 0,
-                },
-                items: [],
-            };
-
-            console.log("Setting fallback data:", fallbackData);
-            setReportData(fallbackData);
             setError(
                 err.response?.data?.message ||
                     "Terjadi kesalahan saat mengambil data laporan"

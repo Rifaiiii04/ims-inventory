@@ -28,9 +28,37 @@ class ProductController extends Controller
             ->orderBy('nama_produk', 'asc')
             ->get();
 
-            $formattedProducts = $products->map(function($product) {
+            // Ambil komposisi langsung ke produk (tanpa varian) dengan stok bahan
+            $directCompositions = DB::table('tbl_komposisi')
+                ->join('tbl_bahan', 'tbl_komposisi.id_bahan', '=', 'tbl_bahan.id_bahan')
+                ->whereNull('tbl_komposisi.id_varian')
+                ->select(
+                    'tbl_komposisi.id_produk', 
+                    'tbl_bahan.nama_bahan', 
+                    'tbl_komposisi.jumlah_per_porsi',
+                    'tbl_bahan.stok_bahan'
+                )
+                ->get()
+                ->groupBy('id_produk');
+
+            $formattedProducts = $products->map(function($product) use ($directCompositions) {
                 // Hitung total stok dari varian
                 $totalStock = $product->varian->sum('stok_varian');
+                
+                // Hitung stok dari komposisi langsung ke produk (tanpa varian)
+                if (isset($directCompositions[$product->id_produk])) {
+                    $minStock = PHP_INT_MAX;
+                    foreach ($directCompositions[$product->id_produk] as $comp) {
+                        if ($comp->jumlah_per_porsi > 0) {
+                            $canProduce = floor($comp->stok_bahan / $comp->jumlah_per_porsi);
+                            $minStock = min($minStock, $canProduce);
+                        }
+                    }
+                    // Jika ada komposisi langsung, gunakan stok yang dihitung dari komposisi
+                    if ($minStock !== PHP_INT_MAX) {
+                        $totalStock = $minStock;
+                    }
+                }
                 
                 // Ambil harga dari produk
                 $productPrice = $product->harga ?? 0;
@@ -42,6 +70,14 @@ class ProductController extends Controller
                 foreach ($product->varian as $variant) {
                     foreach ($variant->komposisi as $composition) {
                         $allIngredients->push($composition->bahan->nama_bahan);
+                        $compositionCount++;
+                    }
+                }
+                
+                // Tambahkan komposisi langsung ke produk (tanpa varian)
+                if (isset($directCompositions[$product->id_produk])) {
+                    foreach ($directCompositions[$product->id_produk] as $directComp) {
+                        $allIngredients->push($directComp->nama_bahan);
                         $compositionCount++;
                     }
                 }
@@ -292,16 +328,52 @@ class ProductController extends Controller
                 ], 404);
             }
 
-            // Hapus varian terkait terlebih dahulu
-            $product->varian()->delete();
+            // Check if product is used in transactions
+            $transactionsCount = \App\Models\TblTransaksiDetail::where('id_produk', $id)->count();
             
-            // Hapus produk
-            $product->delete();
+            if ($transactionsCount > 0) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Produk tidak dapat dihapus karena masih digunakan dalam transaksi.'
+                ], 400);
+            }
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Produk berhasil dihapus'
-            ], 200);
+            // Check if product has variants that are used in compositions
+            $variants = $product->varian;
+            
+            foreach ($variants as $variant) {
+                $compositionsCount = \App\Models\TblKomposisi::where('id_varian', $variant->id_varian)->count();
+                
+                if ($compositionsCount > 0) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Produk tidak dapat dihapus karena masih memiliki varian yang digunakan dalam komposisi. Hapus komposisi terlebih dahulu.'
+                    ], 400);
+                }
+            }
+
+            DB::beginTransaction();
+
+            try {
+                // Hapus varian terkait terlebih dahulu (jika ada)
+                if ($variants->count() > 0) {
+                    $product->varian()->delete();
+                }
+                
+                // Hapus produk
+                $product->delete();
+
+                DB::commit();
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Produk berhasil dihapus'
+                ], 200);
+
+            } catch (\Exception $e) {
+                DB::rollback();
+                throw $e;
+            }
 
         } catch (\Exception $e) {
             return response()->json([

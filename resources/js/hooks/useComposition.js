@@ -6,6 +6,7 @@ export const useComposition = () => {
     const { isAuthenticated } = useAuth();
     const [compositions, setCompositions] = useState([]);
     const [variants, setVariants] = useState([]);
+    const [products, setProducts] = useState([]);
     const [ingredients, setIngredients] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -46,6 +47,20 @@ export const useComposition = () => {
         }
     }, [isAuthenticated]);
 
+    const fetchProducts = useCallback(async () => {
+        if (!isAuthenticated) return;
+        try {
+            const response = await axios.get('/api/products');
+            if (response.data.success) {
+                setProducts(response.data.data);
+            } else {
+                console.error('Error fetching products:', response.data.message);
+            }
+        } catch (err) {
+            console.error('Error fetching products:', err);
+        }
+    }, [isAuthenticated]);
+
     const fetchIngredients = useCallback(async () => {
         if (!isAuthenticated) return;
         try {
@@ -63,6 +78,7 @@ export const useComposition = () => {
     useEffect(() => {
         fetchCompositions();
         fetchVariants();
+        fetchProducts();
         fetchIngredients();
 
         // Set up auto-refresh for composition data
@@ -71,7 +87,7 @@ export const useComposition = () => {
         }, 30000); // Refresh every 30 seconds
 
         return () => clearInterval(intervalId);
-    }, [fetchCompositions, fetchVariants, fetchIngredients]);
+    }, [fetchCompositions, fetchVariants, fetchProducts, fetchIngredients]);
 
     const createComposition = async (compositionData) => {
         try {
@@ -127,6 +143,7 @@ export const useComposition = () => {
     return {
         compositions,
         variants,
+        products,
         ingredients,
         loading,
         error,

@@ -1,6 +1,6 @@
 # OCR Service untuk Input Stok
 
-Service Python untuk memproses foto struk belanja menggunakan EasyOCR + Gemini AI.
+Service Python untuk memproses foto struk belanja menggunakan **EasyOCR** untuk ekstraksi teks + **Gemini AI** untuk klasifikasi.
 
 ## 🚀 Quick Start
 
@@ -8,27 +8,46 @@ Service Python untuk memproses foto struk belanja menggunakan EasyOCR + Gemini A
 
 ```bash
 cd python_ocr_service
-python setup.py
+pip install -r requirements.txt
 ```
 
-### 2. Manual Setup (jika diperlukan)
+### 2. Setup Gemini API Key
+
+Edit `start_hybrid_service.bat` dan ganti API key:
+
+```batch
+set GEMINI_API_KEY=your_actual_gemini_api_key_here
+```
+
+### 3. Start Service
+
+**Option A: Menggunakan Batch File (Recommended)**
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt
+start_hybrid_service.bat
+```
+
+**Option B: Manual**
+
+```bash
+# Set environment variable
+set GEMINI_API_KEY=your_gemini_api_key_here
 
 # Start service
-python server.py
+python ocr_service_hybrid.py
 ```
 
-### 3. Test Service
+### 4. Test Service
 
 ```bash
-# Health check
+# Health check (menampilkan status EasyOCR dan Gemini)
 curl http://localhost:5000/health
 
-# Test OCR (dengan file gambar)
-python ocr_service.py path/to/receipt.jpg
+# Test Gemini AI connection
+curl http://localhost:5000/test-gemini
+
+# Test OCR dengan file gambar
+python test_ocr_with_image.py
 ```
 
 ## 📋 Requirements

@@ -48,7 +48,7 @@ function VariantManagement() {
         if (confirm("Apakah Anda yakin ingin menghapus varian ini?")) {
             const result = await deleteVariant(id);
             if (!result.success) {
-                alert(result.message);
+                alert(`Error: ${result.message}`);
             }
         }
     };

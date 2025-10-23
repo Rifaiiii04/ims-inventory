@@ -74,122 +74,111 @@ function CompositionDetailModal({ composition, onClose }) {
                     {/* Daftar Bahan */}
                     <div>
                         <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                            Bahan Baku ({composition.ingredients_count} bahan)
+                            Bahan Baku
                         </h3>
                         <div className="space-y-3">
-                            {composition.ingredients.map(
-                                (ingredient, index) => (
-                                    <div
-                                        key={index}
-                                        className="bg-white border border-gray-200 rounded-xl p-4 hover:shadow-md transition-shadow"
-                                    >
-                                        <div className="flex items-center justify-between">
-                                            <div className="flex items-center space-x-4">
-                                                <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
-                                                    <span className="text-green-600 font-semibold text-sm">
-                                                        {ingredient.ingredient_name
-                                                            .charAt(0)
-                                                            .toUpperCase()}
-                                                    </span>
-                                                </div>
-                                                <div>
-                                                    <h4 className="font-semibold text-gray-900">
-                                                        {
-                                                            ingredient.ingredient_name
-                                                        }
-                                                    </h4>
-                                                    <p className="text-sm text-gray-500">
-                                                        {ingredient.quantity}{" "}
-                                                        {
-                                                            ingredient.ingredient_unit
-                                                        }{" "}
-                                                        per porsi
-                                                    </p>
-                                                </div>
-                                            </div>
-                                            <div className="text-right">
-                                                <div className="flex items-center space-x-4">
-                                                    <div className="text-center">
-                                                        <p className="text-xs text-gray-500">
-                                                            Stok Tersedia
-                                                        </p>
-                                                        <p className="font-semibold text-gray-900">
-                                                            {
-                                                                ingredient.ingredient_stock
-                                                            }{" "}
-                                                            {
-                                                                ingredient.ingredient_unit
-                                                            }
-                                                        </p>
-                                                    </div>
-                                                    <div className="text-center">
-                                                        <p className="text-xs text-gray-500">
-                                                            Estimasi
-                                                        </p>
-                                                        <p
-                                                            className={`font-semibold ${
-                                                                ingredient.estimated_production >
-                                                                0
-                                                                    ? "text-green-600"
-                                                                    : "text-red-600"
-                                                            }`}
-                                                        >
-                                                            {
-                                                                ingredient.estimated_production
-                                                            }{" "}
-                                                            porsi
-                                                        </p>
-                                                    </div>
-                                                </div>
-                                            </div>
+                            {/* Tampilkan data individual composition */}
+                            <div className="bg-white border border-gray-200 rounded-xl p-4 hover:shadow-md transition-shadow">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center space-x-4">
+                                        <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
+                                            <span className="text-green-600 font-semibold text-sm">
+                                                {composition.ingredient_name
+                                                    .charAt(0)
+                                                    .toUpperCase()}
+                                            </span>
                                         </div>
-
-                                        {/* Progress Bar untuk Stok */}
-                                        <div className="mt-3">
-                                            <div className="flex justify-between text-xs text-gray-500 mb-1">
-                                                <span>Ketersediaan Stok</span>
-                                                <span>
-                                                    {ingredient.ingredient_stock >
-                                                    0
-                                                        ? `${Math.round(
-                                                              (ingredient.ingredient_stock /
-                                                                  (ingredient.ingredient_stock +
-                                                                      10)) *
-                                                                  100
-                                                          )}%`
-                                                        : "0%"}
-                                                </span>
+                                        <div>
+                                            <h4 className="font-semibold text-gray-900">
+                                                {composition.ingredient_name}
+                                            </h4>
+                                            <p className="text-sm text-gray-500">
+                                                {composition.quantity}{" "}
+                                                {composition.ingredient_unit}{" "}
+                                                per porsi
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div className="text-right">
+                                        <div className="flex items-center space-x-4">
+                                            <div className="text-center">
+                                                <p className="text-xs text-gray-500">
+                                                    Stok Tersedia
+                                                </p>
+                                                <p className="font-semibold text-gray-900">
+                                                    {
+                                                        composition.ingredient_stock
+                                                    }{" "}
+                                                    {
+                                                        composition.ingredient_unit
+                                                    }
+                                                </p>
                                             </div>
-                                            <div className="w-full bg-gray-200 rounded-full h-2">
-                                                <div
-                                                    className={`h-2 rounded-full ${
-                                                        ingredient.estimated_production >
-                                                        5
-                                                            ? "bg-green-500"
-                                                            : ingredient.estimated_production >
-                                                              0
-                                                            ? "bg-yellow-500"
-                                                            : "bg-red-500"
+                                            <div className="text-center">
+                                                <p className="text-xs text-gray-500">
+                                                    Estimasi
+                                                </p>
+                                                <p
+                                                    className={`font-semibold ${
+                                                        composition.estimated_production >
+                                                        0
+                                                            ? "text-green-600"
+                                                            : "text-red-600"
                                                     }`}
-                                                    style={{
-                                                        width:
-                                                            ingredient.ingredient_stock >
-                                                            0
-                                                                ? `${Math.min(
-                                                                      (ingredient.ingredient_stock /
-                                                                          (ingredient.ingredient_stock +
-                                                                              10)) *
-                                                                          100,
-                                                                      100
-                                                                  )}%`
-                                                                : "0%",
-                                                    }}
-                                                ></div>
+                                                >
+                                                    {
+                                                        composition.estimated_production
+                                                    }{" "}
+                                                    porsi
+                                                </p>
                                             </div>
                                         </div>
                                     </div>
-                                )
-                            )}
+                                </div>
+
+                                {/* Progress Bar untuk Stok */}
+                                <div className="mt-3">
+                                    <div className="flex justify-between text-xs text-gray-500 mb-1">
+                                        <span>Ketersediaan Stok</span>
+                                        <span>
+                                            {composition.ingredient_stock > 0
+                                                ? `${Math.round(
+                                                      (composition.ingredient_stock /
+                                                          (composition.ingredient_stock +
+                                                              10)) *
+                                                          100
+                                                  )}%`
+                                                : "0%"}
+                                        </span>
+                                    </div>
+                                    <div className="w-full bg-gray-200 rounded-full h-2">
+                                        <div
+                                            className={`h-2 rounded-full ${
+                                                composition.estimated_production >
+                                                5
+                                                    ? "bg-green-500"
+                                                    : composition.estimated_production >
+                                                      0
+                                                    ? "bg-yellow-500"
+                                                    : "bg-red-500"
+                                            }`}
+                                            style={{
+                                                width:
+                                                    composition.ingredient_stock >
+                                                    0
+                                                        ? `${Math.min(
+                                                              (composition.ingredient_stock /
+                                                                  (composition.ingredient_stock +
+                                                                      10)) *
+                                                                  100,
+                                                              100
+                                                          )}%`
+                                                        : "0%",
+                                            }}
+                                        ></div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>

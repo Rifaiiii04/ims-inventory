@@ -98,23 +98,19 @@ class CashierController extends Controller
     public function store(Request $request)
     {
         try {
-            // Simple validation
-            if (!$request->username || !$request->nama_user || !$request->password) {
+            $validator = Validator::make($request->all(), [
+                'username' => 'required|string|max:50|unique:tbl_user,username',
+                'nama_user' => 'required|string|max:100',
+                'email' => 'nullable|email|max:100',
+                'password' => 'required|string|min:6',
+                'status' => 'nullable|string|in:aktif,nonaktif'
+            ]);
+
+            if ($validator->fails()) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Username, nama, dan password harus diisi'
-                ], 422);
-            }
-
-            // Check if username already exists
-            $existingUser = DB::table('tbl_user')
-                ->where('username', $request->username)
-                ->first();
-
-            if ($existingUser) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Username sudah digunakan'
+                    'message' => 'Validation error',
+                    'errors' => $validator->errors()
                 ], 422);
             }
 
@@ -171,24 +167,19 @@ class CashierController extends Controller
                 ], 404);
             }
 
-            // Simple validation
-            if (!$request->username || !$request->nama_user) {
+            $validator = Validator::make($request->all(), [
+                'username' => 'required|string|max:50|unique:tbl_user,username,' . $id . ',id_user',
+                'nama_user' => 'required|string|max:100',
+                'email' => 'nullable|email|max:100',
+                'password' => 'nullable|string|min:6',
+                'status' => 'nullable|string|in:aktif,nonaktif'
+            ]);
+
+            if ($validator->fails()) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Username dan nama harus diisi'
-                ], 422);
-            }
-
-            // Check if username already exists (excluding current user)
-            $existingUser = DB::table('tbl_user')
-                ->where('username', $request->username)
-                ->where('id_user', '!=', $id)
-                ->first();
-
-            if ($existingUser) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Username sudah digunakan'
+                    'message' => 'Validation error',
+                    'errors' => $validator->errors()
                 ], 422);
             }
 

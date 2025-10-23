@@ -10,137 +10,278 @@ use Illuminate\Support\Facades\Validator;
 
 class OcrController extends Controller
 {
-    private $pythonServiceUrl = 'http://127.0.0.1:5000';
+    private $geminiApiKey = 'AIzaSyBzb2hZXhceAjTlW1nfiXdlK710-t5TQ20';
+    private $geminiApiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent';
 
     /**
-     * Process receipt image using OCR + Gemini
+     * Process receipt image using EasyOCR + Gemini
+     * Endpoint: POST /api/ocr/process-photo
      */
-    public function processReceipt(Request $request)
+    public function processPhoto(Request $request)
     {
         try {
-            Log::info('OCR Request received', [
-                'has_file' => $request->hasFile('image'),
-                'file_size' => $request->hasFile('image') ? $request->file('image')->getSize() : 'no file',
-                'content_type' => $request->header('Content-Type')
-            ]);
-
+            // Step 1: Validate request
             $validator = Validator::make($request->all(), [
-                'image' => 'required|image|mimes:jpeg,png,jpg|max:10240', // Max 10MB
+                'image' => 'required|image|mimes:jpeg,png,jpg,gif|max:10240', // 10MB max
             ]);
 
             if ($validator->fails()) {
-                Log::error('OCR Validation failed', ['errors' => $validator->errors()]);
+                Log::error('Photo Validation failed', ['errors' => $validator->errors()]);
                 return response()->json([
                     'success' => false,
-                    'message' => 'Invalid image format',
+                    'message' => 'Invalid image file. Please upload a valid image (JPEG, PNG, JPG, GIF) up to 10MB.',
                     'errors' => $validator->errors()
                 ], 400);
             }
 
-            // Get image file
             $image = $request->file('image');
-            
-            // Convert image to base64
-            $imageData = base64_encode(file_get_contents($image->getPathname()));
-            
-            // Send to Python OCR service
-            $response = Http::timeout(60)
-                ->withHeaders(['Content-Type' => 'application/json'])
-                ->post($this->pythonServiceUrl . '/process-receipt', [
-                    'image' => $imageData
-                ]);
+            Log::info('Photo processing request', [
+                'filename' => $image->getClientOriginalName(), 
+                'size' => $image->getSize(),
+                'mime_type' => $image->getMimeType()
+            ]);
 
-            if (!$response->successful()) {
-                Log::error('OCR Service Error: ' . $response->body());
+            // Step 2: Extract text using EasyOCR (via Python service)
+            Log::info('Starting OCR text extraction...');
+            $ocrResponse = $this->extractTextWithOCR($image);
+            
+            if (!$ocrResponse['success']) {
+                Log::error('OCR extraction failed', ['error' => $ocrResponse['message']]);
                 return response()->json([
                     'success' => false,
-                    'message' => 'OCR service unavailable. Please make sure Python OCR service is running on port 5000.'
+                    'message' => 'Gagal mengekstrak teks dari gambar. ' . $ocrResponse['message']
                 ], 500);
             }
 
-            $ocrResult = $response->json();
+            $extractedText = $ocrResponse['text'];
+            Log::info('OCR extraction completed', ['text_length' => strlen($extractedText)]);
 
-            if (!$ocrResult['success']) {
+            // Step 3: Parse text using Gemini
+            Log::info('Starting Gemini text classification...');
+            $geminiResponse = $this->classifyTextWithGemini($extractedText);
+            
+            if (!$geminiResponse['success']) {
+                Log::error('Gemini classification failed', ['error' => $geminiResponse['message']]);
                 return response()->json([
                     'success' => false,
-                    'message' => $ocrResult['error'] ?? 'OCR processing failed'
+                    'message' => 'Gagal mengklasifikasikan teks. ' . $geminiResponse['message']
+                ], 500);
+            }
+
+            $items = $geminiResponse['items'];
+            Log::info('Gemini classification completed', ['items_count' => count($items)]);
+
+            // Step 4: Validate and clean items
+            $validatedItems = $this->validateItems($items);
+
+            if (empty($validatedItems)) {
+                Log::warning('No valid items found after validation');
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Tidak ada item yang ditemukan dalam foto. Coba foto yang lebih jelas atau pastikan struk terlihat dengan baik.'
                 ], 400);
             }
 
-            // Validate and clean the classified data
-            $validatedData = $this->validateOcrData($ocrResult['classified_data']);
-
             return response()->json([
                 'success' => true,
-                'message' => 'Receipt processed successfully',
+                'message' => 'Foto berhasil diproses',
                 'data' => [
-                    'raw_text' => $ocrResult['raw_text'],
-                    'items' => $validatedData
+                    'items' => $validatedItems
                 ]
             ]);
 
         } catch (\Exception $e) {
-            Log::error('OCR Processing Error: ' . $e->getMessage());
+            Log::error('Photo Processing Error: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString()
+            ]);
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to process receipt'
+                'message' => 'Terjadi kesalahan saat memproses foto. Silakan coba lagi.'
             ], 500);
         }
     }
 
     /**
-     * Validate and clean OCR data
+     * Extract text using EasyOCR via Python service
      */
-    private function validateOcrData($classifiedData)
+    private function extractTextWithOCR($image)
+    {
+        try {
+            $response = Http::timeout(60)
+                ->attach('image', file_get_contents($image), $image->getClientOriginalName())
+                ->post('http://127.0.0.1:5000/extract-text');
+
+            if (!$response->successful()) {
+                return [
+                    'success' => false,
+                    'message' => 'OCR service tidak tersedia. Pastikan Python OCR service berjalan di port 5000.'
+                ];
+            }
+
+            $result = $response->json();
+
+            if (!$result['success']) {
+                return [
+                    'success' => false,
+                    'message' => $result['error'] ?? 'Gagal mengekstrak teks dari gambar'
+                ];
+            }
+
+            return [
+                'success' => true,
+                'text' => $result['text'] ?? ''
+            ];
+
+        } catch (\Exception $e) {
+            Log::error('OCR Service Error: ' . $e->getMessage());
+            return [
+                'success' => false,
+                'message' => 'OCR service tidak dapat diakses'
+            ];
+        }
+    }
+
+    /**
+     * Classify text using Gemini API
+     */
+    private function classifyTextWithGemini($text)
+    {
+        try {
+            if (empty(trim($text))) {
+                return [
+                    'success' => false,
+                    'message' => 'Tidak ada teks yang dapat diklasifikasikan'
+                ];
+            }
+
+            $prompt = "Berikut adalah teks hasil OCR dari struk belanja:\n\n" . $text . "\n\nTolong ekstrak menjadi array JSON dengan format:\n[\n  {\n    \"nama_barang\": \"nama item\",\n    \"jumlah\": 1,\n    \"harga\": 10000\n  }\n]\n\nAturan:\n1. Hanya ekstrak item yang jelas merupakan barang belanjaan\n2. Jika ada data yang tidak jelas, abaikan\n3. Untuk harga, gunakan hanya angka (tanpa Rp, titik, koma)\n4. Untuk jumlah, gunakan angka (default 1 jika tidak jelas)\n5. Koreksi penulisan nama barang jika ada kesalahan\n6. Hanya kembalikan JSON array, tanpa penjelasan lain";
+
+            $response = Http::timeout(30)
+                ->withHeaders([
+                    'Content-Type' => 'application/json',
+                ])
+                ->post($this->geminiApiUrl . '?key=' . $this->geminiApiKey, [
+                    'contents' => [
+                        [
+                            'parts' => [
+                                ['text' => $prompt]
+                            ]
+                        ]
+                    ],
+                    'generationConfig' => [
+                        'temperature' => 0.1,
+                        'maxOutputTokens' => 2048,
+                    ]
+                ]);
+
+            if (!$response->successful()) {
+                Log::error('Gemini API Error: ' . $response->body());
+                return [
+                    'success' => false,
+                    'message' => 'Gemini API tidak dapat diakses'
+                ];
+            }
+
+            $result = $response->json();
+            $generatedText = $result['candidates'][0]['content']['parts'][0]['text'] ?? '';
+
+            // Clean response
+            $generatedText = trim($generatedText);
+            if (strpos($generatedText, '```json') !== false) {
+                $generatedText = substr($generatedText, 7);
+            }
+            if (strpos($generatedText, '```') !== false) {
+                $generatedText = substr($generatedText, 0, strpos($generatedText, '```'));
+            }
+            $generatedText = trim($generatedText);
+
+            if (empty($generatedText) || $generatedText === '[]') {
+                return [
+                    'success' => false,
+                    'message' => 'Tidak ada item yang dapat diekstrak dari teks'
+                ];
+            }
+
+            $items = json_decode($generatedText, true);
+
+            if (json_last_error() !== JSON_ERROR_NONE) {
+                Log::error('JSON Parse Error: ' . json_last_error_msg(), ['text' => $generatedText]);
+                return [
+                    'success' => false,
+                    'message' => 'Gagal memparse hasil dari Gemini'
+                ];
+            }
+
+            if (!is_array($items)) {
+                return [
+                    'success' => false,
+                    'message' => 'Format hasil tidak valid'
+                ];
+            }
+
+            return [
+                'success' => true,
+                'items' => $items
+            ];
+
+        } catch (\Exception $e) {
+            Log::error('Gemini Classification Error: ' . $e->getMessage());
+            return [
+                'success' => false,
+                'message' => 'Gagal mengklasifikasikan teks dengan Gemini'
+            ];
+        }
+    }
+
+    /**
+     * Validate and clean items
+     */
+    private function validateItems($items)
     {
         $validatedItems = [];
 
-        Log::info('Validating OCR Data', ['raw_data' => $classifiedData]);
-
-        // Handle case where classifiedData is not an array
-        if (!is_array($classifiedData)) {
-            Log::error('OCR data is not an array', ['data' => $classifiedData]);
+        if (!is_array($items)) {
             return $validatedItems;
         }
 
-        foreach ($classifiedData as $item) {
-            // Skip if item is not an array
+        foreach ($items as $item) {
             if (!is_array($item)) {
-                Log::info('Skipping non-array item', ['item' => $item]);
                 continue;
             }
 
-            // More lenient validation - check if we have at least nama_barang
+            // Validate required fields
             if (empty($item['nama_barang'])) {
-                Log::info('Skipping item due to missing nama_barang', ['item' => $item]);
                 continue;
             }
 
-            // Clean and validate data with defaults
+            // Clean and validate data
             $validatedItem = [
                 'nama_barang' => trim($item['nama_barang']),
-                'jumlah' => $this->cleanNumericValue($item['jumlah'] ?? '1'),
-                'harga' => $this->cleanNumericValue($item['harga'] ?? '0'),
-                'unit' => isset($item['unit']) ? trim($item['unit']) : 'pcs',
-                'category_id' => isset($item['category_id']) ? (int)$item['category_id'] : 1,
-                'minStock' => 10 // Default minimum stock
+                'jumlah' => $this->cleanNumericValue($item['jumlah'] ?? 1),
+                'harga' => $this->cleanNumericValue($item['harga'] ?? 0),
+                'unit' => 'pcs',
+                'category_id' => 1,
+                'minStock' => 10
             ];
 
-            // More lenient validation - accept items even with 0 harga/jumlah
-            $validatedItems[] = $validatedItem;
-            Log::info('Added validated item', ['item' => $validatedItem]);
+            // Only add items with valid data
+            if ($validatedItem['nama_barang'] && $validatedItem['harga'] > 0) {
+                $validatedItems[] = $validatedItem;
+            }
         }
-
-        Log::info('Final validated items', ['count' => count($validatedItems), 'items' => $validatedItems]);
 
         return $validatedItems;
     }
 
     /**
-     * Clean numeric values (remove non-numeric characters)
+     * Clean numeric values
      */
     private function cleanNumericValue($value)
     {
+        if (is_numeric($value)) {
+            return (float) $value;
+        }
+
         // Remove all non-numeric characters except decimal point
         $cleaned = preg_replace('/[^0-9.]/', '', $value);
         
@@ -151,93 +292,12 @@ class OcrController extends Controller
     }
 
     /**
-     * Process text directly with Gemini (without OCR)
-     */
-    public function processPhoto(Request $request)
-    {
-        try {
-            $validator = Validator::make($request->all(), [
-                'image' => 'required|image|mimes:jpeg,png,jpg,gif|max:10240', // 10MB max
-            ]);
-
-            if ($validator->fails()) {
-                Log::error('Photo Validation failed', ['errors' => $validator->errors()]);
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Invalid image file',
-                    'errors' => $validator->errors()
-                ], 400);
-            }
-
-            $image = $request->file('image');
-            
-            Log::info('Photo processing request', ['filename' => $image->getClientOriginalName(), 'size' => $image->getSize()]);
-
-            // Send to Python service for Gemini Vision processing
-            $response = Http::timeout(120)
-                ->attach('image', file_get_contents($image), $image->getClientOriginalName())
-                ->post($this->pythonServiceUrl . '/process-photo');
-
-            if (!$response->successful()) {
-                Log::error('Photo Processing Service Error: ' . $response->body());
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Photo processing service unavailable. Please make sure Python service is running on port 5000.'
-                ], 500);
-            }
-
-            $result = $response->json();
-
-            if (!$result['success']) {
-                return response()->json([
-                    'success' => false,
-                    'message' => $result['error'] ?? 'Photo processing failed'
-                ], 400);
-            }
-
-            // Log the raw response for debugging
-            Log::info('OCR Service Response', [
-                'success' => $result['success'],
-                'items_count' => count($result['data']['items'] ?? []),
-                'raw_items' => $result['data']['items'] ?? []
-            ]);
-
-            // Validate and clean the classified data
-            $validatedData = $this->validateOcrData($result['data']['items']);
-
-            // If no items after validation, return error message
-            if (empty($validatedData)) {
-                Log::warning('No items after validation - all items were filtered out');
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Tidak ada item yang ditemukan dalam foto. Coba foto yang lebih jelas.'
-                ], 400);
-            }
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Photo processed successfully',
-                'data' => [
-                    'items' => $validatedData
-                ]
-            ]);
-
-        } catch (\Exception $e) {
-            Log::error('Photo Processing Error: ' . $e->getMessage());
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to process photo'
-            ], 500);
-        }
-    }
-
-    /**
      * Check OCR service health
      */
     public function healthCheck()
     {
         try {
-            $response = Http::timeout(5)->get($this->pythonServiceUrl . '/health');
+            $response = Http::timeout(5)->get('http://127.0.0.1:5000/health');
             
             if ($response->successful()) {
                 return response()->json([

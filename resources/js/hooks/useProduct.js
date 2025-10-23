@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
-import axios from 'axios';
-import { useAuth } from '../contexts/AuthContext';
+import { useState, useEffect, useCallback } from "react";
+import axios from "axios";
+import { useAuth } from "../contexts/AuthContext";
 
 export const useProduct = () => {
     const { isAuthenticated } = useAuth();
@@ -18,15 +18,18 @@ export const useProduct = () => {
         setLoading(true);
         setError(null);
         try {
-            const response = await axios.get('/api/products');
+            const response = await axios.get("/api/products");
             if (response.data.success) {
                 setProducts(response.data.data);
             } else {
                 setError(response.data.message);
             }
         } catch (err) {
-            console.error('Error fetching products:', err);
-            setError(err.response?.data?.message || 'Terjadi kesalahan saat mengambil data produk');
+            console.error("Error fetching products:", err);
+            setError(
+                err.response?.data?.message ||
+                    "Terjadi kesalahan saat mengambil data produk"
+            );
         } finally {
             setLoading(false);
         }
@@ -35,28 +38,34 @@ export const useProduct = () => {
     const fetchCategories = useCallback(async () => {
         if (!isAuthenticated) return;
         try {
-            const response = await axios.get('/api/products/categories/list');
+            const response = await axios.get("/api/products/categories/list");
             if (response.data.success) {
                 setCategories(response.data.data);
             } else {
-                console.error('Error fetching categories:', response.data.message);
+                console.error(
+                    "Error fetching categories:",
+                    response.data.message
+                );
             }
         } catch (err) {
-            console.error('Error fetching categories:', err);
+            console.error("Error fetching categories:", err);
         }
     }, [isAuthenticated]);
 
     const fetchIngredients = useCallback(async () => {
         if (!isAuthenticated) return;
         try {
-            const response = await axios.get('/api/products/ingredients/list');
+            const response = await axios.get("/api/products/ingredients/list");
             if (response.data.success) {
                 setIngredients(response.data.data);
             } else {
-                console.error('Error fetching ingredients:', response.data.message);
+                console.error(
+                    "Error fetching ingredients:",
+                    response.data.message
+                );
             }
         } catch (err) {
-            console.error('Error fetching ingredients:', err);
+            console.error("Error fetching ingredients:", err);
         }
     }, [isAuthenticated]);
 
@@ -75,31 +84,52 @@ export const useProduct = () => {
 
     const createProduct = async (productData) => {
         try {
-            const response = await axios.post('/api/products', productData);
+            const response = await axios.post("/api/products", productData);
             if (response.data.success) {
                 refreshData();
                 return { success: true, message: response.data.message };
             } else {
-                return { success: false, message: response.data.message || 'Gagal menambahkan produk' };
+                return {
+                    success: false,
+                    message:
+                        response.data.message || "Gagal menambahkan produk",
+                };
             }
         } catch (err) {
-            console.error('Error creating product:', err);
-            return { success: false, message: err.response?.data?.message || 'Terjadi kesalahan saat menambahkan produk' };
+            console.error("Error creating product:", err);
+            return {
+                success: false,
+                message:
+                    err.response?.data?.message ||
+                    "Terjadi kesalahan saat menambahkan produk",
+            };
         }
     };
 
     const updateProduct = async (id, productData) => {
         try {
-            const response = await axios.put(`/api/products/${id}`, productData);
+            const response = await axios.put(
+                `/api/products/${id}`,
+                productData
+            );
             if (response.data.success) {
                 refreshData();
                 return { success: true, message: response.data.message };
             } else {
-                return { success: false, message: response.data.message || 'Gagal memperbarui produk' };
+                return {
+                    success: false,
+                    message:
+                        response.data.message || "Gagal memperbarui produk",
+                };
             }
         } catch (err) {
-            console.error('Error updating product:', err);
-            return { success: false, message: err.response?.data?.message || 'Terjadi kesalahan saat memperbarui produk' };
+            console.error("Error updating product:", err);
+            return {
+                success: false,
+                message:
+                    err.response?.data?.message ||
+                    "Terjadi kesalahan saat memperbarui produk",
+            };
         }
     };
 
@@ -110,11 +140,42 @@ export const useProduct = () => {
                 refreshData();
                 return { success: true, message: response.data.message };
             } else {
-                return { success: false, message: response.data.message || 'Gagal menghapus produk' };
+                return {
+                    success: false,
+                    message: response.data.message || "Gagal menghapus produk",
+                };
             }
         } catch (err) {
-            console.error('Error deleting product:', err);
-            return { success: false, message: err.response?.data?.message || 'Terjadi kesalahan saat menghapus produk' };
+            console.error("Error deleting product:", err);
+
+            // Handle specific error cases
+            if (err.response?.status === 404) {
+                return {
+                    success: false,
+                    message:
+                        "Produk tidak ditemukan. Mungkin sudah dihapus sebelumnya.",
+                };
+            } else if (err.response?.status === 400) {
+                return {
+                    success: false,
+                    message:
+                        err.response?.data?.message ||
+                        "Produk tidak dapat dihapus karena masih digunakan dalam transaksi atau komposisi.",
+                };
+            } else if (err.response?.status === 500) {
+                return {
+                    success: false,
+                    message:
+                        "Terjadi kesalahan server. Silakan coba lagi atau hubungi administrator.",
+                };
+            }
+
+            return {
+                success: false,
+                message:
+                    err.response?.data?.message ||
+                    "Terjadi kesalahan saat menghapus produk",
+            };
         }
     };
 
@@ -133,6 +194,6 @@ export const useProduct = () => {
         createProduct,
         updateProduct,
         deleteProduct,
-        refreshData
+        refreshData,
     };
 };

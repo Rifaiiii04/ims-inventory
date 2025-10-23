@@ -67,12 +67,12 @@ def parse_receipt_text(text_list):
 
         print("=== Raw OCR Text ===")
         for i, text in enumerate(text_list):
-            print(f"{i}: {text}")
+            print(f"{i}: '{text}'")
         
         items = []
         import re
         
-        # Look for patterns that might be items with prices
+        # Simple approach: look for any text that contains price patterns
         for i, text in enumerate(text_list):
             text = text.strip()
             
@@ -80,25 +80,34 @@ def parse_receipt_text(text_list):
             if len(text) < 3:
                 continue
             
-            # Look for price patterns (various formats)
+            # Look for price patterns - be more flexible
             price_patterns = [
-                r'[Rr][Pp]\.?\s*(\d+(?:\.\d{3})*(?:,\d{2})?)',  # Rp 1.500 or Rp. 1500
+                r'[Rr][Pp]\.?\s*(\d+(?:\.\d{3})*(?:,\d{2})?)',  # Rp 1.500
                 r'(\d+(?:\.\d{3})*(?:,\d{2})?)\s*[Rr][Pp]',    # 1500 Rp
-                r'(\d+(?:\.\d{3})*(?:,\d{2})?)',               # Just numbers
+                r'(\d{4,})',  # Just numbers 4+ digits (likely prices)
             ]
             
             price_value = None
+            matched_pattern = None
+            
             for pattern in price_patterns:
                 price_match = re.search(pattern, text)
                 if price_match:
                     try:
                         price_str = price_match.group(1) if price_match.groups() else price_match.group(0)
-                        # Clean price string
-                        price_str = price_str.replace('.', '').replace(',', '.')
+                        # Clean price string - remove dots that are thousand separators
+                        if '.' in price_str and len(price_str.split('.')[-1]) == 3:
+                            # This is thousand separator, remove it
+                            price_str = price_str.replace('.', '')
+                        else:
+                            # This might be decimal, keep as is
+                            price_str = price_str.replace(',', '.')
+                        
                         price_value = float(price_str)
                         
-                        # Only accept reasonable prices (between 1000 and 1000000)
+                        # Accept reasonable prices (between 1000 and 1000000)
                         if 1000 <= price_value <= 1000000:
+                            matched_pattern = pattern
                             break
                         else:
                             price_value = None
@@ -110,22 +119,23 @@ def parse_receipt_text(text_list):
                 item_name = ""
                 
                 # Try to find item name in the same text (remove price part)
-                clean_text = re.sub(r'[Rr][Pp]\.?\s*\d+(?:\.\d{3})*(?:,\d{2})?', '', text)
-                clean_text = re.sub(r'\d+(?:\.\d{3})*(?:,\d{2})?\s*[Rr][Pp]', '', clean_text)
+                clean_text = text
+                if matched_pattern:
+                    clean_text = re.sub(matched_pattern, '', clean_text)
                 clean_text = clean_text.strip()
                 
-                if len(clean_text) > 2:
+                if len(clean_text) > 2 and not re.search(r'^\d+$', clean_text):
                     item_name = clean_text
                 else:
-                    # Look in previous texts
-                    for j in range(max(0, i-3), i):
+                    # Look in previous texts for item name
+                    for j in range(max(0, i-2), i):
                         if j < len(text_list):
                             prev_text = text_list[j].strip()
-                            # Skip if it looks like a price or header
-                            if (len(prev_text) > 3 and 
+                            # Skip if it looks like a price, number, or header
+                            if (len(prev_text) > 2 and 
                                 not re.search(r'[Rr][Pp]', prev_text) and
                                 not re.search(r'^\d+$', prev_text) and
-                                not prev_text.lower() in ['banyaknya', 'nama', 'barang', 'harga', 'jumlah']):
+                                not prev_text.lower() in ['banyaknya', 'nama', 'barang', 'harga', 'jumlah', 'kg', 'pcs']):
                                 item_name = prev_text
                                 break
                 
@@ -138,7 +148,29 @@ def parse_receipt_text(text_list):
                         'category_id': 1,
                         'minStock': 10
                     })
-                    print(f"Found item: {item_name} - Rp {int(price_value)}")
+                    print(f"Found item: '{item_name}' - Rp {int(price_value)}")
+        
+        # If no items found with price patterns, try a different approach
+        if not items:
+            print("No items found with price patterns, trying alternative approach...")
+            # Look for any text that might be item names (longer text without numbers)
+            for i, text in enumerate(text_list):
+                text = text.strip()
+                if (len(text) > 4 and 
+                    not re.search(r'[Rr][Pp]', text) and
+                    not re.search(r'^\d+$', text) and
+                    not text.lower() in ['banyaknya', 'nama', 'barang', 'harga', 'jumlah', 'kg', 'pcs', 'nota', 'tuan', 'toko']):
+                    
+                    # Create a dummy item with default price
+                    items.append({
+                        'nama_barang': text,
+                        'jumlah': '1',
+                        'harga': '10000',  # Default price
+                        'unit': 'pcs',
+                        'category_id': 1,
+                        'minStock': 10
+                    })
+                    print(f"Found potential item: '{text}' - Rp 10000 (default)")
         
         print(f"=== Parsed {len(items)} items ===")
         for item in items:
@@ -151,6 +183,51 @@ def parse_receipt_text(text_list):
         import traceback
         traceback.print_exc()
         return []
+
+def extract_text_from_image(image_file):
+    """Extract text from image using EasyOCR only"""
+    try:
+        # Save image
+        image_path, saved_filename = save_image(image_file)
+        if not image_path:
+            return ""
+
+        # Reset file pointer
+        image_file.seek(0)
+        
+        # Preprocess image
+        processed = preprocess(image_file)
+        if processed is None:
+            return ""
+
+        # Extract text with EasyOCR
+        result = reader.readtext(processed, detail=0)
+        print(f"\n=== Hasil OCR ===")
+        print(result)
+        
+        # If no text found, try with original image
+        if not result:
+            print("No text found in processed image, trying original...")
+            image_file.seek(0)
+            from PIL import Image
+            image = Image.open(image_file)
+            if image.mode != 'RGB':
+                image = image.convert('RGB')
+            img_array = np.array(image)
+            result = reader.readtext(img_array, detail=0)
+            print(f"=== Hasil OCR Original ===")
+            print(result)
+
+        if not result:
+            return ""
+
+        # Join all text with newlines
+        text = "\n".join(result)
+        return text
+
+    except Exception as e:
+        print(f"Text extraction error: {e}")
+        return ""
 
 def process_image(image_file):
     """Process image with EasyOCR only"""
@@ -198,6 +275,34 @@ def process_image(image_file):
     except Exception as e:
         print(f"OCR error: {e}")
         return []
+
+@app.route('/extract-text', methods=['POST'])
+def extract_text():
+    """Extract text from image using EasyOCR only"""
+    try:
+        if 'image' not in request.files:
+            return jsonify({"success": False, "error": "No image file provided"}), 400
+        
+        image_file = request.files['image']
+        if image_file.filename == '':
+            return jsonify({"success": False, "error": "No image file selected"}), 400
+        
+        print(f"Extracting text from image: {image_file.filename}")
+        
+        # Extract text only
+        text = extract_text_from_image(image_file)
+        
+        print(f"Extracted text length: {len(text)}")
+        print(f"Text preview: {text[:200]}...")
+        
+        return jsonify({
+            "success": True,
+            "text": text
+        })
+        
+    except Exception as e:
+        print(f"Text extraction error: {str(e)}")
+        return jsonify({"success": False, "error": str(e)}), 500
 
 @app.route('/process-photo', methods=['POST'])
 def process_photo():

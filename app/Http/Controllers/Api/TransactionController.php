@@ -351,6 +351,82 @@ class TransactionController extends Controller
     }
 
     /**
+     * Delete transaction
+     */
+    public function destroy($id)
+    {
+        try {
+            $transaction = TblTransaksi::find($id);
+
+            if (!$transaction) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Transaksi tidak ditemukan'
+                ], 404);
+            }
+
+            // Check if transaction is too old to delete (optional business rule)
+            $transactionDate = $transaction->tanggal_waktu;
+            $daysOld = now()->diffInDays($transactionDate);
+            
+            if ($daysOld > 30) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Transaksi yang lebih dari 30 hari tidak dapat dihapus'
+                ], 400);
+            }
+
+            DB::beginTransaction();
+
+            try {
+                // Restore stock for each item in the transaction
+                foreach ($transaction->details as $detail) {
+                    // Restore variant stock
+                    DB::table('tbl_varian')
+                        ->where('id_varian', $detail->id_varian)
+                        ->increment('stok_varian', $detail->jumlah);
+
+                    // Restore ingredient stock based on composition
+                    $compositions = DB::table('tbl_komposisi')
+                        ->where('id_varian', $detail->id_varian)
+                        ->get();
+                        
+                    foreach ($compositions as $composition) {
+                        $ingredientUsage = $composition->jumlah_per_porsi * $detail->jumlah;
+                        DB::table('tbl_bahan')
+                            ->where('id_bahan', $composition->id_bahan)
+                            ->increment('stok_bahan', $ingredientUsage);
+                    }
+                }
+
+                // Delete transaction details first
+                $transaction->details()->delete();
+                
+                // Delete transaction
+                $transaction->delete();
+
+                DB::commit();
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Transaksi berhasil dihapus'
+                ], 200);
+
+            } catch (\Exception $e) {
+                DB::rollback();
+                throw $e;
+            }
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Terjadi kesalahan saat menghapus transaksi',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
      * Get sales report
      */
     public function salesReport(Request $request)

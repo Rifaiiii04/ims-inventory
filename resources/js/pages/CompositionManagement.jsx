@@ -18,6 +18,7 @@ function CompositionManagement() {
     const {
         compositions: compositionData,
         variants,
+        products,
         ingredients,
         loading,
         error,
@@ -137,7 +138,7 @@ function CompositionManagement() {
                     {/* Top Bar */}
                     <TopBar
                         title="Manajemen Komposisi"
-                        subtitle="Kelola komposisi bahan untuk setiap varian produk"
+                        subtitle="Kelola komposisi bahan untuk produk dan varian"
                         buttonText="Tambah Komposisi"
                         buttonIcon={
                             <svg
@@ -342,6 +343,7 @@ function CompositionManagement() {
                 <CompositionFormModal
                     composition={editingComposition}
                     variants={variants}
+                    products={products}
                     ingredients={ingredients}
                     onClose={() => {
                         setShowFormModal(false);
