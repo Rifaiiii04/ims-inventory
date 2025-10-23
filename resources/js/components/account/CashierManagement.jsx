@@ -1,9 +1,22 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import CashierFormModal from "./CashierFormModal";
+import { useCashier } from "../../hooks/useCashier";
 
-function CashierManagement({ cashiers, onAdd, onUpdate, onDelete }) {
+function CashierManagement() {
     const [showFormModal, setShowFormModal] = useState(false);
     const [editingCashier, setEditingCashier] = useState(null);
+
+    // Use cashier hook for real data
+    const {
+        cashiers,
+        statistics,
+        loading,
+        error,
+        createCashier,
+        updateCashier,
+        deleteCashier,
+        refreshData
+    } = useCashier();
 
     const handleEdit = (cashier) => {
         setEditingCashier(cashier);
@@ -15,25 +28,87 @@ function CashierManagement({ cashiers, onAdd, onUpdate, onDelete }) {
         setShowFormModal(true);
     };
 
-    const handleSave = (cashierData) => {
+    const handleSave = async (cashierData) => {
         if (editingCashier) {
-            onUpdate({ ...cashierData, id: editingCashier.id });
+            const result = await updateCashier(editingCashier.id, cashierData);
+            if (result.success) {
+                setShowFormModal(false);
+                setEditingCashier(null);
+            } else {
+                alert(result.message);
+            }
         } else {
-            onAdd(cashierData);
+            const result = await createCashier(cashierData);
+            if (result.success) {
+                setShowFormModal(false);
+                setEditingCashier(null);
+            } else {
+                alert(result.message);
+            }
         }
-        setShowFormModal(false);
-        setEditingCashier(null);
+    };
+
+    const handleDelete = async (id) => {
+        if (confirm("Apakah Anda yakin ingin menghapus kasir ini?")) {
+            const result = await deleteCashier(id);
+            if (!result.success) {
+                alert(result.message);
+            }
+        }
     };
 
     const getStatusBadge = (status) => {
-        return status === "Active"
+        return status === "aktif"
             ? "bg-gradient-to-r from-green-50 to-green-100 text-green-700 border border-green-200 shadow-sm"
             : "bg-gradient-to-r from-gray-50 to-gray-100 text-gray-700 border border-gray-200 shadow-sm";
     };
 
     const getStatusIcon = (status) => {
-        return status === "Active" ? "🟢" : "🔴";
+        return status === "aktif" ? "🟢" : "🔴";
     };
+
+    const getStatusText = (status) => {
+        return status === "aktif" ? "Aktif" : "Nonaktif";
+    };
+
+    // Loading state
+    if (loading) {
+        return (
+            <div className="space-y-6">
+                <div className="bg-white rounded-2xl shadow-xl border border-gray-200/50 p-8">
+                    <div className="flex items-center justify-center">
+                        <div className="w-8 h-8 border-4 border-green-500 border-t-transparent rounded-full animate-spin mr-3"></div>
+                        <span className="text-gray-600">Memuat data kasir...</span>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    // Error state
+    if (error) {
+        return (
+            <div className="space-y-6">
+                <div className="bg-white rounded-2xl shadow-xl border border-gray-200/50 p-8">
+                    <div className="text-center">
+                        <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                        </div>
+                        <h3 className="text-lg font-bold text-gray-800 mb-2">Terjadi Kesalahan</h3>
+                        <p className="text-gray-600 mb-4">{error}</p>
+                        <button
+                            onClick={refreshData}
+                            className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors"
+                        >
+                            Coba Lagi
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="space-y-6">
@@ -63,7 +138,7 @@ function CashierManagement({ cashiers, onAdd, onUpdate, onDelete }) {
                                     Manajemen Akun Kasir
                                 </h3>
                                 <p className="text-sm text-gray-500">
-                                    {cashiers.length} akun kasir terdaftar
+                                    {statistics ? `${statistics.total_cashiers} akun kasir terdaftar` : `${cashiers.length} akun kasir terdaftar`}
                                 </p>
                             </div>
                         </div>
@@ -140,26 +215,26 @@ function CashierManagement({ cashiers, onAdd, onUpdate, onDelete }) {
                                     <td className="px-6 py-5">
                                         <div className="flex items-center gap-3">
                                             <div className="w-10 h-10 bg-gradient-to-br from-blue-100 to-blue-200 rounded-xl flex items-center justify-center text-blue-600 font-bold text-sm">
-                                                {cashier.name
+                                                {cashier.nama_user
                                                     .charAt(0)
                                                     .toUpperCase()}
                                             </div>
                                             <div>
                                                 <div className="font-bold text-gray-800 text-sm">
-                                                    {cashier.name}
+                                                    {cashier.nama_user}
                                                 </div>
                                                 <div className="text-xs text-gray-500">
-                                                    {cashier.role}
+                                                    {cashier.level}
                                                 </div>
                                             </div>
                                         </div>
                                     </td>
                                     <td className="px-6 py-5">
                                         <div className="text-sm text-gray-800">
-                                            {cashier.email}
+                                            {cashier.email || '-'}
                                         </div>
                                         <div className="text-xs text-gray-500">
-                                            {cashier.phone}
+                                            {cashier.username}
                                         </div>
                                     </td>
                                     <td className="px-6 py-5">
@@ -172,14 +247,13 @@ function CashierManagement({ cashiers, onAdd, onUpdate, onDelete }) {
                                                     cashier.status
                                                 )}`}
                                             >
-                                                {cashier.status}
+                                                {getStatusText(cashier.status)}
                                             </span>
                                         </div>
                                     </td>
                                     <td className="px-6 py-5">
                                         <div className="text-sm text-gray-700">
-                                            {cashier.lastLogin ||
-                                                "Belum pernah"}
+                                            {cashier.updated_at ? new Date(cashier.updated_at).toLocaleDateString('id-ID') : "Belum pernah"}
                                         </div>
                                     </td>
                                     <td className="px-6 py-5">
@@ -227,7 +301,7 @@ function CashierManagement({ cashiers, onAdd, onUpdate, onDelete }) {
                                             </button>
                                             <button
                                                 onClick={() =>
-                                                    onDelete(cashier.id)
+                                                    handleDelete(cashier.id)
                                                 }
                                                 className="p-2.5 text-red-600 hover:bg-red-50 rounded-xl transition-all duration-200 hover:scale-105 shadow-sm hover:shadow-md group/btn"
                                                 title="Hapus"
@@ -267,14 +341,14 @@ function CashierManagement({ cashiers, onAdd, onUpdate, onDelete }) {
                             <div className="flex justify-between items-start mb-4">
                                 <div className="flex items-center gap-3">
                                     <div className="w-10 h-10 bg-gradient-to-br from-blue-100 to-blue-200 rounded-xl flex items-center justify-center text-blue-600 font-bold text-sm">
-                                        {cashier.name.charAt(0).toUpperCase()}
+                                        {cashier.nama_user.charAt(0).toUpperCase()}
                                     </div>
                                     <div>
                                         <h4 className="font-bold text-sm text-gray-800">
-                                            {cashier.name}
+                                            {cashier.nama_user}
                                         </h4>
                                         <div className="text-xs text-gray-500">
-                                            {cashier.role}
+                                            {cashier.level}
                                         </div>
                                     </div>
                                 </div>
@@ -288,7 +362,7 @@ function CashierManagement({ cashiers, onAdd, onUpdate, onDelete }) {
                                                 cashier.status
                                             )}`}
                                         >
-                                            {cashier.status}
+                                            {getStatusText(cashier.status)}
                                         </span>
                                     </div>
                                 </div>
@@ -299,25 +373,25 @@ function CashierManagement({ cashiers, onAdd, onUpdate, onDelete }) {
                                     Email:
                                 </div>
                                 <div className="text-sm text-gray-700 bg-gray-50 p-2 rounded-lg">
-                                    {cashier.email}
+                                    {cashier.email || '-'}
                                 </div>
                             </div>
 
                             <div className="mb-4">
                                 <div className="text-gray-500 text-xs mb-1">
-                                    Telepon:
+                                    Username:
                                 </div>
                                 <div className="text-sm text-gray-700 bg-gray-50 p-2 rounded-lg">
-                                    {cashier.phone}
+                                    {cashier.username}
                                 </div>
                             </div>
 
                             <div className="mb-4">
                                 <div className="text-gray-500 text-xs mb-1">
-                                    Terakhir Login:
+                                    Terakhir Update:
                                 </div>
                                 <div className="text-sm text-gray-700 bg-gray-50 p-2 rounded-lg">
-                                    {cashier.lastLogin || "Belum pernah"}
+                                    {cashier.updated_at ? new Date(cashier.updated_at).toLocaleDateString('id-ID') : "Belum pernah"}
                                 </div>
                             </div>
 
@@ -332,7 +406,7 @@ function CashierManagement({ cashiers, onAdd, onUpdate, onDelete }) {
                                     Reset Pass
                                 </button>
                                 <button
-                                    onClick={() => onDelete(cashier.id)}
+                                    onClick={() => handleDelete(cashier.id)}
                                     className="flex-1 py-2.5 text-red-600 bg-red-50 rounded-xl text-xs font-semibold hover:bg-red-100 transition-colors"
                                 >
                                     Hapus

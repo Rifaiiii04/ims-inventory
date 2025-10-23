@@ -2,21 +2,21 @@ import React, { useState, useEffect } from "react";
 
 function CashierFormModal({ cashier, onClose, onSave }) {
     const [formData, setFormData] = useState({
-        name: "",
+        username: "",
+        nama_user: "",
         email: "",
-        phone: "",
-        role: "Kasir",
-        status: "Active",
+        password: "",
+        status: "aktif",
     });
 
     useEffect(() => {
         if (cashier) {
             setFormData({
-                name: cashier.name || "",
+                username: cashier.username || "",
+                nama_user: cashier.nama_user || "",
                 email: cashier.email || "",
-                phone: cashier.phone || "",
-                role: cashier.role || "Kasir",
-                status: cashier.status || "Active",
+                password: "",
+                status: cashier.status || "aktif",
             });
         }
     }, [cashier]);
@@ -31,7 +31,7 @@ function CashierFormModal({ cashier, onClose, onSave }) {
 
     const handleSubmit = (e) => {
         e.preventDefault();
-        if (formData.name && formData.email && formData.phone) {
+        if (formData.username && formData.nama_user) {
             onSave(formData);
         } else {
             alert("Mohon lengkapi semua field yang diperlukan");
@@ -99,7 +99,24 @@ function CashierFormModal({ cashier, onClose, onSave }) {
                 {/* Form */}
                 <form onSubmit={handleSubmit} className="p-6 space-y-6">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        {/* Name */}
+                        {/* Username */}
+                        <div>
+                            <label className="block text-sm font-semibold text-gray-700 mb-2">
+                                Username{" "}
+                                <span className="text-red-500">*</span>
+                            </label>
+                            <input
+                                type="text"
+                                name="username"
+                                value={formData.username}
+                                onChange={handleChange}
+                                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                                placeholder="Masukkan username"
+                                required
+                            />
+                        </div>
+
+                        {/* Nama User */}
                         <div>
                             <label className="block text-sm font-semibold text-gray-700 mb-2">
                                 Nama Lengkap{" "}
@@ -107,8 +124,8 @@ function CashierFormModal({ cashier, onClose, onSave }) {
                             </label>
                             <input
                                 type="text"
-                                name="name"
-                                value={formData.name}
+                                name="nama_user"
+                                value={formData.nama_user}
                                 onChange={handleChange}
                                 className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                                 placeholder="Masukkan nama lengkap"
@@ -119,7 +136,7 @@ function CashierFormModal({ cashier, onClose, onSave }) {
                         {/* Email */}
                         <div>
                             <label className="block text-sm font-semibold text-gray-700 mb-2">
-                                Email <span className="text-red-500">*</span>
+                                Email
                             </label>
                             <input
                                 type="email"
@@ -128,42 +145,23 @@ function CashierFormModal({ cashier, onClose, onSave }) {
                                 onChange={handleChange}
                                 className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                                 placeholder="kasir@angkringan.com"
-                                required
                             />
                         </div>
 
-                        {/* Phone */}
+                        {/* Password */}
                         <div>
                             <label className="block text-sm font-semibold text-gray-700 mb-2">
-                                Nomor Telepon{" "}
-                                <span className="text-red-500">*</span>
+                                Password {!cashier && <span className="text-red-500">*</span>}
                             </label>
                             <input
-                                type="tel"
-                                name="phone"
-                                value={formData.phone}
+                                type="password"
+                                name="password"
+                                value={formData.password}
                                 onChange={handleChange}
                                 className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                                placeholder="+62 812-3456-7890"
-                                required
+                                placeholder={cashier ? "Kosongkan jika tidak ingin mengubah" : "Masukkan password"}
+                                required={!cashier}
                             />
-                        </div>
-
-                        {/* Role */}
-                        <div>
-                            <label className="block text-sm font-semibold text-gray-700 mb-2">
-                                Role
-                            </label>
-                            <select
-                                name="role"
-                                value={formData.role}
-                                onChange={handleChange}
-                                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                            >
-                                <option value="Kasir">Kasir</option>
-                                <option value="Staff">Staff</option>
-                                <option value="Manager">Manager</option>
-                            </select>
                         </div>
                     </div>
 
@@ -177,8 +175,8 @@ function CashierFormModal({ cashier, onClose, onSave }) {
                                 <input
                                     type="radio"
                                     name="status"
-                                    value="Active"
-                                    checked={formData.status === "Active"}
+                                    value="aktif"
+                                    checked={formData.status === "aktif"}
                                     onChange={handleChange}
                                     className="w-4 h-4 text-green-600 bg-gray-100 border-gray-300 focus:ring-green-500"
                                 />
@@ -190,8 +188,8 @@ function CashierFormModal({ cashier, onClose, onSave }) {
                                 <input
                                     type="radio"
                                     name="status"
-                                    value="Inactive"
-                                    checked={formData.status === "Inactive"}
+                                    value="nonaktif"
+                                    checked={formData.status === "nonaktif"}
                                     onChange={handleChange}
                                     className="w-4 h-4 text-gray-600 bg-gray-100 border-gray-300 focus:ring-gray-500"
                                 />

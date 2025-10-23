@@ -1,49 +1,110 @@
 import React, { useState, useEffect } from "react";
 
-function VariantFormModal({ variant, onClose, onSubmit }) {
+function VariantFormModal({ variant, products, onClose, onSubmit }) {
     const [formData, setFormData] = useState({
         name: "",
-        productName: "",
-        price: "",
-        description: "",
+        product_id: "",
+        harga: "",
+        stok: ""
     });
-
-    // Dummy products untuk dropdown
-    const products = [
-        { id: 1, name: "Ayam" },
-        { id: 2, name: "Nasi Goreng" },
-        { id: 3, name: "Mie Goreng" },
-        { id: 4, name: "Es Teh" },
-        { id: 5, name: "Kopi" },
-    ];
+    const [errors, setErrors] = useState({});
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     useEffect(() => {
         if (variant) {
-            setFormData(variant);
+            setFormData({
+                name: variant.name || "",
+                product_id: variant.product_id || "",
+                harga: variant.harga || "",
+                stok: variant.stok || ""
+            });
         }
     }, [variant]);
 
     const handleChange = (e) => {
         const { name, value } = e.target;
-        setFormData((prev) => ({ ...prev, [name]: value }));
+        setFormData(prev => ({
+            ...prev,
+            [name]: value
+        }));
+        
+        // Clear error when user starts typing
+        if (errors[name]) {
+            setErrors(prev => ({
+                ...prev,
+                [name]: ""
+            }));
+        }
     };
 
-    const handleSubmit = (e) => {
+    const validateForm = () => {
+        const newErrors = {};
+
+        if (!formData.name.trim()) {
+            newErrors.name = "Nama varian harus diisi";
+        }
+
+        if (!formData.product_id) {
+            newErrors.product_id = "Produk harus dipilih";
+        }
+
+        if (!formData.harga || formData.harga <= 0) {
+            newErrors.harga = "Harga harus lebih dari 0";
+        }
+
+        if (!formData.stok || formData.stok < 0) {
+            newErrors.stok = "Stok tidak boleh negatif";
+        }
+
+        setErrors(newErrors);
+        return Object.keys(newErrors).length === 0;
+    };
+
+    const handleSubmit = async (e) => {
         e.preventDefault();
-        onSubmit(formData);
+        
+        if (!validateForm()) {
+            return;
+        }
+
+        setIsSubmitting(true);
+        
+        try {
+            const submitData = {
+                ...formData,
+                harga: parseFloat(formData.harga),
+                stok: parseFloat(formData.stok)
+            };
+
+            if (variant) {
+                submitData.id = variant.id;
+            }
+
+            await onSubmit(submitData);
+        } catch (error) {
+            console.error('Error submitting form:', error);
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
     return (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full">
-                <div className="bg-gradient-to-r from-green-600 to-green-500 text-white p-6 rounded-t-2xl">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-hidden flex flex-col">
+                {/* Modal Header */}
+                <div className="bg-gradient-to-r from-green-600 to-green-500 text-white p-6">
                     <div className="flex justify-between items-center">
-                        <h2 className="text-xl font-bold">
-                            {variant ? "Edit Varian" : "Tambah Varian Baru"}
-                        </h2>
+                        <div>
+                            <h2 className="text-xl font-bold mb-1">
+                                {variant ? "Edit Varian" : "Tambah Varian"}
+                            </h2>
+                            <p className="text-green-50 text-sm">
+                                {variant ? "Perbarui data varian" : "Tambahkan varian produk baru"}
+                            </p>
+                        </div>
                         <button
                             onClick={onClose}
-                            className="text-white hover:bg-white/20 p-2 rounded-lg"
+                            className="text-white hover:bg-white/20 p-2 rounded-lg transition-colors"
                         >
                             <svg
                                 xmlns="http://www.w3.org/2000/svg"
@@ -63,8 +124,10 @@ function VariantFormModal({ variant, onClose, onSubmit }) {
                     </div>
                 </div>
 
-                <form onSubmit={handleSubmit} className="p-6">
+                {/* Modal Body */}
+                <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6">
                     <div className="space-y-4">
+                        {/* Nama Varian */}
                         <div>
                             <label className="block text-sm font-semibold text-gray-700 mb-2">
                                 Nama Varian *
@@ -74,79 +137,115 @@ function VariantFormModal({ variant, onClose, onSubmit }) {
                                 name="name"
                                 value={formData.name}
                                 onChange={handleChange}
-                                placeholder="Contoh: Bakar"
-                                className="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:border-green-500 focus:outline-none text-sm"
-                                required
+                                className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors ${
+                                    errors.name ? 'border-red-300 bg-red-50' : 'border-gray-300'
+                                }`}
+                                placeholder="Masukkan nama varian"
                             />
+                            {errors.name && (
+                                <p className="mt-1 text-sm text-red-600">{errors.name}</p>
+                            )}
                         </div>
 
+                        {/* Produk */}
                         <div>
                             <label className="block text-sm font-semibold text-gray-700 mb-2">
                                 Produk *
                             </label>
                             <select
-                                name="productName"
-                                value={formData.productName}
+                                name="product_id"
+                                value={formData.product_id}
                                 onChange={handleChange}
-                                className="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:border-green-500 focus:outline-none text-sm"
-                                required
+                                className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors ${
+                                    errors.product_id ? 'border-red-300 bg-red-50' : 'border-gray-300'
+                                }`}
                             >
                                 <option value="">Pilih Produk</option>
-                                {products.map((prod) => (
-                                    <option key={prod.id} value={prod.name}>
-                                        {prod.name}
+                                {products.map((product) => (
+                                    <option key={product.id_produk} value={product.id_produk}>
+                                        {product.nama_produk}
                                     </option>
                                 ))}
                             </select>
+                            {errors.product_id && (
+                                <p className="mt-1 text-sm text-red-600">{errors.product_id}</p>
+                            )}
                         </div>
 
+                        {/* Harga */}
                         <div>
                             <label className="block text-sm font-semibold text-gray-700 mb-2">
-                                Harga (Rp) *
+                                Harga *
                             </label>
                             <input
                                 type="number"
-                                name="price"
-                                value={formData.price}
+                                name="harga"
+                                value={formData.harga}
                                 onChange={handleChange}
-                                placeholder="18000"
-                                className="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:border-green-500 focus:outline-none text-sm"
-                                required
                                 min="0"
+                                step="0.01"
+                                className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors ${
+                                    errors.harga ? 'border-red-300 bg-red-50' : 'border-gray-300'
+                                }`}
+                                placeholder="Masukkan harga"
                             />
+                            {errors.harga && (
+                                <p className="mt-1 text-sm text-red-600">{errors.harga}</p>
+                            )}
                         </div>
 
+                        {/* Stok */}
                         <div>
                             <label className="block text-sm font-semibold text-gray-700 mb-2">
-                                Deskripsi
+                                Stok *
                             </label>
-                            <textarea
-                                name="description"
-                                value={formData.description}
+                            <input
+                                type="number"
+                                name="stok"
+                                value={formData.stok}
                                 onChange={handleChange}
-                                placeholder="Deskripsi varian..."
-                                rows="3"
-                                className="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:border-green-500 focus:outline-none text-sm"
-                            ></textarea>
+                                min="0"
+                                step="0.01"
+                                className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors ${
+                                    errors.stok ? 'border-red-300 bg-red-50' : 'border-gray-300'
+                                }`}
+                                placeholder="Masukkan stok"
+                            />
+                            {errors.stok && (
+                                <p className="mt-1 text-sm text-red-600">{errors.stok}</p>
+                            )}
                         </div>
-                    </div>
 
-                    <div className="flex gap-3 mt-6">
+                    </div>
+                </form>
+
+                {/* Modal Footer */}
+                <div className="p-6 bg-gray-50 border-t border-gray-200">
+                    <div className="flex gap-3">
                         <button
                             type="button"
                             onClick={onClose}
-                            className="flex-1 px-4 py-2 border-2 border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-semibold text-sm"
+                            className="flex-1 px-4 py-3 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl font-semibold transition-colors"
                         >
                             Batal
                         </button>
                         <button
                             type="submit"
-                            className="flex-1 px-4 py-2 bg-gradient-to-r from-green-600 to-green-500 text-white rounded-lg hover:from-green-700 hover:to-green-600 font-semibold shadow-lg text-sm"
+                            onClick={handleSubmit}
+                            disabled={isSubmitting}
+                            className="flex-1 px-4 py-3 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white rounded-xl font-semibold transition-all duration-200 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                         >
-                            {variant ? "Update" : "Simpan"}
+                            {isSubmitting ? (
+                                <>
+                                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                    {variant ? "Memperbarui..." : "Menambahkan..."}
+                                </>
+                            ) : (
+                                variant ? "Perbarui Varian" : "Tambah Varian"
+                            )}
                         </button>
                     </div>
-                </form>
+                </div>
             </div>
         </div>
     );

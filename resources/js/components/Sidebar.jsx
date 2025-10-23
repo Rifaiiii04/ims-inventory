@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
+import { useAuth } from "../contexts/AuthContext";
 import SidebarHeader from "./sidebar/SidebarHeader";
 import MenuItem from "./sidebar/MenuItem";
 import MenuItemWithSubmenu from "./sidebar/MenuItemWithSubmenu";
@@ -11,12 +12,17 @@ import {
     StockIcon,
     ShoppingBagIcon,
     ReportIcon,
+    ShoppingCartIcon,
+    CreditCardIcon,
+    ClockIcon,
+    ChartBarIcon,
 } from "./sidebar/Icons";
-import { menuConfig } from "./sidebar/menuConfig";
+import { getFilteredMenu } from "./sidebar/menuConfig";
 
 function Sidebar() {
     const navigate = useNavigate();
     const location = useLocation();
+    const { user, logout } = useAuth();
     const [openMenus, setOpenMenus] = useState({});
     const [isCollapsed, setIsCollapsed] = useState(false);
     const [activeRoute, setActiveRoute] = useState(location.pathname);
@@ -49,6 +55,12 @@ function Sidebar() {
         setActiveRoute(path);
     };
 
+    // Handle logout
+    const handleLogout = async () => {
+        await logout();
+        navigate("/");
+    };
+
     // Check if route is active
     const isRouteActive = (path) => {
         return activeRoute === path;
@@ -66,11 +78,17 @@ function Sidebar() {
         StockIcon: <StockIcon />,
         ShoppingBagIcon: <ShoppingBagIcon />,
         ReportIcon: <ReportIcon />,
+        ShoppingCartIcon: <ShoppingCartIcon />,
+        CreditCardIcon: <CreditCardIcon />,
+        ClockIcon: <ClockIcon />,
+        ChartBarIcon: <ChartBarIcon />,
     };
 
     // Render menu items based on config
     const renderMenuItems = () => {
-        return menuConfig.map((menu, index) => {
+        // Get filtered menu based on user level
+        const filteredMenus = getFilteredMenu(user?.level || 'admin');
+        return filteredMenus.map((menu, index) => {
             const menuElement = (() => {
                 if (menu.type === "single") {
                     return (
@@ -174,22 +192,22 @@ function Sidebar() {
                     </ul>
 
                     {/* User Profile Section */}
-                    {!isCollapsed && (
+                    {!isCollapsed && user && (
                         <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-gray-200/50 bg-gradient-to-r from-gray-50 to-white">
                             <div className="flex items-center gap-3">
                                 <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-green-600 rounded-full flex items-center justify-center text-white text-sm font-bold">
-                                    A
+                                    {user.nama_user ? user.nama_user.charAt(0).toUpperCase() : 'U'}
                                 </div>
                                 <div className="flex-1 min-w-0">
                                     <p className="text-sm font-semibold text-gray-800 truncate">
-                                        Admin User
+                                        {user.nama_user || 'User'}
                                     </p>
                                     <p className="text-xs text-gray-500 truncate">
-                                        admin@angkringan.com
+                                        {user.level === 'admin' ? 'Administrator' : 'Kasir'}
                                     </p>
                                 </div>
                                 <button
-                                    onClick={() => navigate("/")}
+                                    onClick={handleLogout}
                                     className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                                     title="Logout"
                                 >

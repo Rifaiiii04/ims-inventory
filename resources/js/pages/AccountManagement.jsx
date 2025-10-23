@@ -1,50 +1,31 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Sidebar from "../components/Sidebar";
 import TopBar from "../components/TopBar";
 import ProfileDashboard from "../components/account/ProfileDashboard";
 import CashierManagement from "../components/account/CashierManagement";
 import PreferenceSettings from "../components/account/PreferenceSettings";
+import { useAuth } from "../contexts/AuthContext";
 
 function AccountManagement() {
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
     const [activeTab, setActiveTab] = useState("profile");
 
-    // Data user profile
+    // Get user level from AuthContext
+    const { user } = useAuth();
+    
+    // Data user profile - menggunakan data real dari user yang login
     const [profileData, setProfileData] = useState({
-        id: 1,
-        name: "Admin Angkringan",
-        email: "admin@angkringan.com",
-        role: "Administrator",
-        phone: "+62 812-3456-7890",
+        id: user?.id || 1,
+        name: user?.nama_user || "User",
+        email: user?.email || "",
+        role: user?.level === 'admin' ? 'Administrator' : 'Kasir',
+        phone: "+62 812-3456-7890", // Default phone
         avatar: null,
-        joinDate: "2024-01-01",
-        lastLogin: "2024-01-15 08:30",
+        joinDate: "2024-01-01", // Default join date
+        lastLogin: new Date().toLocaleString('id-ID'), // Current time
         status: "Online",
     });
 
-    // Data kasir
-    const [cashierData, setCashierData] = useState([
-        {
-            id: 1,
-            name: "Kasir 1",
-            email: "kasir1@angkringan.com",
-            phone: "+62 812-1111-1111",
-            role: "Kasir",
-            status: "Active",
-            lastLogin: "2024-01-15 07:45",
-            createdAt: "2024-01-05",
-        },
-        {
-            id: 2,
-            name: "Kasir 2",
-            email: "kasir2@angkringan.com",
-            phone: "+62 812-2222-2222",
-            role: "Kasir",
-            status: "Inactive",
-            lastLogin: "2024-01-14 16:20",
-            createdAt: "2024-01-10",
-        },
-    ]);
 
     // Data preferensi
     const [preferences, setPreferences] = useState({
@@ -56,41 +37,46 @@ function AccountManagement() {
         dailyReport: true,
     });
 
-    const tabs = [
-        { id: "profile", label: "Profile", icon: "👤" },
-        { id: "cashier", label: "Manajemen Kasir", icon: "👥" },
-        { id: "preferences", label: "Pengaturan", icon: "⚙️" },
-    ];
+    // Update profile data when user changes
+    useEffect(() => {
+        if (user) {
+            const newProfileData = {
+                id: user.id || 1,
+                name: user.nama_user || "User",
+                email: user.email || "",
+                role: user.level === 'admin' ? 'Administrator' : 'Kasir',
+                phone: "+62 812-3456-7890", // Default phone
+                avatar: null,
+                joinDate: "2024-01-01", // Default join date
+                lastLogin: new Date().toLocaleString('id-ID'), // Current time
+                status: "Online",
+            };
+            setProfileData(newProfileData);
+        }
+    }, [user]);
+    
+    // Filter tabs based on user level
+    const getTabs = () => {
+        const allTabs = [
+            { id: "profile", label: "Profile", icon: "👤" },
+            { id: "cashier", label: "Manajemen Kasir", icon: "👥" },
+            { id: "preferences", label: "Pengaturan", icon: "⚙️" },
+        ];
+        
+        // For kasir, hide cashier management
+        if (user?.level === 'kasir') {
+            return allTabs.filter(tab => tab.id !== 'cashier');
+        }
+        
+        return allTabs;
+    };
+    
+    const tabs = getTabs();
 
     const handleUpdateProfile = (updatedProfile) => {
         setProfileData({ ...profileData, ...updatedProfile });
     };
 
-    const handleAddCashier = (newCashier) => {
-        const cashier = {
-            ...newCashier,
-            id: cashierData.length + 1,
-            createdAt: new Date().toISOString().split("T")[0],
-            lastLogin: null,
-        };
-        setCashierData([...cashierData, cashier]);
-    };
-
-    const handleUpdateCashier = (updatedCashier) => {
-        setCashierData(
-            cashierData.map((cashier) =>
-                cashier.id === updatedCashier.id ? updatedCashier : cashier
-            )
-        );
-    };
-
-    const handleDeleteCashier = (id) => {
-        if (
-            window.confirm("Apakah Anda yakin ingin menghapus akun kasir ini?")
-        ) {
-            setCashierData(cashierData.filter((cashier) => cashier.id !== id));
-        }
-    };
 
     const handleUpdatePreferences = (updatedPreferences) => {
         setPreferences({ ...preferences, ...updatedPreferences });
@@ -182,12 +168,7 @@ function AccountManagement() {
                             )}
 
                             {activeTab === "cashier" && (
-                                <CashierManagement
-                                    cashiers={cashierData}
-                                    onAdd={handleAddCashier}
-                                    onUpdate={handleUpdateCashier}
-                                    onDelete={handleDeleteCashier}
-                                />
+                                <CashierManagement />
                             )}
 
                             {activeTab === "preferences" && (

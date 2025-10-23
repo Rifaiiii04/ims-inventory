@@ -1,80 +1,104 @@
 import React, { useState, useEffect } from "react";
 
-function ProductFormModal({
-    product,
-    categories,
-    ingredients,
-    onClose,
-    onSubmit,
-}) {
+function ProductFormModal({ product, categories, ingredients, onClose, onSubmit }) {
     const [formData, setFormData] = useState({
         name: "",
-        category: "",
-        ingredients: [],
-        initialStock: "",
-        sellPrice: "",
-        variants: [{ name: "", price: "" }],
+        description: "",
+        category_id: "",
+        status: "aktif"
     });
+    const [errors, setErrors] = useState({});
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     useEffect(() => {
         if (product) {
             setFormData({
-                ...product,
-                ingredients: product.ingredients || [],
+                name: product.name || "",
+                description: product.description || "",
+                category_id: product.category_id || "",
+                status: product.status || "aktif"
             });
         }
     }, [product]);
 
     const handleChange = (e) => {
         const { name, value } = e.target;
-        setFormData((prev) => ({ ...prev, [name]: value }));
-    };
-
-    const handleIngredientToggle = (ingredient) => {
-        setFormData((prev) => ({
+        setFormData(prev => ({
             ...prev,
-            ingredients: prev.ingredients.includes(ingredient)
-                ? prev.ingredients.filter((i) => i !== ingredient)
-                : [...prev.ingredients, ingredient],
+            [name]: value
         }));
+        
+        // Clear error when user starts typing
+        if (errors[name]) {
+            setErrors(prev => ({
+                ...prev,
+                [name]: ""
+            }));
+        }
     };
 
-    const handleVariantChange = (index, field, value) => {
-        const newVariants = [...formData.variants];
-        newVariants[index][field] = value;
-        setFormData((prev) => ({ ...prev, variants: newVariants }));
+    const validateForm = () => {
+        const newErrors = {};
+
+        if (!formData.name.trim()) {
+            newErrors.name = "Nama produk harus diisi";
+        }
+
+        if (!formData.category_id) {
+            newErrors.category_id = "Kategori harus dipilih";
+        }
+
+        if (!formData.status) {
+            newErrors.status = "Status harus dipilih";
+        }
+
+        setErrors(newErrors);
+        return Object.keys(newErrors).length === 0;
     };
 
-    const addVariant = () => {
-        setFormData((prev) => ({
-            ...prev,
-            variants: [...prev.variants, { name: "", price: "" }],
-        }));
-    };
-
-    const removeVariant = (index) => {
-        setFormData((prev) => ({
-            ...prev,
-            variants: prev.variants.filter((_, i) => i !== index),
-        }));
-    };
-
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
-        onSubmit(formData);
+        
+        if (!validateForm()) {
+            return;
+        }
+
+        setIsSubmitting(true);
+        
+        try {
+            const submitData = {
+                ...formData
+            };
+
+            if (product) {
+                submitData.id = product.id;
+            }
+
+            await onSubmit(submitData);
+        } catch (error) {
+            console.error('Error submitting form:', error);
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
     return (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-                <div className="bg-gradient-to-r from-green-600 to-green-500 text-white p-6 rounded-t-2xl sticky top-0">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-hidden flex flex-col">
+                {/* Modal Header */}
+                <div className="bg-gradient-to-r from-green-600 to-green-500 text-white p-6">
                     <div className="flex justify-between items-center">
-                        <h2 className="text-xl font-bold">
-                            {product ? "Edit Produk" : "Tambah Produk Baru"}
-                        </h2>
+                        <div>
+                            <h2 className="text-xl font-bold mb-1">
+                                {product ? "Edit Produk" : "Tambah Produk"}
+                            </h2>
+                            <p className="text-green-50 text-sm">
+                                {product ? "Perbarui data produk" : "Tambahkan produk baru"}
+                            </p>
+                        </div>
                         <button
                             onClick={onClose}
-                            className="text-white hover:bg-white/20 p-2 rounded-lg"
+                            className="text-white hover:bg-white/20 p-2 rounded-lg transition-colors"
                         >
                             <svg
                                 xmlns="http://www.w3.org/2000/svg"
@@ -94,7 +118,8 @@ function ProductFormModal({
                     </div>
                 </div>
 
-                <form onSubmit={handleSubmit} className="p-6">
+                {/* Modal Body */}
+                <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6">
                     <div className="space-y-4">
                         {/* Nama Produk */}
                         <div>
@@ -106,9 +131,28 @@ function ProductFormModal({
                                 name="name"
                                 value={formData.name}
                                 onChange={handleChange}
-                                placeholder="Contoh: Nasi Goreng"
-                                className="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:border-green-500 focus:outline-none text-sm"
-                                required
+                                className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors ${
+                                    errors.name ? 'border-red-300 bg-red-50' : 'border-gray-300'
+                                }`}
+                                placeholder="Masukkan nama produk"
+                            />
+                            {errors.name && (
+                                <p className="mt-1 text-sm text-red-600">{errors.name}</p>
+                            )}
+                        </div>
+
+                        {/* Deskripsi */}
+                        <div>
+                            <label className="block text-sm font-semibold text-gray-700 mb-2">
+                                Deskripsi
+                            </label>
+                            <textarea
+                                name="description"
+                                value={formData.description}
+                                onChange={handleChange}
+                                rows={3}
+                                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
+                                placeholder="Masukkan deskripsi produk"
                             />
                         </div>
 
@@ -118,181 +162,75 @@ function ProductFormModal({
                                 Kategori *
                             </label>
                             <select
-                                name="category"
-                                value={formData.category}
+                                name="category_id"
+                                value={formData.category_id}
                                 onChange={handleChange}
-                                className="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:border-green-500 focus:outline-none text-sm"
-                                required
+                                className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors ${
+                                    errors.category_id ? 'border-red-300 bg-red-50' : 'border-gray-300'
+                                }`}
                             >
                                 <option value="">Pilih Kategori</option>
-                                {categories.map((cat) => (
-                                    <option key={cat.id} value={cat.name}>
-                                        {cat.name}
+                                {categories.map((category) => (
+                                    <option key={category.id_kategori} value={category.id_kategori}>
+                                        {category.nama_kategori}
                                     </option>
                                 ))}
                             </select>
+                            {errors.category_id && (
+                                <p className="mt-1 text-sm text-red-600">{errors.category_id}</p>
+                            )}
                         </div>
 
-                        {/* Bahan Baku */}
+                        {/* Status */}
                         <div>
                             <label className="block text-sm font-semibold text-gray-700 mb-2">
-                                Bahan Baku
+                                Status *
                             </label>
-                            <div className="border-2 border-gray-200 rounded-lg p-3 max-h-40 overflow-y-auto">
-                                {ingredients.map((ing) => (
-                                    <label
-                                        key={ing.id}
-                                        className="flex items-center gap-2 mb-2 cursor-pointer hover:bg-gray-50 p-2 rounded"
-                                    >
-                                        <input
-                                            type="checkbox"
-                                            checked={formData.ingredients.includes(
-                                                ing.name
-                                            )}
-                                            onChange={() =>
-                                                handleIngredientToggle(ing.name)
-                                            }
-                                            className="w-4 h-4 text-green-600"
-                                        />
-                                        <span className="text-sm">
-                                            {ing.name}
-                                        </span>
-                                    </label>
-                                ))}
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-4">
-                            {/* Stok Awal */}
-                            <div>
-                                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                                    Stok Awal *
-                                </label>
-                                <input
-                                    type="number"
-                                    name="initialStock"
-                                    value={formData.initialStock}
-                                    onChange={handleChange}
-                                    placeholder="50"
-                                    className="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:border-green-500 focus:outline-none text-sm"
-                                    required
-                                    min="0"
-                                />
-                            </div>
-
-                            {/* Harga Jual */}
-                            <div>
-                                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                                    Harga Jual (Rp) *
-                                </label>
-                                <input
-                                    type="number"
-                                    name="sellPrice"
-                                    value={formData.sellPrice}
-                                    onChange={handleChange}
-                                    placeholder="15000"
-                                    className="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:border-green-500 focus:outline-none text-sm"
-                                    required
-                                    min="0"
-                                />
-                            </div>
-                        </div>
-
-                        {/* Varian */}
-                        <div>
-                            <div className="flex justify-between items-center mb-3">
-                                <label className="block text-sm font-semibold text-gray-700">
-                                    Varian Produk
-                                </label>
-                                <button
-                                    type="button"
-                                    onClick={addVariant}
-                                    className="text-xs bg-green-100 text-green-700 px-3 py-1 rounded-full font-semibold hover:bg-green-200"
-                                >
-                                    + Tambah Varian
-                                </button>
-                            </div>
-                            <div className="space-y-2">
-                                {formData.variants.map((variant, index) => (
-                                    <div
-                                        key={index}
-                                        className="flex gap-2 items-center p-3 bg-gray-50 rounded-lg"
-                                    >
-                                        <input
-                                            type="text"
-                                            value={variant.name}
-                                            onChange={(e) =>
-                                                handleVariantChange(
-                                                    index,
-                                                    "name",
-                                                    e.target.value
-                                                )
-                                            }
-                                            placeholder="Nama varian"
-                                            className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
-                                            required
-                                        />
-                                        <input
-                                            type="number"
-                                            value={variant.price}
-                                            onChange={(e) =>
-                                                handleVariantChange(
-                                                    index,
-                                                    "price",
-                                                    e.target.value
-                                                )
-                                            }
-                                            placeholder="Harga"
-                                            className="w-32 px-3 py-2 border border-gray-300 rounded-lg text-sm"
-                                            required
-                                            min="0"
-                                        />
-                                        {formData.variants.length > 1 && (
-                                            <button
-                                                type="button"
-                                                onClick={() =>
-                                                    removeVariant(index)
-                                                }
-                                                className="p-2 text-red-600 hover:bg-red-100 rounded-lg"
-                                            >
-                                                <svg
-                                                    xmlns="http://www.w3.org/2000/svg"
-                                                    fill="none"
-                                                    viewBox="0 0 24 24"
-                                                    strokeWidth={2}
-                                                    stroke="currentColor"
-                                                    className="size-4"
-                                                >
-                                                    <path
-                                                        strokeLinecap="round"
-                                                        strokeLinejoin="round"
-                                                        d="M6 18L18 6M6 6l12 12"
-                                                    />
-                                                </svg>
-                                            </button>
-                                        )}
-                                    </div>
-                                ))}
-                            </div>
+                            <select
+                                name="status"
+                                value={formData.status}
+                                onChange={handleChange}
+                                className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors ${
+                                    errors.status ? 'border-red-300 bg-red-50' : 'border-gray-300'
+                                }`}
+                            >
+                                <option value="aktif">Aktif</option>
+                                <option value="nonaktif">Nonaktif</option>
+                            </select>
+                            {errors.status && (
+                                <p className="mt-1 text-sm text-red-600">{errors.status}</p>
+                            )}
                         </div>
                     </div>
+                </form>
 
-                    <div className="flex gap-3 mt-6">
+                {/* Modal Footer */}
+                <div className="p-6 bg-gray-50 border-t border-gray-200">
+                    <div className="flex gap-3">
                         <button
                             type="button"
                             onClick={onClose}
-                            className="flex-1 px-4 py-2 border-2 border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-semibold text-sm"
+                            className="flex-1 px-4 py-3 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl font-semibold transition-colors"
                         >
                             Batal
                         </button>
                         <button
                             type="submit"
-                            className="flex-1 px-4 py-2 bg-gradient-to-r from-green-600 to-green-500 text-white rounded-lg hover:from-green-700 hover:to-green-600 font-semibold shadow-lg text-sm"
+                            onClick={handleSubmit}
+                            disabled={isSubmitting}
+                            className="flex-1 px-4 py-3 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white rounded-xl font-semibold transition-all duration-200 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                         >
-                            {product ? "Update" : "Simpan"}
+                            {isSubmitting ? (
+                                <>
+                                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                    {product ? "Memperbarui..." : "Menambahkan..."}
+                                </>
+                            ) : (
+                                product ? "Perbarui Produk" : "Tambah Produk"
+                            )}
                         </button>
                     </div>
-                </form>
+                </div>
             </div>
         </div>
     );

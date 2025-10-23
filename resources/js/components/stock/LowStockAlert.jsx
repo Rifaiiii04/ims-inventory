@@ -105,7 +105,7 @@ function LowStockAlert({ items }) {
                                     <div className="ml-3 flex-shrink-0">
                                         <div className="text-right">
                                             <div className="text-lg font-bold text-red-600">
-                                                {item.quantity}
+                                                {item.currentStock}
                                             </div>
                                             <div className="text-xs text-gray-500">
                                                 {item.unit}
@@ -115,8 +115,7 @@ function LowStockAlert({ items }) {
                                 </div>
                                 <div className="mt-3 flex items-center justify-between">
                                     <div className="text-xs text-gray-500">
-                                        Kebutuhan: {item.dailyNeed} {item.unit}
-                                        /hari
+                                        Min: {item.minStock} {item.unit}
                                     </div>
                                     <div className="text-xs font-semibold text-orange-600 bg-orange-100 px-2 py-1 rounded-full">
                                         Stok Rendah

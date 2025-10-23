@@ -63,7 +63,7 @@ function StockTable({ data, onEdit, onDelete, onViewHistory }) {
             </div>
 
             {/* Table - Desktop */}
-            <div className="hidden md:block overflow-x-auto">
+            <div className="hidden lg:block overflow-x-auto">
                 <table className="w-full">
                     <thead className="bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200/50">
                         <tr>
@@ -420,6 +420,85 @@ function StockTable({ data, onEdit, onDelete, onViewHistory }) {
                                         />
                                     </svg>
                                 </button>
+                            </div>
+                        </div>
+                    </div>
+                ))}
+            </div>
+
+            {/* Mobile View */}
+            <div className="lg:hidden">
+                {data.map((item, index) => (
+                    <div key={item.id} className="border-b border-gray-200/50 last:border-b-0">
+                        <div className="p-4 hover:bg-gray-50/50 transition-colors">
+                            {/* Mobile Card Header */}
+                            <div className="flex items-start justify-between mb-3">
+                                <div className="flex-1 min-w-0">
+                                    <h4 className="font-bold text-gray-800 text-sm truncate">
+                                        {item.name}
+                                    </h4>
+                                    <div className="flex items-center gap-2 mt-1">
+                                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getCategoryBadge(item.category)}`}>
+                                            {item.category}
+                                        </span>
+                                        <span className={`${getStockStatus(item.quantity)}`}>
+                                            {getStockIcon(item.quantity)} {item.quantity} {item.unit}
+                                        </span>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-1 ml-2">
+                                    <button
+                                        onClick={() => onEdit(item)}
+                                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                        title="Edit"
+                                    >
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                        </svg>
+                                    </button>
+                                    <button
+                                        onClick={() => onViewHistory(item)}
+                                        className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+                                        title="History"
+                                    >
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                        </svg>
+                                    </button>
+                                    <button
+                                        onClick={() => onDelete(item.id)}
+                                        className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                        title="Hapus"
+                                    >
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                        </svg>
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Mobile Card Details */}
+                            <div className="grid grid-cols-2 gap-3 text-xs">
+                                <div className="bg-gray-50 rounded-lg p-2">
+                                    <div className="text-gray-500 mb-1">Harga Beli</div>
+                                    <div className="font-semibold text-gray-800">
+                                        Rp {item.buyPrice.toLocaleString('id-ID')}
+                                    </div>
+                                </div>
+                                <div className="bg-gray-50 rounded-lg p-2">
+                                    <div className="text-gray-500 mb-1">Min. Stok</div>
+                                    <div className="font-semibold text-gray-800">
+                                        {item.minStock} {item.unit}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Mobile Card Footer */}
+                            <div className="mt-3 pt-3 border-t border-gray-100">
+                                <div className="flex items-center justify-between text-xs text-gray-500">
+                                    <span>Terakhir update: {item.lastUpdated}</span>
+                                    <span>By: {item.updatedBy}</span>
+                                </div>
                             </div>
                         </div>
                     </div>

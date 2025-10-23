@@ -4,6 +4,7 @@ import TopBar from "../components/TopBar";
 import SummaryCard from "../components/dashboard/SummaryCard";
 import QuickActionButton from "../components/dashboard/QuickActionButton";
 import TopProductCard from "../components/dashboard/TopProductCard";
+import { useDashboard } from "../hooks/useDashboard";
 import {
     ProductIcon,
     StockIcon,
@@ -15,19 +16,15 @@ import {
 
 function Dashboard() {
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+    const { dashboardData, lowStockAlerts, error } = useDashboard();
 
-    // Data dashboard berdasarkan observasi Kedai Angkringan Prasmanan
-    const summaryData = {
-        totalProducts: 22,
-        lowStock: 8,
-        todaySales: 1250000,
-        topProducts: [
-            { id: 1, name: "Ayam Bakar", sold: 45, revenue: 765000 },
-            { id: 2, name: "Nasi", sold: 89, revenue: 445000 },
-            { id: 3, name: "Es Teh Manis", sold: 67, revenue: 335000 },
-            { id: 4, name: "Lele Goreng", sold: 28, revenue: 280000 },
-            { id: 5, name: "Tusukan (Sate-satean)", sold: 45, revenue: 135000 },
-        ],
+    // Format currency
+    const formatCurrency = (amount) => {
+        return new Intl.NumberFormat('id-ID', {
+            style: 'currency',
+            currency: 'IDR',
+            minimumFractionDigits: 0,
+        }).format(amount);
     };
 
     const handleQuickAction = (action) => {
@@ -35,14 +32,48 @@ function Dashboard() {
         // TODO: Implement navigation atau modal
     };
 
-    return (
-        <>
-            <div className="w-screen h-screen flex flex-col md:flex-row bg-gradient-to-br from-gray-50 to-gray-100">
-                {/* Mobile Menu Toggle */}
-                <button
-                    onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-                    className="md:hidden fixed top-4 left-4 z-50 bg-white p-3 rounded-lg shadow-lg border-2 border-gray-200 hover:border-green-500 transition-colors"
-                >
+
+    // Show error state
+    if (error) {
+        return (
+            <div className="flex h-screen bg-gray-50">
+                <Sidebar />
+                <div className="flex-1 flex flex-col">
+                    <TopBar
+                        title="Dashboard"
+                        subtitle="Error loading data"
+                        showLiveIndicator={false}
+                    />
+                    <div className="flex-1 flex items-center justify-center">
+                        <div className="text-center">
+                            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                            </div>
+                            <h3 className="text-lg font-semibold text-gray-900 mb-2">Error Loading Dashboard</h3>
+                            <p className="text-gray-600 mb-4">{error}</p>
+                            <button
+                                onClick={refreshData}
+                                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                            >
+                                Try Again
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+        return (
+            <>
+                <div className="w-screen h-screen flex flex-col lg:flex-row bg-gradient-to-br from-gray-50 to-gray-100">
+                    {/* Mobile Menu Toggle */}
+                    <button
+                        onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                        className="lg:hidden fixed top-4 left-4 z-50 bg-white p-3 rounded-lg shadow-lg border-2 border-gray-200 hover:border-green-500 transition-colors"
+                    >
                     <svg
                         xmlns="http://www.w3.org/2000/svg"
                         fill="none"
@@ -61,13 +92,13 @@ function Dashboard() {
 
                 {/* Sidebar - Desktop & Mobile Overlay */}
                 <div
-                    className={`fixed md:relative md:block z-40 transition-transform duration-300 h-full ${
+                    className={`fixed lg:relative lg:block z-40 transition-transform duration-300 h-full ${
                         isMobileMenuOpen
                             ? "translate-x-0"
-                            : "-translate-x-full md:translate-x-0"
+                            : "-translate-x-full lg:translate-x-0"
                     }`}
                 >
-                    <div className="h-full p-3 bg-gradient-to-br from-gray-50 to-gray-100 md:bg-transparent">
+                    <div className="h-full p-3 bg-gradient-to-br from-gray-50 to-gray-100 lg:bg-transparent">
                         <Sidebar />
                     </div>
                 </div>
@@ -75,7 +106,7 @@ function Dashboard() {
                 {/* Mobile Overlay Background */}
                 {isMobileMenuOpen && (
                     <div
-                        className="fixed inset-0 bg-black/50 z-30 md:hidden"
+                        className="fixed inset-0 bg-black/50 z-30 lg:hidden"
                         onClick={() => setIsMobileMenuOpen(false)}
                     />
                 )}
@@ -90,42 +121,40 @@ function Dashboard() {
                     />
 
                     {/* Content */}
-                    <div className="flex-1 overflow-y-auto p-6">
+                    <div className="flex-1 overflow-y-auto p-4 sm:p-6">
                         {/* Ringkasan Cepat */}
-                        <div className="mb-6 md:mb-8">
-                            <h2 className="text-base md:text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
-                                <div className="w-1 h-5 bg-green-600 rounded-full"></div>
+                        <div className="mb-4 sm:mb-6 lg:mb-8">
+                            <h2 className="text-base sm:text-lg lg:text-xl font-bold text-gray-800 mb-3 sm:mb-4 flex items-center gap-2">
+                                <div className="w-1 h-4 sm:h-5 bg-green-600 rounded-full"></div>
                                 Ringkasan Cepat
                             </h2>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 lg:gap-6">
                                 <SummaryCard
                                     title="Total Produk"
-                                    value={summaryData.totalProducts}
+                                    value={dashboardData.summary.total_products}
                                     icon={<ProductIcon />}
                                     color="green"
                                 />
                                 <SummaryCard
                                     title="Stok Menipis"
-                                    value={summaryData.lowStock}
+                                    value={dashboardData.summary.low_stock}
                                     icon={<StockIcon />}
                                     color="red"
-                                    alert="Perlu restock segera!"
+                                    alert={dashboardData.summary.low_stock > 0 ? "Perlu restock segera!" : "Stok aman"}
                                 />
                                 <SummaryCard
                                     title="Penjualan Hari Ini"
-                                    value={`Rp ${summaryData.todaySales.toLocaleString(
-                                        "id-ID"
-                                    )}`}
+                                    value={formatCurrency(dashboardData.summary.today_sales)}
                                     icon={<SalesIcon />}
                                     color="blue"
-                                    trend="+12% dari kemarin"
+                                    trend="Hari ini"
                                 />
                                 <SummaryCard
                                     title="Produk Terlaris"
-                                    value={summaryData.topProducts[0].name}
+                                    value={dashboardData.summary.top_products.length > 0 ? dashboardData.summary.top_products[0].name : "Belum ada data"}
                                     icon={<TrendingIcon />}
                                     color="purple"
-                                    trend={`${summaryData.topProducts[0].sold} terjual`}
+                                    trend={dashboardData.summary.top_products.length > 0 ? `${dashboardData.summary.top_products[0].sold} terjual` : "30 hari terakhir"}
                                 />
                             </div>
                         </div>
@@ -134,15 +163,27 @@ function Dashboard() {
                         <div className="mb-6 md:mb-8">
                             <h2 className="text-base md:text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
                                 <div className="w-1 h-5 bg-green-600 rounded-full"></div>
-                                Produk Terlaris Hari Ini
+                                Produk Terlaris (30 Hari Terakhir)
                             </h2>
                             <div className="space-y-3 md:space-y-4">
-                                {summaryData.topProducts.map((product) => (
-                                    <TopProductCard
-                                        key={product.id}
-                                        product={product}
-                                    />
-                                ))}
+                                {dashboardData.summary.top_products.length > 0 ? (
+                                    dashboardData.summary.top_products.map((product) => (
+                                        <TopProductCard
+                                            key={product.id}
+                                            product={product}
+                                        />
+                                    ))
+                                ) : (
+                                    <div className="text-center py-8 text-gray-500">
+                                        <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                                            <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                                            </svg>
+                                        </div>
+                                        <p>Belum ada data penjualan</p>
+                                        <p className="text-sm">Mulai catat transaksi untuk melihat produk terlaris</p>
+                                    </div>
+                                )}
                             </div>
                         </div>
 

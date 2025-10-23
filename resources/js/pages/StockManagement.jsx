@@ -5,6 +5,7 @@ import StockTable from "../components/stock/StockTable";
 import StockFormModal from "../components/stock/StockFormModal";
 import StockHistoryModal from "../components/stock/StockHistoryModal";
 import LowStockAlert from "../components/stock/LowStockAlert";
+import { useStock } from "../hooks/useStock";
 
 function StockManagement() {
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -12,287 +13,48 @@ function StockManagement() {
     const [showHistoryModal, setShowHistoryModal] = useState(false);
     const [editingStock, setEditingStock] = useState(null);
     const [selectedStockHistory, setSelectedStockHistory] = useState(null);
+    const [searchTerm, setSearchTerm] = useState("");
 
-    // Data stok berdasarkan observasi Kedai Angkringan Prasmanan
-    const [stockData, setStockData] = useState([
-        {
-            id: 1,
-            name: "Ayam Utuh",
-            category: "Bahan Utama",
-            buyPrice: 25000,
-            quantity: 3,
-            unit: "ekor",
-            dailyNeed: 3,
-            conversion: "12 item (4 bagian per ekor)",
-            lastUpdated: "2024-01-15",
-            updatedBy: "Admin",
-        },
-        {
-            id: 2,
-            name: "Lele",
-            category: "Bahan Utama",
-            buyPrice: 8000,
-            quantity: 10,
-            unit: "ekor",
-            dailyNeed: 10,
-            conversion: "10 porsi",
-            lastUpdated: "2024-01-15",
-            updatedBy: "Admin",
-        },
-        {
-            id: 3,
-            name: "Nila",
-            category: "Bahan Utama",
-            buyPrice: 12000,
-            quantity: 8,
-            unit: "ekor",
-            dailyNeed: 8,
-            conversion: "8 porsi",
-            lastUpdated: "2024-01-15",
-            updatedBy: "Admin",
-        },
-        {
-            id: 4,
-            name: "Cumi",
-            category: "Bahan Utama",
-            buyPrice: 45000,
-            quantity: 1,
-            unit: "kg",
-            dailyNeed: 1,
-            conversion: "30 tusuk sate",
-            lastUpdated: "2024-01-15",
-            updatedBy: "Admin",
-        },
-        {
-            id: 5,
-            name: "Beras",
-            category: "Bahan Pokok",
-            buyPrice: 12000,
-            quantity: 10,
-            unit: "liter",
-            dailyNeed: 10,
-            conversion: "120 porsi nasi",
-            lastUpdated: "2024-01-15",
-            updatedBy: "Admin",
-        },
-        {
-            id: 6,
-            name: "Tahu Bumbu Kuning",
-            category: "Bahan Pokok",
-            buyPrice: 3000,
-            quantity: 25,
-            unit: "bijik",
-            dailyNeed: 25,
-            conversion: "25 item",
-            lastUpdated: "2024-01-15",
-            updatedBy: "Admin",
-        },
-        {
-            id: 7,
-            name: "Tempe Bumbu Kuning",
-            category: "Bahan Pokok",
-            buyPrice: 3000,
-            quantity: 25,
-            unit: "bijik",
-            dailyNeed: 25,
-            conversion: "25 item",
-            lastUpdated: "2024-01-15",
-            updatedBy: "Admin",
-        },
-        {
-            id: 8,
-            name: "Tempe Bacem",
-            category: "Bahan Pokok",
-            buyPrice: 3000,
-            quantity: 25,
-            unit: "bijik",
-            dailyNeed: 25,
-            conversion: "25 tusuk",
-            lastUpdated: "2024-01-15",
-            updatedBy: "Admin",
-        },
-        {
-            id: 9,
-            name: "Tahu Bacem",
-            category: "Bahan Pokok",
-            buyPrice: 3000,
-            quantity: 25,
-            unit: "bijik",
-            dailyNeed: 25,
-            conversion: "25 tusuk",
-            lastUpdated: "2024-01-15",
-            updatedBy: "Admin",
-        },
-        {
-            id: 10,
-            name: "Bumbu Halus",
-            category: "Bumbu & Rempah",
-            buyPrice: 15000,
-            quantity: 1,
-            unit: "kg",
-            dailyNeed: 0.33,
-            conversion: "Untuk olahan",
-            lastUpdated: "2024-01-15",
-            updatedBy: "Admin",
-        },
-        {
-            id: 11,
-            name: "Rempah Kering",
-            category: "Bumbu & Rempah",
-            buyPrice: 25000,
-            quantity: 500,
-            unit: "gr",
-            dailyNeed: 166.67,
-            conversion: "Bawang kering, cabai kering",
-            lastUpdated: "2024-01-15",
-            updatedBy: "Admin",
-        },
-        {
-            id: 12,
-            name: "Kangkung",
-            category: "Sayuran",
-            buyPrice: 5000,
-            quantity: 5,
-            unit: "ikat",
-            dailyNeed: 5,
-            conversion: "10 porsi tumis",
-            lastUpdated: "2024-01-15",
-            updatedBy: "Admin",
-        },
-        {
-            id: 13,
-            name: "Terong",
-            category: "Sayuran",
-            buyPrice: 8000,
-            quantity: 10,
-            unit: "buah",
-            dailyNeed: 10,
-            conversion: "10 porsi tumis",
-            lastUpdated: "2024-01-15",
-            updatedBy: "Admin",
-        },
-        {
-            id: 14,
-            name: "Timun",
-            category: "Sayuran",
-            buyPrice: 5000,
-            quantity: 5,
-            unit: "buah",
-            dailyNeed: 5,
-            conversion: "10 porsi receuh",
-            lastUpdated: "2024-01-15",
-            updatedBy: "Admin",
-        },
-        {
-            id: 15,
-            name: "Ikan Asin Japuh",
-            category: "Ikan Asin",
-            buyPrice: 35000,
-            quantity: 0.5,
-            unit: "kg",
-            dailyNeed: 0.5,
-            conversion: "10 porsi",
-            lastUpdated: "2024-01-15",
-            updatedBy: "Admin",
-        },
-        {
-            id: 16,
-            name: "Ikan Asin Peda",
-            category: "Ikan Asin",
-            buyPrice: 40000,
-            quantity: 0.5,
-            unit: "kg",
-            dailyNeed: 0.5,
-            conversion: "10 porsi",
-            lastUpdated: "2024-01-15",
-            updatedBy: "Admin",
-        },
-        {
-            id: 17,
-            name: "Ikan Asin Pindang",
-            category: "Ikan Asin",
-            buyPrice: 38000,
-            quantity: 0.5,
-            unit: "kg",
-            dailyNeed: 0.5,
-            conversion: "10 porsi",
-            lastUpdated: "2024-01-15",
-            updatedBy: "Admin",
-        },
-        {
-            id: 18,
-            name: "Teh",
-            category: "Minuman",
-            buyPrice: 25000,
-            quantity: 100,
-            unit: "gr",
-            dailyNeed: 100,
-            conversion: "50 gelas es teh",
-            lastUpdated: "2024-01-15",
-            updatedBy: "Admin",
-        },
-        {
-            id: 19,
-            name: "Jeruk",
-            category: "Minuman",
-            buyPrice: 15000,
-            quantity: 10,
-            unit: "buah",
-            dailyNeed: 10,
-            conversion: "10 gelas es jeruk",
-            lastUpdated: "2024-01-15",
-            updatedBy: "Admin",
-        },
-        {
-            id: 20,
-            name: "Es Batu",
-            category: "Minuman",
-            buyPrice: 5000,
-            quantity: 2,
-            unit: "bal",
-            dailyNeed: 2,
-            conversion: "Untuk minuman",
-            lastUpdated: "2024-01-15",
-            updatedBy: "Admin",
-        },
-    ]);
-
-    // Stok menipis (threshold 10)
-    const lowStockItems = stockData.filter((item) => item.quantity < 10);
+    // Use stock hook for real data
+    const { 
+        stocks: stockData, 
+        lowStockAlerts, 
+        categories, 
+        error, 
+        createStock, 
+        updateStock, 
+        deleteStock, 
+        refreshData 
+    } = useStock();
 
     // Handle tambah stok baru
-    const handleAddStock = (newStock) => {
-        const stock = {
-            ...newStock,
-            id: stockData.length + 1,
-            lastUpdated: new Date().toISOString().split("T")[0],
-            updatedBy: "Admin", // TODO: Get from auth
-        };
-        setStockData([...stockData, stock]);
+    const handleAddStock = async (newStock) => {
+        const result = await createStock(newStock);
+        if (result.success) {
         setShowFormModal(false);
+        } else {
+            alert(result.message);
+        }
     };
 
     // Handle update stok
-    const handleUpdateStock = (updatedStock) => {
-        setStockData(
-            stockData.map((item) =>
-                item.id === updatedStock.id
-                    ? {
-                          ...updatedStock,
-                          lastUpdated: new Date().toISOString().split("T")[0],
-                          updatedBy: "Admin",
-                      }
-                    : item
-            )
-        );
+    const handleUpdateStock = async (updatedStock) => {
+        const result = await updateStock(updatedStock.id, updatedStock);
+        if (result.success) {
         setEditingStock(null);
         setShowFormModal(false);
+        } else {
+            alert(result.message);
+        }
     };
 
     // Handle hapus stok
-    const handleDeleteStock = (id) => {
+    const handleDeleteStock = async (id) => {
         if (confirm("Apakah Anda yakin ingin menghapus stok ini?")) {
-            setStockData(stockData.filter((item) => item.id !== id));
+            const result = await deleteStock(id);
+            if (!result.success) {
+                alert(result.message);
+            }
         }
     };
 
@@ -308,13 +70,25 @@ function StockManagement() {
         setShowHistoryModal(true);
     };
 
+    // Filter stocks based on search term
+    const filteredStocks = stockData.filter(stock => {
+        if (!searchTerm) return true;
+        
+        const searchLower = searchTerm.toLowerCase();
+        return (
+            stock.name.toLowerCase().includes(searchLower) ||
+            stock.category.toLowerCase().includes(searchLower) ||
+            stock.unit.toLowerCase().includes(searchLower)
+        );
+    });
+
     return (
         <>
-            <div className="w-screen h-screen flex flex-col md:flex-row bg-gradient-to-br from-gray-50 to-gray-100">
+            <div className="w-screen h-screen flex flex-col lg:flex-row bg-gradient-to-br from-gray-50 to-gray-100">
                 {/* Mobile Menu Toggle */}
                 <button
                     onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-                    className="md:hidden fixed top-4 left-4 z-50 bg-white p-3 rounded-lg shadow-lg border-2 border-gray-200 hover:border-green-500 transition-colors"
+                    className="lg:hidden fixed top-4 left-4 z-50 bg-white p-3 rounded-lg shadow-lg border-2 border-gray-200 hover:border-green-500 transition-colors"
                 >
                     <svg
                         xmlns="http://www.w3.org/2000/svg"
@@ -334,13 +108,13 @@ function StockManagement() {
 
                 {/* Sidebar */}
                 <div
-                    className={`fixed md:relative md:block z-40 transition-transform duration-300 h-full ${
+                    className={`fixed lg:relative lg:block z-40 transition-transform duration-300 h-full ${
                         isMobileMenuOpen
                             ? "translate-x-0"
-                            : "-translate-x-full md:translate-x-0"
+                            : "-translate-x-full lg:translate-x-0"
                     }`}
                 >
-                    <div className="h-full p-3 bg-gradient-to-br from-gray-50 to-gray-100 md:bg-transparent">
+                    <div className="h-full p-3 bg-gradient-to-br from-gray-50 to-gray-100 lg:bg-transparent">
                         <Sidebar />
                     </div>
                 </div>
@@ -348,7 +122,7 @@ function StockManagement() {
                 {/* Mobile Overlay */}
                 {isMobileMenuOpen && (
                     <div
-                        className="fixed inset-0 bg-black/50 z-30 md:hidden"
+                        className="fixed inset-0 bg-black/50 z-30 lg:hidden"
                         onClick={() => setIsMobileMenuOpen(false)}
                     />
                 )}
@@ -381,22 +155,82 @@ function StockManagement() {
                             setShowFormModal(true);
                         }}
                         buttonColor="green"
+                            showSearch={true}
+                            searchValue={searchTerm}
+                            onSearchChange={setSearchTerm}
+                            searchPlaceholder="Cari stok, kategori, atau satuan..."
                     />
 
                     {/* Content */}
-                    <div className="flex-1 overflow-y-auto p-6">
+                    <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+                        {/* Error State */}
+                        {error && (
+                            <div className="mb-4 sm:mb-6 bg-red-50 border border-red-200 rounded-xl p-3 sm:p-4">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-6 h-6 sm:w-8 sm:h-8 bg-red-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                                        <svg className="w-4 h-4 sm:w-5 sm:h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                        </svg>
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                        <h3 className="font-semibold text-red-800 text-sm sm:text-base">Terjadi Kesalahan</h3>
+                                        <p className="text-xs sm:text-sm text-red-600 break-words">{error}</p>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
                         {/* Low Stock Alert */}
-                        {lowStockItems.length > 0 && (
-                            <LowStockAlert items={lowStockItems} />
+                        {lowStockAlerts.length > 0 && (
+                            <div className="mb-4 sm:mb-6">
+                                <LowStockAlert items={lowStockAlerts} />
+                            </div>
+                        )}
+
+                        {/* Search Results Info */}
+                        {searchTerm && (
+                            <div className="mb-4 bg-blue-50 border border-blue-200 rounded-xl p-3">
+                                <div className="flex items-center gap-2">
+                                    <svg className="w-4 h-4 text-blue-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                    </svg>
+                                    <span className="text-xs sm:text-sm text-blue-800 break-words">
+                                        Menampilkan {filteredStocks.length} dari {stockData.length} stok untuk pencarian "{searchTerm}"
+                                    </span>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* No Search Results */}
+                        {searchTerm && filteredStocks.length === 0 && (
+                            <div className="text-center py-8 sm:py-12">
+                                <div className="w-12 h-12 sm:w-16 sm:h-16 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-3 sm:mb-4">
+                                    <svg className="w-6 h-6 sm:w-8 sm:h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                    </svg>
+                                </div>
+                                <h3 className="text-base sm:text-lg font-bold text-gray-700 mb-2">Tidak ada hasil ditemukan</h3>
+                                <p className="text-gray-500 text-xs sm:text-sm mb-4 px-4">
+                                    Tidak ada stok yang cocok dengan pencarian "{searchTerm}"
+                                </p>
+                                <button
+                                    onClick={() => setSearchTerm("")}
+                                    className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors text-xs sm:text-sm"
+                                >
+                                    Hapus Pencarian
+                                </button>
+                            </div>
                         )}
 
                         {/* Stock Table */}
-                        <StockTable
-                            data={stockData}
-                            onEdit={handleEditStock}
-                            onDelete={handleDeleteStock}
-                            onViewHistory={handleViewHistory}
-                        />
+                        <div className="overflow-x-auto">
+                            <StockTable
+                                data={filteredStocks}
+                                onEdit={handleEditStock}
+                                onDelete={handleDeleteStock}
+                                onViewHistory={handleViewHistory}
+                            />
+                        </div>
                     </div>
                 </div>
             </div>
@@ -405,6 +239,7 @@ function StockManagement() {
             {showFormModal && (
                 <StockFormModal
                     stock={editingStock}
+                    categories={categories}
                     onClose={() => {
                         setShowFormModal(false);
                         setEditingStock(null);
