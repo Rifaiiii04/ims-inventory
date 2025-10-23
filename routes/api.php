@@ -74,6 +74,7 @@ Route::middleware('auth:sanctum')->group(function () {
     
     // Cashier routes
     Route::get('/cashiers/statistics', [CashierController::class, 'statistics']);
+    Route::post('/cashiers/{id}/reset-password', [CashierController::class, 'resetPassword']);
     Route::apiResource('cashiers', CashierController::class);
     
     // Transaction routes

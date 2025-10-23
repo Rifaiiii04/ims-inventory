@@ -39,8 +39,37 @@ class ReportController extends Controller
             if ($dateFilter) {
                 $transactionsQuery->whereDate('tanggal_waktu', $dateFilter);
             } else {
-                // Default to last 30 days
-                $transactionsQuery->where('tanggal_waktu', '>=', now()->subDays(30));
+                // Default to last 30 days for daily, 12 weeks for weekly, 12 months for monthly
+                switch ($period) {
+                    case 'weekly':
+                        $transactionsQuery->where('tanggal_waktu', '>=', now()->subWeeks(12));
+                        break;
+                    case 'monthly':
+                        $transactionsQuery->where('tanggal_waktu', '>=', now()->subMonths(12));
+                        break;
+                    default: // daily
+                        $transactionsQuery->where('tanggal_waktu', '>=', now()->subDays(30));
+                        break;
+                }
+            }
+
+            // Apply product filter
+            if ($productFilter) {
+                $transactionsQuery->whereHas('details.produk', function($query) use ($productFilter) {
+                    $query->where('id_produk', $productFilter);
+                });
+            }
+
+            // Apply category filter
+            if ($categoryFilter) {
+                $transactionsQuery->whereHas('details.produk', function($query) use ($categoryFilter) {
+                    $query->where('id_kategori', $categoryFilter);
+                });
+            }
+
+            // Apply payment method filter
+            if ($paymentFilter) {
+                $transactionsQuery->where('metode_pembayaran', $paymentFilter);
             }
 
             $transactions = $transactionsQuery->orderBy('tanggal_waktu', 'desc')->get();
@@ -370,20 +399,26 @@ class ReportController extends Controller
             switch ($period) {
                 case 'daily':
                     $key = $date->format('Y-m-d');
+                    $displayKey = $date->format('d M');
                     break;
                 case 'weekly':
                     $key = $date->format('Y-W');
+                    $weekStart = $date->startOfWeek();
+                    $weekEnd = $date->copy()->endOfWeek();
+                    $displayKey = $weekStart->format('d M') . ' - ' . $weekEnd->format('d M');
                     break;
                 case 'monthly':
                     $key = $date->format('Y-m');
+                    $displayKey = $date->format('M Y');
                     break;
                 default:
                     $key = $date->format('Y-m-d');
+                    $displayKey = $date->format('d M');
             }
             
             if (!isset($grouped[$key])) {
                 $grouped[$key] = [
-                    'period' => $key,
+                    'period' => $displayKey,
                     'revenue' => 0,
                     'transactions' => 0,
                     'products_sold' => 0
@@ -394,6 +429,9 @@ class ReportController extends Controller
             $grouped[$key]['transactions'] += 1;
             $grouped[$key]['products_sold'] += $transaction->details->sum('jumlah');
         }
+        
+        // Sort by period key
+        ksort($grouped);
         
         return array_values($grouped);
     }

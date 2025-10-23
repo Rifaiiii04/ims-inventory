@@ -148,13 +148,13 @@ function NotificationTable({ data, onEdit, onDelete, onToggleStatus }) {
                                 <td className="px-6 py-5">
                                     <div className="flex items-center gap-3">
                                         <div className="w-8 h-8 bg-gradient-to-br from-blue-100 to-blue-200 rounded-lg flex items-center justify-center text-blue-600 font-bold text-sm">
-                                            {item.productName
+                                            {(item.judul || "N")
                                                 .charAt(0)
                                                 .toUpperCase()}
                                         </div>
                                         <div>
                                             <div className="font-bold text-gray-800 text-sm">
-                                                {item.productName}
+                                                {item.judul || "Unknown"}
                                             </div>
                                             <div className="text-xs text-gray-500">
                                                 ID: {item.id}
@@ -165,44 +165,46 @@ function NotificationTable({ data, onEdit, onDelete, onToggleStatus }) {
                                 <td className="px-6 py-5">
                                     <span
                                         className={`px-3 py-1.5 rounded-full text-xs font-semibold ${getCategoryColor(
-                                            item.category
+                                            item.tipe || "low_stock"
                                         )}`}
                                     >
-                                        {item.category}
+                                        {item.tipe || "low_stock"}
                                     </span>
                                 </td>
                                 <td className="px-6 py-5">
                                     <div className="flex items-center gap-2">
                                         <span className="text-lg">
-                                            {item.minStockLimit <= 3
+                                            {item.batas_minimum <= 3
                                                 ? "⚠️"
                                                 : "📊"}
                                         </span>
                                         <span className="text-sm font-bold text-gray-800">
-                                            {item.minStockLimit}
+                                            {item.batas_minimum}
                                         </span>
                                     </div>
                                 </td>
                                 <td className="px-6 py-5">
                                     <span
                                         className={`px-3 py-1.5 rounded-full text-xs font-semibold ${getScheduleColor(
-                                            item.notificationSchedule
+                                            item.jadwal || "real-time"
                                         )}`}
                                     >
-                                        {item.notificationSchedule}
+                                        {item.jadwal || "real-time"}
                                     </span>
                                 </td>
                                 <td className="px-6 py-5">
                                     <div className="flex items-center gap-2">
                                         <span className="text-lg">
-                                            {getStatusIcon(item.isActive)}
+                                            {getStatusIcon(
+                                                item.status === "active"
+                                            )}
                                         </span>
                                         <span
                                             className={`px-3 py-1.5 rounded-full text-xs font-semibold ${getStatusBadge(
-                                                item.isActive
+                                                item.status === "active"
                                             )}`}
                                         >
-                                            {item.isActive
+                                            {item.status === "active"
                                                 ? "Aktif"
                                                 : "Nonaktif"}
                                         </span>
@@ -210,7 +212,7 @@ function NotificationTable({ data, onEdit, onDelete, onToggleStatus }) {
                                 </td>
                                 <td className="px-6 py-5">
                                     <div className="text-sm text-gray-700">
-                                        {item.lastNotified || "Belum pernah"}
+                                        {item.terakhir_kirim || "Belum pernah"}
                                     </div>
                                 </td>
                                 <td className="px-6 py-5">
@@ -220,12 +222,12 @@ function NotificationTable({ data, onEdit, onDelete, onToggleStatus }) {
                                                 onToggleStatus(item.id)
                                             }
                                             className={`p-2.5 rounded-xl transition-all duration-200 hover:scale-105 shadow-sm hover:shadow-md group/btn ${
-                                                item.isActive
+                                                item.status === "active"
                                                     ? "text-orange-600 hover:bg-orange-50"
                                                     : "text-green-600 hover:bg-green-50"
                                             }`}
                                             title={
-                                                item.isActive
+                                                item.status === "active"
                                                     ? "Nonaktifkan"
                                                     : "Aktifkan"
                                             }
@@ -310,11 +312,13 @@ function NotificationTable({ data, onEdit, onDelete, onToggleStatus }) {
                         <div className="flex justify-between items-start mb-4">
                             <div className="flex items-center gap-3">
                                 <div className="w-10 h-10 bg-gradient-to-br from-blue-100 to-blue-200 rounded-xl flex items-center justify-center text-blue-600 font-bold text-sm">
-                                    {item.productName.charAt(0).toUpperCase()}
+                                    {(item.judul || "N")
+                                        .charAt(0)
+                                        .toUpperCase()}
                                 </div>
                                 <div>
                                     <h4 className="font-bold text-sm text-gray-800">
-                                        {item.productName}
+                                        {item.judul || "Unknown"}
                                     </h4>
                                     <div className="text-xs text-gray-500">
                                         ID: {item.id}
@@ -324,14 +328,18 @@ function NotificationTable({ data, onEdit, onDelete, onToggleStatus }) {
                             <div className="text-right">
                                 <div className="flex items-center gap-2 mb-2">
                                     <span className="text-lg">
-                                        {getStatusIcon(item.isActive)}
+                                        {getStatusIcon(
+                                            item.status === "active"
+                                        )}
                                     </span>
                                     <span
                                         className={`px-2 py-1 rounded-full text-xs font-semibold ${getStatusBadge(
-                                            item.isActive
+                                            item.status === "active"
                                         )}`}
                                     >
-                                        {item.isActive ? "Aktif" : "Nonaktif"}
+                                        {item.status === "active"
+                                            ? "Aktif"
+                                            : "Nonaktif"}
                                     </span>
                                 </div>
                             </div>
@@ -340,10 +348,10 @@ function NotificationTable({ data, onEdit, onDelete, onToggleStatus }) {
                         <div className="mb-4">
                             <span
                                 className={`inline-block px-3 py-1.5 rounded-full text-xs font-semibold ${getCategoryColor(
-                                    item.category
+                                    item.tipe || "low_stock"
                                 )}`}
                             >
-                                {item.category}
+                                {item.tipe || "low_stock"}
                             </span>
                         </div>
 
@@ -354,15 +362,15 @@ function NotificationTable({ data, onEdit, onDelete, onToggleStatus }) {
                                 </div>
                                 <div className="font-bold text-gray-800 flex items-center gap-1">
                                     <span>
-                                        {item.minStockLimit <= 3 ? "⚠️" : "📊"}
+                                        {item.batas_minimum <= 3 ? "⚠️" : "📊"}
                                     </span>
-                                    <span>{item.minStockLimit}</span>
+                                    <span>{item.batas_minimum}</span>
                                 </div>
                             </div>
                             <div className="bg-gray-50 rounded-lg p-3">
                                 <div className="text-gray-500 mb-1">Jadwal</div>
                                 <div className="font-semibold text-gray-700">
-                                    {item.notificationSchedule}
+                                    {item.jadwal || "real-time"}
                                 </div>
                             </div>
                         </div>
@@ -372,7 +380,7 @@ function NotificationTable({ data, onEdit, onDelete, onToggleStatus }) {
                                 Terakhir Notif:
                             </div>
                             <div className="text-sm text-gray-700 bg-gray-50 p-2 rounded-lg">
-                                {item.lastNotified || "Belum pernah"}
+                                {item.terakhir_kirim || "Belum pernah"}
                             </div>
                         </div>
 
@@ -380,12 +388,14 @@ function NotificationTable({ data, onEdit, onDelete, onToggleStatus }) {
                             <button
                                 onClick={() => onToggleStatus(item.id)}
                                 className={`flex-1 py-2.5 rounded-xl text-xs font-semibold transition-colors ${
-                                    item.isActive
+                                    item.status === "active"
                                         ? "text-orange-600 bg-orange-50 hover:bg-orange-100"
                                         : "text-green-600 bg-green-50 hover:bg-green-100"
                                 }`}
                             >
-                                {item.isActive ? "Nonaktifkan" : "Aktifkan"}
+                                {item.status === "active"
+                                    ? "Nonaktifkan"
+                                    : "Aktifkan"}
                             </button>
                             <button
                                 onClick={() => onEdit(item)}

@@ -113,12 +113,12 @@ export const getFilteredMenu = (userLevel) => {
             label: "Manajemen Akun",
             path: "/accounts",
             icon: "UserIcon",
-            access: ["admin", "kasir"], // Bisa diakses admin dan kasir
+            access: ["admin"], // Hanya admin yang bisa akses
         },
     ];
 
     // Filter menu berdasarkan level user
-    return allMenus.filter(menu => {
+    return allMenus.filter((menu) => {
         if (!menu.access) return true; // Jika tidak ada access, tampilkan untuk semua
         return menu.access.includes(userLevel);
     });

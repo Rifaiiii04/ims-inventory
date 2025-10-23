@@ -17,6 +17,15 @@ class CashierController extends Controller
     public function index(Request $request)
     {
         try {
+            // Check if user is admin
+            $user = $request->user();
+            if (!$user || $user->level !== 'admin') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Akses ditolak. Hanya admin yang dapat mengelola kasir.'
+                ], 403);
+            }
+
             $cashiers = DB::table('tbl_user')
                 ->where('level', 'kasir')
                 ->orderBy('nama_user', 'asc')
@@ -52,9 +61,18 @@ class CashierController extends Controller
     /**
      * Get cashier by ID
      */
-    public function show($id)
+    public function show(Request $request, $id)
     {
         try {
+            // Check if user is admin
+            $user = $request->user();
+            if (!$user || $user->level !== 'admin') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Akses ditolak. Hanya admin yang dapat melihat detail kasir.'
+                ], 403);
+            }
+
             $cashier = DB::table('tbl_user')
                 ->where('id_user', $id)
                 ->where('level', 'kasir')
@@ -98,6 +116,14 @@ class CashierController extends Controller
     public function store(Request $request)
     {
         try {
+            // Check if user is admin
+            $user = $request->user();
+            if (!$user || $user->level !== 'admin') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Akses ditolak. Hanya admin yang dapat membuat kasir.'
+                ], 403);
+            }
             $validator = Validator::make($request->all(), [
                 'username' => 'required|string|max:50|unique:tbl_user,username',
                 'nama_user' => 'required|string|max:100',
@@ -155,6 +181,15 @@ class CashierController extends Controller
     public function update(Request $request, $id)
     {
         try {
+            // Check if user is admin
+            $user = $request->user();
+            if (!$user || $user->level !== 'admin') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Akses ditolak. Hanya admin yang dapat mengupdate kasir.'
+                ], 403);
+            }
+
             $cashier = DB::table('tbl_user')
                 ->where('id_user', $id)
                 ->where('level', 'kasir')
@@ -227,9 +262,18 @@ class CashierController extends Controller
     /**
      * Delete cashier
      */
-    public function destroy($id)
+    public function destroy(Request $request, $id)
     {
         try {
+            // Check if user is admin
+            $user = $request->user();
+            if (!$user || $user->level !== 'admin') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Akses ditolak. Hanya admin yang dapat menghapus kasir.'
+                ], 403);
+            }
+
             $cashier = DB::table('tbl_user')
                 ->where('id_user', $id)
                 ->where('level', 'kasir')
@@ -253,6 +297,68 @@ class CashierController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Terjadi kesalahan saat menghapus kasir',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Reset cashier password
+     */
+    public function resetPassword(Request $request, $id)
+    {
+        try {
+            // Check if user is admin
+            $user = $request->user();
+            if (!$user || $user->level !== 'admin') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Akses ditolak. Hanya admin yang dapat reset password kasir.'
+                ], 403);
+            }
+
+            $validator = Validator::make($request->all(), [
+                'new_password' => 'required|string|min:6|confirmed',
+                'new_password_confirmation' => 'required|string|min:6'
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Validasi gagal',
+                    'errors' => $validator->errors()
+                ], 422);
+            }
+
+            $cashier = DB::table('tbl_user')
+                ->where('id_user', $id)
+                ->where('level', 'kasir')
+                ->first();
+
+            if (!$cashier) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Data kasir tidak ditemukan'
+                ], 404);
+            }
+
+            // Update password
+            DB::table('tbl_user')
+                ->where('id_user', $id)
+                ->update([
+                    'password' => Hash::make($request->new_password),
+                    'updated_at' => now()
+                ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Password kasir berhasil direset'
+            ], 200);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Terjadi kesalahan saat reset password',
                 'error' => $e->getMessage()
             ], 500);
         }

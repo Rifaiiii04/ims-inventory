@@ -450,7 +450,7 @@ class CompositionController extends Controller
     public function ingredients()
     {
         try {
-            $ingredients = TblBahan::select('id_bahan', 'nama_bahan', 'satuan')
+            $ingredients = TblBahan::select('id_bahan', 'nama_bahan', 'satuan', 'min_stok')
                 ->orderBy('nama_bahan', 'asc')
                 ->get();
 

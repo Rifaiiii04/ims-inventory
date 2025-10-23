@@ -12,20 +12,59 @@ function AccountManagement() {
 
     // Get user level from AuthContext
     const { user } = useAuth();
-    
+
+    // Check if user has admin access
+    const isAdmin = user?.level === "admin";
+
+    // If not admin, redirect or show access denied
+    if (!isAdmin) {
+        return (
+            <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+                <div className="bg-white p-8 rounded-lg shadow-lg text-center">
+                    <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <svg
+                            className="w-8 h-8 text-red-600"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                        >
+                            <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z"
+                            />
+                        </svg>
+                    </div>
+                    <h2 className="text-xl font-semibold text-gray-900 mb-2">
+                        Akses Ditolak
+                    </h2>
+                    <p className="text-gray-600 mb-4">
+                        Hanya administrator yang dapat mengakses halaman ini.
+                    </p>
+                    <button
+                        onClick={() => window.history.back()}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                    >
+                        Kembali
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
     // Data user profile - menggunakan data real dari user yang login
     const [profileData, setProfileData] = useState({
         id: user?.id || 1,
         name: user?.nama_user || "User",
         email: user?.email || "",
-        role: user?.level === 'admin' ? 'Administrator' : 'Kasir',
+        role: user?.level === "admin" ? "Administrator" : "Kasir",
         phone: "+62 812-3456-7890", // Default phone
         avatar: null,
         joinDate: "2024-01-01", // Default join date
-        lastLogin: new Date().toLocaleString('id-ID'), // Current time
+        lastLogin: new Date().toLocaleString("id-ID"), // Current time
         status: "Online",
     });
-
 
     // Data preferensi
     const [preferences, setPreferences] = useState({
@@ -44,17 +83,17 @@ function AccountManagement() {
                 id: user.id || 1,
                 name: user.nama_user || "User",
                 email: user.email || "",
-                role: user.level === 'admin' ? 'Administrator' : 'Kasir',
+                role: user.level === "admin" ? "Administrator" : "Kasir",
                 phone: "+62 812-3456-7890", // Default phone
                 avatar: null,
                 joinDate: "2024-01-01", // Default join date
-                lastLogin: new Date().toLocaleString('id-ID'), // Current time
+                lastLogin: new Date().toLocaleString("id-ID"), // Current time
                 status: "Online",
             };
             setProfileData(newProfileData);
         }
     }, [user]);
-    
+
     // Filter tabs based on user level
     const getTabs = () => {
         const allTabs = [
@@ -62,21 +101,20 @@ function AccountManagement() {
             { id: "cashier", label: "Manajemen Kasir", icon: "👥" },
             { id: "preferences", label: "Pengaturan", icon: "⚙️" },
         ];
-        
+
         // For kasir, hide cashier management
-        if (user?.level === 'kasir') {
-            return allTabs.filter(tab => tab.id !== 'cashier');
+        if (user?.level === "kasir") {
+            return allTabs.filter((tab) => tab.id !== "cashier");
         }
-        
+
         return allTabs;
     };
-    
+
     const tabs = getTabs();
 
     const handleUpdateProfile = (updatedProfile) => {
         setProfileData({ ...profileData, ...updatedProfile });
     };
-
 
     const handleUpdatePreferences = (updatedPreferences) => {
         setPreferences({ ...preferences, ...updatedPreferences });
@@ -167,9 +205,7 @@ function AccountManagement() {
                                 />
                             )}
 
-                            {activeTab === "cashier" && (
-                                <CashierManagement />
-                            )}
+                            {activeTab === "cashier" && <CashierManagement />}
 
                             {activeTab === "preferences" && (
                                 <PreferenceSettings

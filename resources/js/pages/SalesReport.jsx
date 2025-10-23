@@ -208,12 +208,41 @@ function SalesReport() {
 
                 {/* Content */}
                 <div className="flex-1 overflow-y-auto p-6">
+                    {/* Period Tabs */}
+                    <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 mb-6">
+                        <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                            Periode Laporan
+                        </h3>
+                        <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg">
+                            {[
+                                { key: "daily", label: "Harian" },
+                                { key: "weekly", label: "Mingguan" },
+                                { key: "monthly", label: "Bulanan" },
+                            ].map((period) => (
+                                <button
+                                    key={period.key}
+                                    onClick={() => {
+                                        setActiveTab(period.key);
+                                        handleFilterChange();
+                                    }}
+                                    className={`flex-1 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                                        activeTab === period.key
+                                            ? "bg-white text-green-600 shadow-sm"
+                                            : "text-gray-600 hover:text-gray-900"
+                                    }`}
+                                >
+                                    {period.label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
                     {/* Filters */}
                     <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 mb-6">
                         <h3 className="text-lg font-semibold text-gray-900 mb-4">
                             Filter Laporan
                         </h3>
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-2">
                                     Produk
@@ -260,7 +289,7 @@ function SalesReport() {
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                                    Tanggal
+                                    Tanggal Mulai
                                 </label>
                                 <input
                                     type="date"
@@ -288,14 +317,16 @@ function SalesReport() {
                                     <option value="Transfer">Transfer</option>
                                 </select>
                             </div>
+                            <div className="flex items-end">
+                                <button
+                                    onClick={handleFilterChange}
+                                    className="w-full bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 transition-colors"
+                                >
+                                    Terapkan Filter
+                                </button>
+                            </div>
                         </div>
                         <div className="flex justify-end mt-4 space-x-3">
-                            <button
-                                onClick={handleFilterChange}
-                                className="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 transition-colors"
-                            >
-                                Terapkan Filter
-                            </button>
                             <button
                                 onClick={handleExportExcel}
                                 className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-colors"
@@ -436,19 +467,52 @@ function SalesReport() {
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
                         {/* Revenue Chart */}
                         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-                            <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                                Grafik Pendapatan
-                            </h3>
+                            <div className="flex justify-between items-center mb-4">
+                                <h3 className="text-lg font-semibold text-gray-900">
+                                    Grafik Pendapatan{" "}
+                                    {activeTab === "daily"
+                                        ? "Harian"
+                                        : activeTab === "weekly"
+                                        ? "Mingguan"
+                                        : "Bulanan"}
+                                </h3>
+                                <div className="text-sm text-gray-500">
+                                    Periode:{" "}
+                                    {activeTab === "daily"
+                                        ? "Harian"
+                                        : activeTab === "weekly"
+                                        ? "Mingguan"
+                                        : "Bulanan"}
+                                </div>
+                            </div>
                             <ResponsiveContainer width="100%" height={300}>
                                 <LineChart data={salesData.chart_data || []}>
                                     <CartesianGrid strokeDasharray="3 3" />
-                                    <XAxis dataKey="period" />
-                                    <YAxis />
+                                    <XAxis
+                                        dataKey="period"
+                                        tick={{ fontSize: 12 }}
+                                        angle={-45}
+                                        textAnchor="end"
+                                        height={60}
+                                    />
+                                    <YAxis
+                                        tick={{ fontSize: 12 }}
+                                        tickFormatter={(value) =>
+                                            formatCurrency(value)
+                                        }
+                                    />
                                     <Tooltip
-                                        formatter={(value) => [
+                                        formatter={(value, name) => [
                                             formatCurrency(value),
-                                            "Pendapatan",
+                                            name === "revenue"
+                                                ? "Pendapatan"
+                                                : name === "transactions"
+                                                ? "Transaksi"
+                                                : name,
                                         ]}
+                                        labelFormatter={(label) =>
+                                            `Periode: ${label}`
+                                        }
                                     />
                                     <Legend />
                                     <Line
@@ -456,6 +520,14 @@ function SalesReport() {
                                         dataKey="revenue"
                                         stroke="#10B981"
                                         strokeWidth={2}
+                                        name="Pendapatan"
+                                    />
+                                    <Line
+                                        type="monotone"
+                                        dataKey="transactions"
+                                        stroke="#3B82F6"
+                                        strokeWidth={2}
+                                        name="Transaksi"
                                     />
                                 </LineChart>
                             </ResponsiveContainer>
@@ -485,6 +557,98 @@ function SalesReport() {
                                         ]}
                                     />
                                     <Bar dataKey="revenue" fill="#3B82F6" />
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </div>
+                    </div>
+
+                    {/* Additional Charts */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                        {/* Category Performance */}
+                        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+                            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                                Performa Kategori
+                            </h3>
+                            <ResponsiveContainer width="100%" height={300}>
+                                <PieChart>
+                                    <Pie
+                                        data={
+                                            salesData.category_performance?.slice(
+                                                0,
+                                                5
+                                            ) || []
+                                        }
+                                        cx="50%"
+                                        cy="50%"
+                                        labelLine={false}
+                                        label={({ name, percent }) =>
+                                            `${name} ${(percent * 100).toFixed(
+                                                0
+                                            )}%`
+                                        }
+                                        outerRadius={80}
+                                        fill="#8884d8"
+                                        dataKey="revenue"
+                                    >
+                                        {(
+                                            salesData.category_performance?.slice(
+                                                0,
+                                                5
+                                            ) || []
+                                        ).map((entry, index) => (
+                                            <Cell
+                                                key={`cell-${index}`}
+                                                fill={
+                                                    COLORS[
+                                                        index % COLORS.length
+                                                    ]
+                                                }
+                                            />
+                                        ))}
+                                    </Pie>
+                                    <Tooltip
+                                        formatter={(value) => [
+                                            formatCurrency(value),
+                                            "Pendapatan",
+                                        ]}
+                                    />
+                                </PieChart>
+                            </ResponsiveContainer>
+                        </div>
+
+                        {/* Payment Methods */}
+                        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+                            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                                Metode Pembayaran
+                            </h3>
+                            <ResponsiveContainer width="100%" height={300}>
+                                <BarChart
+                                    data={salesData.payment_methods || []}
+                                >
+                                    <CartesianGrid strokeDasharray="3 3" />
+                                    <XAxis dataKey="name" />
+                                    <YAxis />
+                                    <Tooltip
+                                        formatter={(value, name) => [
+                                            name === "revenue"
+                                                ? formatCurrency(value)
+                                                : value,
+                                            name === "revenue"
+                                                ? "Pendapatan"
+                                                : "Jumlah Transaksi",
+                                        ]}
+                                    />
+                                    <Legend />
+                                    <Bar
+                                        dataKey="revenue"
+                                        fill="#10B981"
+                                        name="Pendapatan"
+                                    />
+                                    <Bar
+                                        dataKey="count"
+                                        fill="#3B82F6"
+                                        name="Jumlah"
+                                    />
                                 </BarChart>
                             </ResponsiveContainer>
                         </div>

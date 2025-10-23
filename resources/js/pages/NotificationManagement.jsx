@@ -3,82 +3,35 @@ import Sidebar from "../components/Sidebar";
 import TopBar from "../components/TopBar";
 import NotificationTable from "../components/notification/NotificationTable";
 import NotificationFormModal from "../components/notification/NotificationFormModal";
+import { useNotification } from "../hooks/useNotification";
 
 function NotificationManagement() {
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
     const [showFormModal, setShowFormModal] = useState(false);
     const [editingNotification, setEditingNotification] = useState(null);
 
-    // Data notifikasi berdasarkan observasi
-    const [notificationData, setNotificationData] = useState([
-        {
-            id: 1,
-            productName: "Ayam Utuh",
-            category: "Bahan Utama",
-            minStockLimit: 2,
-            notificationSchedule: "Harian",
-            isActive: true,
-            lastNotified: "2024-01-15 08:00",
-            createdBy: "Admin",
-            createdAt: "2024-01-10",
-        },
-        {
-            id: 2,
-            productName: "Beras",
-            category: "Bahan Pokok",
-            minStockLimit: 5,
-            notificationSchedule: "Harian",
-            isActive: true,
-            lastNotified: "2024-01-15 08:00",
-            createdBy: "Admin",
-            createdAt: "2024-01-10",
-        },
-        {
-            id: 3,
-            productName: "Kangkung",
-            category: "Sayuran",
-            minStockLimit: 3,
-            notificationSchedule: "2x Sehari",
-            isActive: true,
-            lastNotified: "2024-01-15 12:00",
-            createdBy: "Staff1",
-            createdAt: "2024-01-12",
-        },
-        {
-            id: 4,
-            productName: "Tempe Bumbu Kuning",
-            category: "Bahan Pokok",
-            minStockLimit: 10,
-            notificationSchedule: "Harian",
-            isActive: false,
-            lastNotified: "2024-01-14 08:00",
-            createdBy: "Admin",
-            createdAt: "2024-01-08",
-        },
-        {
-            id: 5,
-            productName: "Lele",
-            category: "Bahan Utama",
-            minStockLimit: 5,
-            notificationSchedule: "Harian",
-            isActive: true,
-            lastNotified: "2024-01-15 08:00",
-            createdBy: "Admin",
-            createdAt: "2024-01-10",
-        },
-    ]);
+    // Use notification hook for real data
+    const {
+        notifications: notificationData,
+        loading,
+        error,
+        createNotification,
+        updateNotification,
+        deleteNotification,
+        markAsRead,
+        markAllAsRead,
+        refreshData,
+    } = useNotification();
 
     // Handle tambah notifikasi baru
-    const handleAddNotification = (newNotification) => {
-        const notification = {
-            ...newNotification,
-            id: notificationData.length + 1,
-            createdAt: new Date().toISOString().split("T")[0],
-            createdBy: "Admin", // TODO: Get from auth
-            lastNotified: null,
-        };
-        setNotificationData([...notificationData, notification]);
-        setShowFormModal(false);
+    const handleAddNotification = async (newNotification) => {
+        const result = await createNotification(newNotification);
+        if (result.success) {
+            setShowFormModal(false);
+            alert(result.message);
+        } else {
+            alert(`Error: ${result.message}`);
+        }
     };
 
     // Handle edit notifikasi
@@ -88,50 +41,141 @@ function NotificationManagement() {
     };
 
     // Handle update notifikasi
-    const handleUpdateNotification = (updatedNotification) => {
-        setNotificationData(
-            notificationData.map((notification) =>
-                notification.id === updatedNotification.id
-                    ? updatedNotification
-                    : notification
-            )
+    const handleUpdateNotification = async (updatedNotification) => {
+        const result = await updateNotification(
+            editingNotification.id,
+            updatedNotification
         );
-        setShowFormModal(false);
-        setEditingNotification(null);
+        if (result.success) {
+            setShowFormModal(false);
+            setEditingNotification(null);
+            alert(result.message);
+        } else {
+            alert(`Error: ${result.message}`);
+        }
     };
 
     // Handle delete notifikasi
-    const handleDeleteNotification = (id) => {
+    const handleDeleteNotification = async (id) => {
         if (
             window.confirm("Apakah Anda yakin ingin menghapus notifikasi ini?")
         ) {
-            setNotificationData(
-                notificationData.filter(
-                    (notification) => notification.id !== id
-                )
-            );
+            const result = await deleteNotification(id);
+            if (result.success) {
+                alert(result.message);
+            } else {
+                alert(`Error: ${result.message}`);
+            }
         }
     };
 
     // Handle toggle status
-    const handleToggleStatus = (id) => {
-        setNotificationData(
-            notificationData.map((notification) =>
-                notification.id === id
-                    ? { ...notification, isActive: !notification.isActive }
-                    : notification
-            )
-        );
+    const handleToggleStatus = async (id) => {
+        const notification = notificationData.find((n) => n.id === id);
+        if (notification) {
+            const updatedData = {
+                aktif: notification.status === "active" ? false : true,
+            };
+            const result = await updateNotification(id, updatedData);
+            if (result.success) {
+                alert(result.message);
+            } else {
+                alert(`Error: ${result.message}`);
+            }
+        }
+    };
+
+    // Handle mark as read
+    const handleMarkAsRead = async (id) => {
+        const result = await markAsRead(id);
+        if (result.success) {
+            alert(result.message);
+        } else {
+            alert(`Error: ${result.message}`);
+        }
+    };
+
+    // Handle mark all as read
+    const handleMarkAllAsRead = async () => {
+        const result = await markAllAsRead();
+        if (result.success) {
+            alert(result.message);
+        } else {
+            alert(`Error: ${result.message}`);
+        }
     };
 
     // Calculate statistics
-    const activeNotifications = notificationData.filter(
-        (n) => n.isActive
-    ).length;
-    const totalNotifications = notificationData.length;
-    const urgentNotifications = notificationData.filter(
-        (n) => n.isActive && n.minStockLimit <= 3
-    ).length;
+    const activeNotifications =
+        notificationData?.filter((n) => n.status === "active").length || 0;
+    const totalNotifications = notificationData?.length || 0;
+    const unreadNotifications =
+        notificationData?.filter((n) => n.status === "unread").length || 0;
+
+    // Show loading state
+    if (loading) {
+        return (
+            <div className="flex h-screen bg-gray-50">
+                <Sidebar
+                    isMobileMenuOpen={isMobileMenuOpen}
+                    setIsMobileMenuOpen={setIsMobileMenuOpen}
+                />
+                <div className="flex-1 flex flex-col overflow-hidden">
+                    <TopBar
+                        title="Kelola Notifikasi"
+                        subtitle="Manajemen notifikasi sistem"
+                        onMenuClick={() =>
+                            setIsMobileMenuOpen(!isMobileMenuOpen)
+                        }
+                    />
+                    <div className="flex-1 flex items-center justify-center">
+                        <div className="text-center">
+                            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-500 mx-auto mb-4"></div>
+                            <p className="text-gray-600">
+                                Memuat data notifikasi...
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    // Show error state
+    if (error) {
+        return (
+            <div className="flex h-screen bg-gray-50">
+                <Sidebar
+                    isMobileMenuOpen={isMobileMenuOpen}
+                    setIsMobileMenuOpen={setIsMobileMenuOpen}
+                />
+                <div className="flex-1 flex flex-col overflow-hidden">
+                    <TopBar
+                        title="Kelola Notifikasi"
+                        subtitle="Manajemen notifikasi sistem"
+                        onMenuClick={() =>
+                            setIsMobileMenuOpen(!isMobileMenuOpen)
+                        }
+                    />
+                    <div className="flex-1 flex items-center justify-center">
+                        <div className="text-center">
+                            <div className="text-red-500 text-6xl mb-4">⚠️</div>
+                            <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                                Terjadi Kesalahan
+                            </h3>
+                            <p className="text-gray-600 mb-4">{error}</p>
+                            <button
+                                onClick={() => refreshData()}
+                                className="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 transition-colors"
+                            >
+                                Coba Lagi
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <>
@@ -263,24 +307,24 @@ function NotificationManagement() {
                                 </div>
                             </div>
 
-                            <div className="bg-gradient-to-r from-red-50 to-red-100 rounded-2xl p-6 border border-red-200">
+                            <div className="bg-gradient-to-r from-blue-50 to-blue-100 rounded-2xl p-6 border border-blue-200">
                                 <div className="flex items-center justify-between">
                                     <div>
-                                        <p className="text-sm font-semibold text-red-600 mb-1">
-                                            Urgent
+                                        <p className="text-sm font-semibold text-blue-600 mb-1">
+                                            Belum Dibaca
                                         </p>
-                                        <h3 className="text-2xl font-bold text-red-700">
-                                            {urgentNotifications}
+                                        <h3 className="text-2xl font-bold text-blue-700">
+                                            {unreadNotifications}
                                         </h3>
                                     </div>
-                                    <div className="w-12 h-12 bg-red-200 rounded-xl flex items-center justify-center">
+                                    <div className="w-12 h-12 bg-blue-200 rounded-xl flex items-center justify-center">
                                         <svg
                                             xmlns="http://www.w3.org/2000/svg"
                                             fill="none"
                                             viewBox="0 0 24 24"
                                             strokeWidth={2}
                                             stroke="currentColor"
-                                            className="w-6 h-6 text-red-600"
+                                            className="w-6 h-6 text-blue-600"
                                         >
                                             <path
                                                 strokeLinecap="round"
@@ -328,12 +372,60 @@ function NotificationManagement() {
                             </div>
                         </div>
 
+                        {/* Action Buttons */}
+                        <div className="flex justify-between items-center">
+                            <div className="flex space-x-3">
+                                <button
+                                    onClick={handleMarkAllAsRead}
+                                    className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-colors flex items-center space-x-2"
+                                >
+                                    <svg
+                                        className="w-4 h-4"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        viewBox="0 0 24 24"
+                                    >
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            strokeWidth={2}
+                                            d="M5 13l4 4L19 7"
+                                        />
+                                    </svg>
+                                    <span>Tandai Semua Dibaca</span>
+                                </button>
+                                <button
+                                    onClick={refreshData}
+                                    className="bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600 transition-colors flex items-center space-x-2"
+                                >
+                                    <svg
+                                        className="w-4 h-4"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        viewBox="0 0 24 24"
+                                    >
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            strokeWidth={2}
+                                            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                                        />
+                                    </svg>
+                                    <span>Refresh</span>
+                                </button>
+                            </div>
+                            <div className="text-sm text-gray-500">
+                                Total: {totalNotifications} notifikasi
+                            </div>
+                        </div>
+
                         {/* Notification Table */}
                         <NotificationTable
                             data={notificationData}
                             onEdit={handleEditNotification}
                             onDelete={handleDeleteNotification}
                             onToggleStatus={handleToggleStatus}
+                            onMarkAsRead={handleMarkAsRead}
                         />
                     </div>
                 </div>

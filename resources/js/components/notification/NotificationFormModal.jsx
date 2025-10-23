@@ -1,58 +1,67 @@
 import React, { useState, useEffect } from "react";
+import axios from "axios";
 
 function NotificationFormModal({ notification, onClose, onSave }) {
     const [formData, setFormData] = useState({
-        productName: "",
-        category: "",
-        minStockLimit: "",
-        notificationSchedule: "",
-        isActive: true,
+        id_bahan: "",
+        jadwal: "",
+        aktif: true,
     });
 
-    const categories = [
-        "Bahan Utama",
-        "Bahan Pokok",
-        "Bumbu & Rempah",
-        "Sayuran",
-        "Ikan Asin",
-        "Minuman",
+    const [bahanList, setBahanList] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+
+    const schedules = [
+        { value: "harian", label: "Harian" },
+        { value: "mingguan", label: "Mingguan" },
+        { value: "real-time", label: "Real-time" },
     ];
 
-    const schedules = ["Harian", "2x Sehari", "Mingguan"];
+    // Fetch bahan list from API
+    useEffect(() => {
+        const fetchBahan = async () => {
+            try {
+                setLoading(true);
+                setError(null);
+                const response = await axios.get(
+                    "/api/compositions/ingredients/list"
+                );
+                console.log("API Response:", response.data);
+                if (response.data.success) {
+                    setBahanList(response.data.data);
+                    console.log("Bahan list set:", response.data.data);
+                } else {
+                    setError(
+                        response.data.message || "Gagal mengambil data bahan"
+                    );
+                }
+            } catch (error) {
+                console.error("Error fetching bahan:", error);
+                setError("Terjadi kesalahan saat mengambil data bahan");
+            } finally {
+                setLoading(false);
+            }
+        };
 
-    const products = [
-        "Ayam Utuh",
-        "Lele",
-        "Nila",
-        "Cumi",
-        "Beras",
-        "Tahu Bumbu Kuning",
-        "Tempe Bumbu Kuning",
-        "Tempe Bacem",
-        "Tahu Bacem",
-        "Bumbu Halus",
-        "Rempah Kering",
-        "Kangkung",
-        "Terong",
-        "Timun",
-        "Ikan Asin Japuh",
-        "Ikan Asin Peda",
-        "Ikan Asin Pindang",
-        "Teh",
-        "Jeruk",
-        "Es Batu",
-    ];
+        fetchBahan();
+    }, []);
+
+    // Debug log untuk melihat state bahanList
+    useEffect(() => {
+        console.log("BahanList state:", bahanList);
+        console.log("Loading state:", loading);
+        console.log("Error state:", error);
+    }, [bahanList, loading, error]);
 
     useEffect(() => {
         if (notification) {
             setFormData({
-                productName: notification.productName || "",
-                category: notification.category || "",
-                minStockLimit: notification.minStockLimit || "",
-                notificationSchedule: notification.notificationSchedule || "",
-                isActive:
-                    notification.isActive !== undefined
-                        ? notification.isActive
+                id_bahan: notification.id_bahan || "",
+                jadwal: notification.jadwal || "",
+                aktif:
+                    notification.aktif !== undefined
+                        ? notification.aktif
                         : true,
             });
         }
@@ -122,88 +131,110 @@ function NotificationFormModal({ notification, onClose, onSave }) {
                 {/* Form */}
                 <form onSubmit={handleSubmit} className="p-6 space-y-6">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        {/* Product Name */}
+                        {/* Bahan */}
                         <div>
                             <label className="block text-sm font-semibold text-gray-700 mb-2">
-                                Nama Produk{" "}
+                                Nama Bahan{" "}
                                 <span className="text-red-500">*</span>
                             </label>
                             <select
-                                name="productName"
-                                value={formData.productName}
+                                name="id_bahan"
+                                value={formData.id_bahan}
                                 onChange={handleChange}
                                 className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                                 required
+                                disabled={loading}
                             >
-                                <option value="">Pilih produk</option>
-                                {products.map((product) => (
-                                    <option key={product} value={product}>
-                                        {product}
+                                <option value="">Pilih bahan</option>
+                                {bahanList.map((bahan) => (
+                                    <option
+                                        key={bahan.id_bahan}
+                                        value={bahan.id_bahan}
+                                    >
+                                        {bahan.nama_bahan}
                                     </option>
                                 ))}
                             </select>
+                            {loading && (
+                                <p className="text-sm text-blue-500 mt-1">
+                                    Memuat daftar bahan...
+                                </p>
+                            )}
+                            {error && (
+                                <p className="text-sm text-red-500 mt-1">
+                                    {error}
+                                </p>
+                            )}
+                            {!loading && !error && bahanList.length === 0 && (
+                                <p className="text-sm text-gray-500 mt-1">
+                                    Tidak ada bahan tersedia
+                                </p>
+                            )}
                         </div>
 
-                        {/* Category */}
-                        <div>
-                            <label className="block text-sm font-semibold text-gray-700 mb-2">
-                                Kategori <span className="text-red-500">*</span>
-                            </label>
-                            <select
-                                name="category"
-                                value={formData.category}
-                                onChange={handleChange}
-                                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                                required
-                            >
-                                <option value="">Pilih kategori</option>
-                                {categories.map((category) => (
-                                    <option key={category} value={category}>
-                                        {category}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
+                        {/* Display Min Stok dari Bahan */}
+                        {formData.id_bahan && (
+                            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                                <div className="flex items-center gap-2">
+                                    <svg
+                                        className="w-5 h-5 text-blue-600"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        viewBox="0 0 24 24"
+                                    >
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            strokeWidth={2}
+                                            d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                                        />
+                                    </svg>
+                                    <div>
+                                        <p className="text-sm font-semibold text-blue-800">
+                                            Batas Minimum Stok
+                                        </p>
+                                        <p className="text-sm text-blue-600">
+                                            {(() => {
+                                                const selectedBahan =
+                                                    bahanList.find(
+                                                        (b) =>
+                                                            b.id_bahan ==
+                                                            formData.id_bahan
+                                                    );
+                                                return selectedBahan
+                                                    ? `${selectedBahan.min_stok} ${selectedBahan.satuan}`
+                                                    : "Tidak tersedia";
+                                            })()}
+                                        </p>
+                                        <p className="text-xs text-blue-500 mt-1">
+                                            Nilai ini diambil dari pengelolaan
+                                            stok bahan
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
 
-                        {/* Min Stock Limit */}
-                        <div>
-                            <label className="block text-sm font-semibold text-gray-700 mb-2">
-                                Batas Minimum Stok{" "}
-                                <span className="text-red-500">*</span>
-                            </label>
-                            <input
-                                type="number"
-                                name="minStockLimit"
-                                value={formData.minStockLimit}
-                                onChange={handleChange}
-                                min="1"
-                                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                                placeholder="Masukkan batas minimum"
-                                required
-                            />
-                            <p className="text-xs text-gray-500 mt-1">
-                                Notifikasi akan muncul ketika stok di bawah
-                                batas ini
-                            </p>
-                        </div>
-
-                        {/* Notification Schedule */}
+                        {/* Jadwal Notifikasi */}
                         <div>
                             <label className="block text-sm font-semibold text-gray-700 mb-2">
                                 Jadwal Notifikasi{" "}
                                 <span className="text-red-500">*</span>
                             </label>
                             <select
-                                name="notificationSchedule"
-                                value={formData.notificationSchedule}
+                                name="jadwal"
+                                value={formData.jadwal}
                                 onChange={handleChange}
                                 className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                                 required
                             >
                                 <option value="">Pilih jadwal</option>
                                 {schedules.map((schedule) => (
-                                    <option key={schedule} value={schedule}>
-                                        {schedule}
+                                    <option
+                                        key={schedule.value}
+                                        value={schedule.value}
+                                    >
+                                        {schedule.label}
                                     </option>
                                 ))}
                             </select>
@@ -214,8 +245,8 @@ function NotificationFormModal({ notification, onClose, onSave }) {
                     <div className="flex items-center gap-3">
                         <input
                             type="checkbox"
-                            name="isActive"
-                            checked={formData.isActive}
+                            name="aktif"
+                            checked={formData.aktif}
                             onChange={handleChange}
                             className="w-5 h-5 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 focus:ring-2"
                         />

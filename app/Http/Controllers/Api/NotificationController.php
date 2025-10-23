@@ -17,11 +17,30 @@ class NotificationController extends Controller
     public function index(Request $request)
     {
         try {
-            $notifications = TblNotifikasi::orderBy('created_at', 'desc')->get();
+            $notifications = TblNotifikasi::with(['bahan:id_bahan,nama_bahan,min_stok'])
+                ->orderBy('created_at', 'desc')
+                ->get();
+
+            $formattedNotifications = $notifications->map(function($notification) {
+                return [
+                    'id' => $notification->id_notifikasi,
+                    'judul' => 'Peringatan Stok ' . ($notification->bahan->nama_bahan ?? 'Unknown'),
+                    'pesan' => 'Stok ' . ($notification->bahan->nama_bahan ?? 'Unknown') . ' mencapai batas minimum ' . ($notification->bahan->min_stok ?? $notification->batas_minimum),
+                    'tipe' => 'low_stock',
+                    'status' => $notification->aktif ? 'active' : 'inactive',
+                    'batas_minimum' => $notification->bahan->min_stok ?? $notification->batas_minimum,
+                    'min_stok_bahan' => $notification->bahan->min_stok,
+                    'jadwal' => $notification->jadwal,
+                    'terakhir_kirim' => $notification->terakhir_kirim,
+                    'created_by' => $notification->created_by,
+                    'created_at' => $notification->created_at,
+                    'updated_at' => $notification->updated_at,
+                ];
+            });
 
             return response()->json([
                 'success' => true,
-                'data' => $notifications
+                'data' => $formattedNotifications
             ], 200);
 
         } catch (\Exception $e) {
@@ -40,25 +59,34 @@ class NotificationController extends Controller
     {
         try {
             $validator = Validator::make($request->all(), [
-                'judul' => 'required|string|max:255',
-                'pesan' => 'required|string',
-                'tipe' => 'required|string|in:info,warning,error,low_stock,transaction',
-                'status' => 'nullable|string|in:unread,read'
+                'id_bahan' => 'required|exists:tbl_bahan,id_bahan',
+                'jadwal' => 'required|in:harian,mingguan,real-time',
+                'aktif' => 'nullable|boolean'
             ]);
 
             if ($validator->fails()) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Validation error',
+                    'message' => 'Validasi gagal',
                     'errors' => $validator->errors()
                 ], 422);
             }
 
+            // Get bahan data to use its min_stok
+            $bahan = TblBahan::find($request->id_bahan);
+            if (!$bahan) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Bahan tidak ditemukan'
+                ], 404);
+            }
+
             $notification = TblNotifikasi::create([
-                'judul' => $request->judul,
-                'pesan' => $request->pesan,
-                'tipe' => $request->tipe,
-                'status' => $request->status ?? 'unread'
+                'id_bahan' => $request->id_bahan,
+                'batas_minimum' => $bahan->min_stok, // Use min_stok from bahan
+                'jadwal' => $request->jadwal,
+                'aktif' => $request->aktif ?? true,
+                'created_by' => 1, // TODO: Get from auth
             ]);
 
             return response()->json([
@@ -77,9 +105,9 @@ class NotificationController extends Controller
     }
 
     /**
-     * Mark notification as read
+     * Update notification
      */
-    public function markAsRead($id)
+    public function update(Request $request, $id)
     {
         try {
             $notification = TblNotifikasi::find($id);
@@ -91,33 +119,27 @@ class NotificationController extends Controller
                 ], 404);
             }
 
-            $notification->update(['status' => 'read']);
+            $validator = Validator::make($request->all(), [
+                'jadwal' => 'sometimes|in:harian,mingguan,real-time',
+                'aktif' => 'sometimes|boolean'
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Validasi gagal',
+                    'errors' => $validator->errors()
+                ], 422);
+            }
+
+            // Update only allowed fields (batas_minimum is read-only from bahan)
+            $updateData = $request->only(['jadwal', 'aktif']);
+            $notification->update($updateData);
 
             return response()->json([
                 'success' => true,
-                'message' => 'Notifikasi berhasil ditandai sebagai dibaca'
-            ], 200);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Terjadi kesalahan saat memperbarui notifikasi',
-                'error' => $e->getMessage()
-            ], 500);
-        }
-    }
-
-    /**
-     * Mark all notifications as read
-     */
-    public function markAllAsRead()
-    {
-        try {
-            TblNotifikasi::where('status', 'unread')->update(['status' => 'read']);
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Semua notifikasi berhasil ditandai sebagai dibaca'
+                'message' => 'Notifikasi berhasil diperbarui',
+                'data' => $notification
             ], 200);
 
         } catch (\Exception $e) {
@@ -155,6 +177,59 @@ class NotificationController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Terjadi kesalahan saat menghapus notifikasi',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Mark notification as read
+     */
+    public function markAsRead($id)
+    {
+        try {
+            $notification = TblNotifikasi::find($id);
+            
+            if (!$notification) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Notifikasi tidak ditemukan'
+                ], 404);
+            }
+
+            $notification->update(['terakhir_kirim' => now()]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Notifikasi berhasil ditandai sebagai dibaca'
+            ], 200);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Terjadi kesalahan saat memperbarui notifikasi',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Mark all notifications as read
+     */
+    public function markAllAsRead()
+    {
+        try {
+            TblNotifikasi::whereNull('terakhir_kirim')->update(['terakhir_kirim' => now()]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Semua notifikasi berhasil ditandai sebagai dibaca'
+            ], 200);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Terjadi kesalahan saat memperbarui notifikasi',
                 'error' => $e->getMessage()
             ], 500);
         }
