@@ -1,4 +1,9 @@
 import React, { useState, useEffect } from "react";
+import axios from "axios";
+import InputModeToggle from "./InputModeToggle";
+import ManualInputForm from "./ManualInputForm";
+import PhotoInputForm from "./PhotoInputForm";
+import OcrReviewModal from "./OcrReviewModal";
 
 function StockFormModal({ stock, onClose, onSubmit, categories = [] }) {
     const [formData, setFormData] = useState({
@@ -12,6 +17,15 @@ function StockFormModal({ stock, onClose, onSubmit, categories = [] }) {
         max_divisions: "",
         division_description: "",
     });
+
+    const [ocrData, setOcrData] = useState({
+        isProcessing: false,
+        items: [],
+        error: null,
+    });
+
+    const [inputMode, setInputMode] = useState("manual"); // 'manual' or 'photo'
+    const [showOcrReview, setShowOcrReview] = useState(false);
 
     useEffect(() => {
         if (stock) {
@@ -30,6 +44,128 @@ function StockFormModal({ stock, onClose, onSubmit, categories = [] }) {
     const handleSubmit = (e) => {
         e.preventDefault();
         onSubmit(formData);
+    };
+
+    const handleImageUpload = async (file) => {
+        if (!file) return;
+
+        setOcrData((prev) => ({ ...prev, isProcessing: true, error: null }));
+
+        try {
+            const formData = new FormData();
+            formData.append("image", file);
+
+            const response = await axios.post(
+                "/api/ocr/process-photo",
+                formData
+            );
+
+            console.log("OCR Response:", response.data);
+            console.log("Response status:", response.status);
+            console.log("Response headers:", response.headers);
+
+            if (response.data.success) {
+                console.log("OCR Items found:", response.data.data.items);
+                console.log("Items count:", response.data.data.items.length);
+                console.log("Items type:", typeof response.data.data.items);
+
+                setOcrData({
+                    isProcessing: false,
+                    items: response.data.data.items || [],
+                    error: null,
+                });
+
+                // Show review modal if items found
+                if (
+                    response.data.data.items &&
+                    response.data.data.items.length > 0
+                ) {
+                    console.log(
+                        "Showing OCR review modal with",
+                        response.data.data.items.length,
+                        "items"
+                    );
+                    setShowOcrReview(true);
+                } else {
+                    console.log(
+                        "No items found in OCR response - items array is empty or undefined"
+                    );
+                    setOcrData({
+                        isProcessing: false,
+                        items: [],
+                        error: "Tidak ada item yang ditemukan dalam foto. Coba foto yang lebih jelas.",
+                    });
+                }
+            } else {
+                console.log("OCR failed:", response.data.message);
+                setOcrData({
+                    isProcessing: false,
+                    items: [],
+                    error: response.data.message || "Photo processing failed",
+                });
+            }
+        } catch (error) {
+            console.error("Photo Upload Error:", error);
+
+            let errorMessage = "Failed to process photo. Please try again.";
+
+            if (error.response?.status === 500) {
+                errorMessage = "Photo processing service is not running.";
+            } else if (error.response?.status === 400) {
+                errorMessage =
+                    error.response.data?.message || "Invalid image format.";
+            } else if (error.code === "ERR_NETWORK") {
+                errorMessage = "Cannot connect to photo processing service.";
+            }
+
+            setOcrData({
+                isProcessing: false,
+                items: [],
+                error: errorMessage,
+            });
+        }
+    };
+
+    const handleOcrItemSelect = (item) => {
+        setFormData((prev) => ({
+            ...prev,
+            name: item.nama_barang,
+            quantity: item.jumlah.toString(),
+            buyPrice: item.harga.toString(),
+        }));
+    };
+
+    const handleOcrConfirmAdd = async (itemsToAdd) => {
+        try {
+            // Add each item to stock
+            for (const item of itemsToAdd) {
+                const stockData = {
+                    name: item.nama_barang,
+                    category_id: item.category_id,
+                    buyPrice: item.harga,
+                    quantity: item.jumlah,
+                    unit: item.unit,
+                    minStock: item.minStock,
+                    is_divisible: false,
+                    max_divisions: "",
+                    division_description: "",
+                };
+
+                await onSubmit(stockData);
+            }
+
+            // Reset OCR data and close modals
+            setOcrData({
+                isProcessing: false,
+                items: [],
+                error: null,
+            });
+            setShowOcrReview(false);
+            onClose();
+        } catch (error) {
+            console.error("Error adding OCR items:", error);
+            alert("Terjadi kesalahan saat menambahkan item ke stok");
+        }
     };
 
     return (
@@ -65,182 +201,29 @@ function StockFormModal({ stock, onClose, onSubmit, categories = [] }) {
 
                 {/* Modal Body */}
                 <form onSubmit={handleSubmit} className="p-6">
-                    <div className="space-y-4">
-                        {/* Nama Stok */}
-                        <div>
-                            <label className="block text-sm font-semibold text-gray-700 mb-2">
-                                Nama Stok *
-                            </label>
-                            <input
-                                type="text"
-                                name="name"
-                                value={formData.name}
-                                onChange={handleChange}
-                                placeholder="Contoh: Nasi Putih"
-                                className="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:border-green-500 focus:outline-none transition-colors text-sm"
-                                required
-                            />
-                        </div>
+                    {/* Input Mode Toggle */}
+                    <InputModeToggle
+                        inputMode={inputMode}
+                        onModeChange={setInputMode}
+                    />
 
-                        {/* Kategori */}
-                        <div>
-                            <label className="block text-sm font-semibold text-gray-700 mb-2">
-                                Kategori *
-                            </label>
-                            <select
-                                name="category_id"
-                                value={formData.category_id}
-                                onChange={handleChange}
-                                className="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:border-green-500 focus:outline-none transition-colors text-sm"
-                                required
-                            >
-                                <option value="">Pilih Kategori</option>
-                                {categories.map((category) => (
-                                    <option
-                                        key={category.id_kategori}
-                                        value={category.id_kategori}
-                                    >
-                                        {category.nama_kategori}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
+                    {/* Manual Input Mode */}
+                    {inputMode === "manual" && (
+                        <ManualInputForm
+                            formData={formData}
+                            onChange={handleChange}
+                            categories={categories}
+                        />
+                    )}
 
-                        {/* Harga Beli */}
-                        <div>
-                            <label className="block text-sm font-semibold text-gray-700 mb-2">
-                                Harga Beli (Rp) *
-                            </label>
-                            <input
-                                type="number"
-                                name="buyPrice"
-                                value={formData.buyPrice}
-                                onChange={handleChange}
-                                placeholder="Contoh: 5000"
-                                className="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:border-green-500 focus:outline-none transition-colors text-sm"
-                                required
-                                min="0"
-                            />
-                        </div>
-
-                        {/* Jumlah */}
-                        <div>
-                            <label className="block text-sm font-semibold text-gray-700 mb-2">
-                                Jumlah *
-                            </label>
-                            <input
-                                type="number"
-                                name="quantity"
-                                value={formData.quantity}
-                                onChange={handleChange}
-                                placeholder="Contoh: 50"
-                                className="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:border-green-500 focus:outline-none transition-colors text-sm"
-                                required
-                                min="0"
-                            />
-                        </div>
-
-                        {/* Satuan */}
-                        <div>
-                            <label className="block text-sm font-semibold text-gray-700 mb-2">
-                                Satuan *
-                            </label>
-                            <input
-                                type="text"
-                                name="unit"
-                                value={formData.unit}
-                                onChange={handleChange}
-                                placeholder="Contoh: Porsi, Kg, Pack"
-                                className="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:border-green-500 focus:outline-none transition-colors text-sm"
-                                required
-                            />
-                        </div>
-
-                        {/* Minimum Stock */}
-                        <div>
-                            <label className="block text-sm font-semibold text-gray-700 mb-2">
-                                Minimum Stock *
-                            </label>
-                            <input
-                                type="number"
-                                name="minStock"
-                                value={formData.minStock}
-                                onChange={handleChange}
-                                placeholder="Contoh: 10"
-                                className="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:border-green-500 focus:outline-none transition-colors text-sm"
-                                required
-                                min="0"
-                            />
-                        </div>
-
-                        {/* Divider */}
-                        <div className="border-t border-gray-200 my-6"></div>
-
-                        {/* Form Opsional - Pembagian Bahan */}
-                        <div className="bg-gray-50 p-4 rounded-lg">
-                            <h3 className="text-lg font-semibold text-gray-800 mb-4">
-                                ⚙️ Pengaturan Pembagian (Opsional)
-                            </h3>
-                            <p className="text-sm text-gray-600 mb-4">
-                                Centang jika bahan ini bisa dibagi menjadi
-                                beberapa bagian (contoh: Ayam Utuh → Dada, Paha,
-                                Sayap)
-                            </p>
-
-                            {/* Checkbox Pembagian */}
-                            <div className="flex items-center mb-4">
-                                <input
-                                    type="checkbox"
-                                    name="is_divisible"
-                                    checked={formData.is_divisible}
-                                    onChange={handleChange}
-                                    className="w-4 h-4 text-green-600 bg-gray-100 border-gray-300 rounded focus:ring-green-500 focus:ring-2"
-                                />
-                                <label className="ml-2 text-sm font-medium text-gray-700">
-                                    Bahan ini dapat dibagi menjadi beberapa
-                                    bagian
-                                </label>
-                            </div>
-
-                            {/* Form Pembagian (muncul jika checkbox dicentang) */}
-                            {formData.is_divisible && (
-                                <div className="space-y-4">
-                                    {/* Maksimal Pembagian */}
-                                    <div>
-                                        <label className="block text-sm font-semibold text-gray-700 mb-2">
-                                            Maksimal Pembagian
-                                        </label>
-                                        <input
-                                            type="number"
-                                            name="max_divisions"
-                                            value={formData.max_divisions}
-                                            onChange={handleChange}
-                                            placeholder="Contoh: 6 (untuk ayam: dada, paha, sayap, kepala, leher, ceker)"
-                                            className="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:border-green-500 focus:outline-none transition-colors text-sm"
-                                            min="1"
-                                        />
-                                    </div>
-
-                                    {/* Deskripsi Pembagian */}
-                                    <div>
-                                        <label className="block text-sm font-semibold text-gray-700 mb-2">
-                                            Deskripsi Pembagian
-                                        </label>
-                                        <textarea
-                                            name="division_description"
-                                            value={
-                                                formData.division_description
-                                            }
-                                            onChange={handleChange}
-                                            placeholder="Contoh: Dapat dibagi menjadi: Dada, Paha, Sayap, Kepala, Leher, Ceker"
-                                            rows="3"
-                                            className="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:border-green-500 focus:outline-none transition-colors text-sm resize-none"
-                                        />
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    </div>
+                    {/* Photo Input Mode */}
+                    {inputMode === "photo" && (
+                        <PhotoInputForm
+                            onImageUpload={handleImageUpload}
+                            isProcessing={ocrData.isProcessing}
+                            error={ocrData.error}
+                        />
+                    )}
 
                     {/* Modal Footer */}
                     <div className="flex gap-3 mt-6">
@@ -260,6 +243,15 @@ function StockFormModal({ stock, onClose, onSubmit, categories = [] }) {
                     </div>
                 </form>
             </div>
+
+            {/* OCR Review Modal */}
+            <OcrReviewModal
+                isOpen={showOcrReview}
+                onClose={() => setShowOcrReview(false)}
+                ocrItems={ocrData.items}
+                onConfirmAdd={handleOcrConfirmAdd}
+                categories={categories}
+            />
         </div>
     );
 }

@@ -103,3 +103,39 @@ Route::middleware('auth:sanctum')->group(function () {
 
 // Public WhatsApp Agent routes (for webhook)
 Route::post('/whatsapp/webhook', [WhatsAppAgentController::class, 'processStockMessage']);
+
+// OCR routes
+Route::post('/ocr/process-receipt', [App\Http\Controllers\Api\OcrController::class, 'processReceipt']);
+Route::post('/ocr/process-photo', [App\Http\Controllers\Api\OcrController::class, 'processPhoto']);
+Route::get('/ocr/health', [App\Http\Controllers\Api\OcrController::class, 'healthCheck']);
+
+// Debug route
+Route::post('/ocr/test', function() {
+    $testData = [
+        'success' => true,
+        'data' => [
+            'items' => [
+                [
+                    'nama_barang' => 'Nasi Putih',
+                    'jumlah' => '5',
+                    'harga' => '25000',
+                    'unit' => 'kg',
+                    'category_id' => 1
+                ]
+            ]
+        ]
+    ];
+    
+    $controller = new App\Http\Controllers\Api\OcrController();
+    $reflection = new ReflectionClass($controller);
+    $method = $reflection->getMethod('validateOcrData');
+    $method->setAccessible(true);
+    
+    $result = $method->invoke($controller, $testData['data']['items']);
+    
+    return response()->json([
+        'test_data' => $testData,
+        'validated_result' => $result,
+        'count' => count($result)
+    ]);
+});
