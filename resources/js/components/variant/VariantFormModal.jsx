@@ -4,7 +4,6 @@ function VariantFormModal({ variant, products, onClose, onSubmit }) {
     const [formData, setFormData] = useState({
         name: "",
         product_id: "",
-        harga: "",
         stok: ""
     });
     const [errors, setErrors] = useState({});
@@ -15,7 +14,6 @@ function VariantFormModal({ variant, products, onClose, onSubmit }) {
             setFormData({
                 name: variant.name || "",
                 product_id: variant.product_id || "",
-                harga: variant.harga || "",
                 stok: variant.stok || ""
             });
         }
@@ -48,9 +46,6 @@ function VariantFormModal({ variant, products, onClose, onSubmit }) {
             newErrors.product_id = "Produk harus dipilih";
         }
 
-        if (!formData.harga || formData.harga <= 0) {
-            newErrors.harga = "Harga harus lebih dari 0";
-        }
 
         if (!formData.stok || formData.stok < 0) {
             newErrors.stok = "Stok tidak boleh negatif";
@@ -72,7 +67,6 @@ function VariantFormModal({ variant, products, onClose, onSubmit }) {
         try {
             const submitData = {
                 ...formData,
-                harga: parseFloat(formData.harga),
                 stok: parseFloat(formData.stok)
             };
 
@@ -172,27 +166,6 @@ function VariantFormModal({ variant, products, onClose, onSubmit }) {
                             )}
                         </div>
 
-                        {/* Harga */}
-                        <div>
-                            <label className="block text-sm font-semibold text-gray-700 mb-2">
-                                Harga *
-                            </label>
-                            <input
-                                type="number"
-                                name="harga"
-                                value={formData.harga}
-                                onChange={handleChange}
-                                min="0"
-                                step="0.01"
-                                className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors ${
-                                    errors.harga ? 'border-red-300 bg-red-50' : 'border-gray-300'
-                                }`}
-                                placeholder="Masukkan harga"
-                            />
-                            {errors.harga && (
-                                <p className="mt-1 text-sm text-red-600">{errors.harga}</p>
-                            )}
-                        </div>
 
                         {/* Stok */}
                         <div>

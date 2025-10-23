@@ -17,6 +17,9 @@ class TblBahan extends Model
         'id_kategori',
         'harga_beli',
         'stok_bahan',
+        'is_divisible',
+        'max_divisions',
+        'division_description',
         'satuan',
         'min_stok',
         'updated_by',
@@ -26,6 +29,8 @@ class TblBahan extends Model
         'harga_beli' => 'decimal:2',
         'stok_bahan' => 'decimal:2',
         'min_stok' => 'decimal:2',
+        'is_divisible' => 'boolean',
+        'max_divisions' => 'integer',
     ];
 
     // Relasi dengan kategori

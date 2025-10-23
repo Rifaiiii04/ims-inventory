@@ -10,6 +10,7 @@ use App\Traits\StockHistoryTrait;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class StockController extends Controller
 {
@@ -77,6 +78,9 @@ class StockController extends Controller
                 'quantity' => (float)$stock->stok_bahan,
                 'unit' => $stock->satuan,
                 'minStock' => (float)$stock->min_stok,
+                'is_divisible' => $stock->is_divisible,
+                'max_divisions' => $stock->max_divisions,
+                'division_description' => $stock->division_description,
                 'lastUpdated' => $stock->updated_at->format('Y-m-d'),
                 'updatedBy' => $stock->updated_by ? 'User' : 'System',
                 'isLowStock' => $stock->stok_bahan < $stock->min_stok
@@ -108,7 +112,10 @@ class StockController extends Controller
                 'buyPrice' => 'required|numeric|min:0',
                 'quantity' => 'required|numeric|min:0',
                 'unit' => 'required|string|max:20',
-                'minStock' => 'required|numeric|min:0'
+                'minStock' => 'required|numeric|min:0',
+                'is_divisible' => 'boolean',
+                'max_divisions' => 'nullable|integer|min:1',
+                'division_description' => 'nullable|string|max:500'
             ]);
 
             if ($validator->fails()) {
@@ -124,6 +131,9 @@ class StockController extends Controller
                 'id_kategori' => $request->category_id,
                 'harga_beli' => $request->buyPrice,
                 'stok_bahan' => $request->quantity,
+                'is_divisible' => $request->is_divisible ?? false,
+                'max_divisions' => $request->max_divisions,
+                'division_description' => $request->division_description,
                 'satuan' => $request->unit,
                 'min_stok' => $request->minStock,
                 'updated_by' => $request->user()->id_user
@@ -141,7 +151,7 @@ class StockController extends Controller
                 );
             } catch (\Exception $e) {
                 // Log error but don't fail the create
-                \Log::error('Failed to log stock history: ' . $e->getMessage());
+                Log::error('Failed to log stock history: ' . $e->getMessage());
             }
 
             return response()->json([
@@ -191,7 +201,10 @@ class StockController extends Controller
                 'buyPrice' => 'required|numeric|min:0',
                 'quantity' => 'required|numeric|min:0',
                 'unit' => 'required|string|max:20',
-                'minStock' => 'required|numeric|min:0'
+                'minStock' => 'required|numeric|min:0',
+                'is_divisible' => 'boolean',
+                'max_divisions' => 'nullable|integer|min:1',
+                'division_description' => 'nullable|string|max:500'
             ]);
 
             if ($validator->fails()) {
@@ -210,6 +223,9 @@ class StockController extends Controller
                 'id_kategori' => $request->category_id,
                 'harga_beli' => $request->buyPrice,
                 'stok_bahan' => $request->quantity,
+                'is_divisible' => $request->is_divisible ?? false,
+                'max_divisions' => $request->max_divisions,
+                'division_description' => $request->division_description,
                 'satuan' => $request->unit,
                 'min_stok' => $request->minStock,
                 'updated_by' => $request->user()->id_user
@@ -231,7 +247,7 @@ class StockController extends Controller
                 );
             } catch (\Exception $e) {
                 // Log error but don't fail the update
-                \Log::error('Failed to log stock history: ' . $e->getMessage());
+                Log::error('Failed to log stock history: ' . $e->getMessage());
             }
 
             return response()->json([
@@ -290,7 +306,7 @@ class StockController extends Controller
                 );
             } catch (\Exception $e) {
                 // Log error but don't fail the delete
-                \Log::error('Failed to log stock history: ' . $e->getMessage());
+                Log::error('Failed to log stock history: ' . $e->getMessage());
             }
             
             $stock->delete();
@@ -378,61 +394,40 @@ class StockController extends Controller
     public function history(Request $request, $id = null)
     {
         try {
-            $query = TblStockHistory::with(['bahan', 'user'])
+            $query = TblStockHistory::with(['bahan:id_bahan,nama_bahan', 'user:id_user,nama_user'])
                 ->orderBy('created_at', 'desc');
 
-            // Filter by stock ID if provided
             if ($id) {
                 $query->where('id_bahan', $id);
             }
 
-            // Filter by action if provided
-            if ($request->has('action')) {
-                $query->where('action', $request->action);
-            }
+            $histories = $query->get();
 
-            // Filter by date range if provided
-            if ($request->has('date_from')) {
-                $query->whereDate('created_at', '>=', $request->date_from);
-            }
-
-            if ($request->has('date_to')) {
-                $query->whereDate('created_at', '<=', $request->date_to);
-            }
-
-            $history = $query->paginate($request->get('per_page', 15));
-
-            $formattedHistory = $history->map(function($item) {
+            $formattedHistories = $histories->map(function($history) {
                 return [
-                    'id' => $item->id_history,
-                    'action' => $item->action,
-                    'action_display' => $this->getActionDisplayName($item->action),
-                    'description' => $item->description,
-                    'old_data' => $item->old_data,
-                    'new_data' => $item->new_data,
-                    'changes' => $this->formatChanges($item->old_data, $item->new_data, $item->action),
-                    'bahan_name' => $item->bahan->nama_bahan ?? 'Bahan Terhapus',
-                    'user_name' => $item->user->nama_user ?? 'User Tidak Diketahui',
-                    'created_at' => $item->created_at->format('Y-m-d H:i:s'),
-                    'created_at_human' => $item->created_at->diffForHumans(),
+                    'id' => $history->id_history,
+                    'bahan_id' => $history->id_bahan,
+                    'bahan_nama' => $history->bahan->nama_bahan ?? 'Bahan tidak ditemukan',
+                    'action' => $history->action,
+                    'old_data' => $history->old_data ? json_decode($history->old_data, true) : null,
+                    'new_data' => $history->new_data ? json_decode($history->new_data, true) : null,
+                    'description' => $history->description,
+                    'user_id' => $history->user_id,
+                    'user_nama' => $history->user->nama_user ?? 'System',
+                    'created_at' => $history->created_at->format('Y-m-d H:i:s'),
+                    'updated_at' => $history->updated_at->format('Y-m-d H:i:s'),
                 ];
             });
 
             return response()->json([
                 'success' => true,
-                'data' => $formattedHistory,
-                'pagination' => [
-                    'current_page' => $history->currentPage(),
-                    'last_page' => $history->lastPage(),
-                    'per_page' => $history->perPage(),
-                    'total' => $history->total(),
-                ]
+                'data' => $formattedHistories
             ], 200);
 
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Terjadi kesalahan saat mengambil history stok',
+                'message' => 'Terjadi kesalahan saat mengambil riwayat stok',
                 'error' => $e->getMessage()
             ], 500);
         }

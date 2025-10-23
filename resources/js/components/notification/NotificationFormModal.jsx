@@ -81,56 +81,37 @@ function NotificationFormModal({ notification, onClose, onSave }) {
     };
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-                {/* Header */}
-                <div className="bg-gradient-to-r from-blue-50 to-purple-50 px-6 py-5 border-b border-gray-200 rounded-t-2xl">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-500 rounded-xl flex items-center justify-center shadow-lg">
-                                <svg
-                                    xmlns="http://www.w3.org/2000/svg"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                    strokeWidth={2}
-                                    stroke="currentColor"
-                                    className="w-5 h-5 text-white"
-                                >
-                                    <path
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0"
-                                    />
-                                </svg>
-                            </div>
-                            <div>
-                                <h3 className="text-lg font-bold text-gray-800">
-                                    {notification
-                                        ? "Edit Notifikasi"
-                                        : "Tambah Notifikasi Baru"}
-                                </h3>
-                                <p className="text-sm text-gray-500">
-                                    {notification
-                                        ? "Update konfigurasi notifikasi"
-                                        : "Konfigurasi notifikasi stok produk"}
-                                </p>
-                            </div>
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+                {/* Modal Header */}
+                <div className="bg-gradient-to-r from-green-600 to-green-500 text-white p-6">
+                    <div className="flex justify-between items-center">
+                        <div>
+                            <h2 className="text-xl font-bold mb-1">
+                                {notification
+                                    ? "Edit Notifikasi"
+                                    : "Tambah Notifikasi"}
+                            </h2>
+                            <p className="text-green-50 text-sm">
+                                {notification
+                                    ? "Perbarui pengaturan notifikasi"
+                                    : "Tambahkan notifikasi baru"}
+                            </p>
                         </div>
                         <button
                             onClick={onClose}
-                            className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                            className="text-white hover:bg-white/20 p-2 rounded-lg transition-colors"
                         >
                             <svg
-                                xmlns="http://www.w3.org/2000/svg"
+                                className="w-5 h-5"
                                 fill="none"
-                                viewBox="0 0 24 24"
-                                strokeWidth={2}
                                 stroke="currentColor"
-                                className="w-6 h-6"
+                                viewBox="0 0 24 24"
                             >
                                 <path
                                     strokeLinecap="round"
                                     strokeLinejoin="round"
+                                    strokeWidth={2}
                                     d="M6 18L18 6M6 6l12 12"
                                 />
                             </svg>

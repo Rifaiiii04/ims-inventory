@@ -1,38 +1,101 @@
 import React, { useState, useEffect } from "react";
 
-function CompositionFormModal({ composition, variants, ingredients, onClose, onSubmit }) {
+function CompositionFormModal({
+    composition,
+    variants,
+    ingredients,
+    onClose,
+    onSubmit,
+}) {
     const [formData, setFormData] = useState({
         variant_id: "",
-        ingredient_id: "",
-        quantity: ""
+        ingredients: [], // Array untuk multiple bahan
     });
     const [errors, setErrors] = useState({});
     const [isSubmitting, setIsSubmitting] = useState(false);
+
+    // State untuk form tambah bahan
+    const [newIngredient, setNewIngredient] = useState({
+        ingredient_id: "",
+        quantity: "",
+    });
 
     useEffect(() => {
         if (composition) {
             setFormData({
                 variant_id: composition.variant_id || "",
-                ingredient_id: composition.ingredient_id || "",
-                quantity: composition.quantity || ""
+                ingredients: composition.ingredients || [],
             });
         }
     }, [composition]);
 
     const handleChange = (e) => {
         const { name, value } = e.target;
-        setFormData(prev => ({
+        setFormData((prev) => ({
             ...prev,
-            [name]: value
+            [name]: value,
         }));
-        
+
         // Clear error when user starts typing
         if (errors[name]) {
-            setErrors(prev => ({
+            setErrors((prev) => ({
                 ...prev,
-                [name]: ""
+                [name]: "",
             }));
         }
+    };
+
+    const handleNewIngredientChange = (e) => {
+        const { name, value } = e.target;
+        setNewIngredient((prev) => ({
+            ...prev,
+            [name]: value,
+        }));
+    };
+
+    const addIngredient = () => {
+        if (
+            !newIngredient.ingredient_id ||
+            !newIngredient.quantity ||
+            newIngredient.quantity <= 0
+        ) {
+            alert("Pilih bahan dan isi jumlah yang valid");
+            return;
+        }
+
+        // Cek apakah bahan sudah ada
+        const exists = formData.ingredients.some(
+            (ing) => ing.ingredient_id === newIngredient.ingredient_id
+        );
+        if (exists) {
+            alert("Bahan ini sudah ditambahkan");
+            return;
+        }
+
+        const ingredient = ingredients.find(
+            (ing) => ing.id_bahan == newIngredient.ingredient_id
+        );
+        setFormData((prev) => ({
+            ...prev,
+            ingredients: [
+                ...prev.ingredients,
+                {
+                    ingredient_id: newIngredient.ingredient_id,
+                    quantity: parseFloat(newIngredient.quantity),
+                    ingredient_name: ingredient?.nama_bahan || "",
+                    unit: ingredient?.satuan || "",
+                },
+            ],
+        }));
+
+        setNewIngredient({ ingredient_id: "", quantity: "" });
+    };
+
+    const removeIngredient = (index) => {
+        setFormData((prev) => ({
+            ...prev,
+            ingredients: prev.ingredients.filter((_, i) => i !== index),
+        }));
     };
 
     const validateForm = () => {
@@ -42,12 +105,8 @@ function CompositionFormModal({ composition, variants, ingredients, onClose, onS
             newErrors.variant_id = "Varian harus dipilih";
         }
 
-        if (!formData.ingredient_id) {
-            newErrors.ingredient_id = "Bahan harus dipilih";
-        }
-
-        if (!formData.quantity || formData.quantity <= 0) {
-            newErrors.quantity = "Jumlah harus lebih dari 0";
+        if (formData.ingredients.length === 0) {
+            newErrors.ingredients = "Minimal satu bahan harus ditambahkan";
         }
 
         setErrors(newErrors);
@@ -56,26 +115,30 @@ function CompositionFormModal({ composition, variants, ingredients, onClose, onS
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        
+
         if (!validateForm()) {
             return;
         }
 
         setIsSubmitting(true);
-        
+
         try {
-            const submitData = {
-                ...formData,
-                quantity: parseFloat(formData.quantity)
-            };
+            // Kirim setiap bahan sebagai komposisi terpisah
+            for (const ingredient of formData.ingredients) {
+                const submitData = {
+                    variant_id: formData.variant_id,
+                    ingredient_id: ingredient.ingredient_id,
+                    quantity: ingredient.quantity,
+                };
 
-            if (composition) {
-                submitData.id = composition.id;
+                if (composition) {
+                    submitData.id = composition.id;
+                }
+
+                await onSubmit(submitData);
             }
-
-            await onSubmit(submitData);
         } catch (error) {
-            console.error('Error submitting form:', error);
+            console.error("Error submitting form:", error);
         } finally {
             setIsSubmitting(false);
         }
@@ -89,10 +152,14 @@ function CompositionFormModal({ composition, variants, ingredients, onClose, onS
                     <div className="flex justify-between items-center">
                         <div>
                             <h2 className="text-xl font-bold mb-1">
-                                {composition ? "Edit Komposisi" : "Tambah Komposisi"}
+                                {composition
+                                    ? "Edit Komposisi"
+                                    : "Tambah Komposisi"}
                             </h2>
                             <p className="text-green-50 text-sm">
-                                {composition ? "Perbarui data komposisi" : "Tambahkan komposisi baru"}
+                                {composition
+                                    ? "Perbarui data komposisi"
+                                    : "Tambahkan komposisi baru"}
                             </p>
                         </div>
                         <button
@@ -118,7 +185,10 @@ function CompositionFormModal({ composition, variants, ingredients, onClose, onS
                 </div>
 
                 {/* Modal Body */}
-                <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6">
+                <form
+                    onSubmit={handleSubmit}
+                    className="flex-1 overflow-y-auto p-6"
+                >
                     <div className="space-y-4">
                         {/* Varian */}
                         <div>
@@ -130,7 +200,9 @@ function CompositionFormModal({ composition, variants, ingredients, onClose, onS
                                 value={formData.variant_id}
                                 onChange={handleChange}
                                 className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors ${
-                                    errors.variant_id ? 'border-red-300 bg-red-50' : 'border-gray-300'
+                                    errors.variant_id
+                                        ? "border-red-300 bg-red-50"
+                                        : "border-gray-300"
                                 }`}
                             >
                                 <option value="">Pilih Varian</option>
@@ -141,56 +213,118 @@ function CompositionFormModal({ composition, variants, ingredients, onClose, onS
                                 ))}
                             </select>
                             {errors.variant_id && (
-                                <p className="mt-1 text-sm text-red-600">{errors.variant_id}</p>
+                                <p className="mt-1 text-sm text-red-600">
+                                    {errors.variant_id}
+                                </p>
                             )}
                         </div>
 
-                        {/* Bahan */}
-                        <div>
-                            <label className="block text-sm font-semibold text-gray-700 mb-2">
-                                Bahan *
-                            </label>
-                            <select
-                                name="ingredient_id"
-                                value={formData.ingredient_id}
-                                onChange={handleChange}
-                                className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors ${
-                                    errors.ingredient_id ? 'border-red-300 bg-red-50' : 'border-gray-300'
-                                }`}
-                            >
-                                <option value="">Pilih Bahan</option>
-                                {ingredients.map((ingredient) => (
-                                    <option key={ingredient.id_bahan} value={ingredient.id_bahan}>
-                                        {ingredient.nama_bahan} ({ingredient.satuan})
-                                    </option>
-                                ))}
-                            </select>
-                            {errors.ingredient_id && (
-                                <p className="mt-1 text-sm text-red-600">{errors.ingredient_id}</p>
-                            )}
+                        {/* Tambah Bahan */}
+                        <div className="border-2 border-dashed border-gray-300 rounded-xl p-4">
+                            <h4 className="text-sm font-semibold text-gray-700 mb-3">
+                                Tambah Bahan
+                            </h4>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                <div className="md:col-span-2">
+                                    <select
+                                        name="ingredient_id"
+                                        value={newIngredient.ingredient_id}
+                                        onChange={handleNewIngredientChange}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                                    >
+                                        <option value="">Pilih Bahan</option>
+                                        {ingredients.map((ingredient) => (
+                                            <option
+                                                key={ingredient.id_bahan}
+                                                value={ingredient.id_bahan}
+                                            >
+                                                {ingredient.nama_bahan} (
+                                                {ingredient.satuan})
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div>
+                                    <input
+                                        type="number"
+                                        name="quantity"
+                                        value={newIngredient.quantity}
+                                        onChange={handleNewIngredientChange}
+                                        min="0.01"
+                                        step="0.01"
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                                        placeholder="Jumlah"
+                                    />
+                                </div>
+                                <div className="md:col-span-3">
+                                    <button
+                                        type="button"
+                                        onClick={addIngredient}
+                                        className="w-full bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 transition-colors"
+                                    >
+                                        + Tambah Bahan
+                                    </button>
+                                </div>
+                            </div>
                         </div>
 
-                        {/* Jumlah */}
-                        <div>
-                            <label className="block text-sm font-semibold text-gray-700 mb-2">
-                                Jumlah *
-                            </label>
-                            <input
-                                type="number"
-                                name="quantity"
-                                value={formData.quantity}
-                                onChange={handleChange}
-                                min="0.01"
-                                step="0.01"
-                                className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors ${
-                                    errors.quantity ? 'border-red-300 bg-red-50' : 'border-gray-300'
-                                }`}
-                                placeholder="Masukkan jumlah bahan"
-                            />
-                            {errors.quantity && (
-                                <p className="mt-1 text-sm text-red-600">{errors.quantity}</p>
-                            )}
-                        </div>
+                        {/* Daftar Bahan yang Ditambahkan */}
+                        {formData.ingredients.length > 0 && (
+                            <div>
+                                <h4 className="text-sm font-semibold text-gray-700 mb-3">
+                                    Bahan yang Ditambahkan
+                                </h4>
+                                <div className="space-y-2">
+                                    {formData.ingredients.map(
+                                        (ingredient, index) => (
+                                            <div
+                                                key={index}
+                                                className="flex items-center justify-between bg-gray-50 p-3 rounded-lg"
+                                            >
+                                                <div className="flex-1">
+                                                    <span className="font-medium">
+                                                        {
+                                                            ingredient.ingredient_name
+                                                        }
+                                                    </span>
+                                                    <span className="text-gray-500 ml-2">
+                                                        {ingredient.quantity}{" "}
+                                                        {ingredient.unit}
+                                                    </span>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                        removeIngredient(index)
+                                                    }
+                                                    className="text-red-500 hover:text-red-700 p-1"
+                                                >
+                                                    <svg
+                                                        className="w-4 h-4"
+                                                        fill="none"
+                                                        stroke="currentColor"
+                                                        viewBox="0 0 24 24"
+                                                    >
+                                                        <path
+                                                            strokeLinecap="round"
+                                                            strokeLinejoin="round"
+                                                            strokeWidth={2}
+                                                            d="M6 18L18 6M6 6l12 12"
+                                                        />
+                                                    </svg>
+                                                </button>
+                                            </div>
+                                        )
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
+                        {errors.ingredients && (
+                            <p className="text-sm text-red-600">
+                                {errors.ingredients}
+                            </p>
+                        )}
                     </div>
                 </form>
 
@@ -213,10 +347,14 @@ function CompositionFormModal({ composition, variants, ingredients, onClose, onS
                             {isSubmitting ? (
                                 <>
                                     <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                                    {composition ? "Memperbarui..." : "Menambahkan..."}
+                                    {composition
+                                        ? "Memperbarui..."
+                                        : "Menambahkan..."}
                                 </>
+                            ) : composition ? (
+                                "Perbarui Komposisi"
                             ) : (
-                                composition ? "Perbarui Komposisi" : "Tambah Komposisi"
+                                "Tambah Komposisi"
                             )}
                         </button>
                     </div>

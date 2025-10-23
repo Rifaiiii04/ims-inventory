@@ -1,11 +1,18 @@
 import React, { useState, useEffect } from "react";
 
-function ProductFormModal({ product, categories, ingredients, onClose, onSubmit }) {
+function ProductFormModal({
+    product,
+    categories,
+    ingredients,
+    onClose,
+    onSubmit,
+}) {
     const [formData, setFormData] = useState({
         name: "",
         description: "",
         category_id: "",
-        status: "aktif"
+        harga: "",
+        status: "aktif",
     });
     const [errors, setErrors] = useState({});
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -16,23 +23,45 @@ function ProductFormModal({ product, categories, ingredients, onClose, onSubmit 
                 name: product.name || "",
                 description: product.description || "",
                 category_id: product.category_id || "",
-                status: product.status || "aktif"
+                harga: product.harga || "",
+                status: product.status || "aktif",
             });
         }
     }, [product]);
 
+    const formatCurrency = (value) => {
+        if (!value) return "";
+        const numericValue = value.toString().replace(/[^\d]/g, "");
+        return new Intl.NumberFormat("id-ID", {
+            style: "currency",
+            currency: "IDR",
+            minimumFractionDigits: 0,
+        }).format(numericValue);
+    };
+
     const handleChange = (e) => {
         const { name, value } = e.target;
-        setFormData(prev => ({
-            ...prev,
-            [name]: value
-        }));
-        
+
+        // Handle harga formatting
+        if (name === "harga") {
+            // Remove all non-numeric characters
+            const numericValue = value.replace(/[^\d]/g, "");
+            setFormData((prev) => ({
+                ...prev,
+                [name]: numericValue,
+            }));
+        } else {
+            setFormData((prev) => ({
+                ...prev,
+                [name]: value,
+            }));
+        }
+
         // Clear error when user starts typing
         if (errors[name]) {
-            setErrors(prev => ({
+            setErrors((prev) => ({
                 ...prev,
-                [name]: ""
+                [name]: "",
             }));
         }
     };
@@ -48,6 +77,10 @@ function ProductFormModal({ product, categories, ingredients, onClose, onSubmit 
             newErrors.category_id = "Kategori harus dipilih";
         }
 
+        if (!formData.harga || formData.harga <= 0) {
+            newErrors.harga = "Harga harus lebih dari 0";
+        }
+
         if (!formData.status) {
             newErrors.status = "Status harus dipilih";
         }
@@ -58,16 +91,17 @@ function ProductFormModal({ product, categories, ingredients, onClose, onSubmit 
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        
+
         if (!validateForm()) {
             return;
         }
 
         setIsSubmitting(true);
-        
+
         try {
             const submitData = {
-                ...formData
+                ...formData,
+                harga: parseFloat(formData.harga),
             };
 
             if (product) {
@@ -76,7 +110,7 @@ function ProductFormModal({ product, categories, ingredients, onClose, onSubmit 
 
             await onSubmit(submitData);
         } catch (error) {
-            console.error('Error submitting form:', error);
+            console.error("Error submitting form:", error);
         } finally {
             setIsSubmitting(false);
         }
@@ -93,7 +127,9 @@ function ProductFormModal({ product, categories, ingredients, onClose, onSubmit 
                                 {product ? "Edit Produk" : "Tambah Produk"}
                             </h2>
                             <p className="text-green-50 text-sm">
-                                {product ? "Perbarui data produk" : "Tambahkan produk baru"}
+                                {product
+                                    ? "Perbarui data produk"
+                                    : "Tambahkan produk baru"}
                             </p>
                         </div>
                         <button
@@ -119,7 +155,10 @@ function ProductFormModal({ product, categories, ingredients, onClose, onSubmit 
                 </div>
 
                 {/* Modal Body */}
-                <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6">
+                <form
+                    onSubmit={handleSubmit}
+                    className="flex-1 overflow-y-auto p-6"
+                >
                     <div className="space-y-4">
                         {/* Nama Produk */}
                         <div>
@@ -132,12 +171,16 @@ function ProductFormModal({ product, categories, ingredients, onClose, onSubmit 
                                 value={formData.name}
                                 onChange={handleChange}
                                 className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors ${
-                                    errors.name ? 'border-red-300 bg-red-50' : 'border-gray-300'
+                                    errors.name
+                                        ? "border-red-300 bg-red-50"
+                                        : "border-gray-300"
                                 }`}
                                 placeholder="Masukkan nama produk"
                             />
                             {errors.name && (
-                                <p className="mt-1 text-sm text-red-600">{errors.name}</p>
+                                <p className="mt-1 text-sm text-red-600">
+                                    {errors.name}
+                                </p>
                             )}
                         </div>
 
@@ -166,18 +209,49 @@ function ProductFormModal({ product, categories, ingredients, onClose, onSubmit 
                                 value={formData.category_id}
                                 onChange={handleChange}
                                 className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors ${
-                                    errors.category_id ? 'border-red-300 bg-red-50' : 'border-gray-300'
+                                    errors.category_id
+                                        ? "border-red-300 bg-red-50"
+                                        : "border-gray-300"
                                 }`}
                             >
                                 <option value="">Pilih Kategori</option>
                                 {categories.map((category) => (
-                                    <option key={category.id_kategori} value={category.id_kategori}>
+                                    <option
+                                        key={category.id_kategori}
+                                        value={category.id_kategori}
+                                    >
                                         {category.nama_kategori}
                                     </option>
                                 ))}
                             </select>
                             {errors.category_id && (
-                                <p className="mt-1 text-sm text-red-600">{errors.category_id}</p>
+                                <p className="mt-1 text-sm text-red-600">
+                                    {errors.category_id}
+                                </p>
+                            )}
+                        </div>
+
+                        {/* Harga */}
+                        <div>
+                            <label className="block text-sm font-semibold text-gray-700 mb-2">
+                                Harga *
+                            </label>
+                            <input
+                                type="text"
+                                name="harga"
+                                value={formatCurrency(formData.harga)}
+                                onChange={handleChange}
+                                className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors ${
+                                    errors.harga
+                                        ? "border-red-300 bg-red-50"
+                                        : "border-gray-300"
+                                }`}
+                                placeholder="Masukkan harga produk (contoh: 15000)"
+                            />
+                            {errors.harga && (
+                                <p className="mt-1 text-sm text-red-600">
+                                    {errors.harga}
+                                </p>
                             )}
                         </div>
 
@@ -191,14 +265,18 @@ function ProductFormModal({ product, categories, ingredients, onClose, onSubmit 
                                 value={formData.status}
                                 onChange={handleChange}
                                 className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors ${
-                                    errors.status ? 'border-red-300 bg-red-50' : 'border-gray-300'
+                                    errors.status
+                                        ? "border-red-300 bg-red-50"
+                                        : "border-gray-300"
                                 }`}
                             >
                                 <option value="aktif">Aktif</option>
                                 <option value="nonaktif">Nonaktif</option>
                             </select>
                             {errors.status && (
-                                <p className="mt-1 text-sm text-red-600">{errors.status}</p>
+                                <p className="mt-1 text-sm text-red-600">
+                                    {errors.status}
+                                </p>
                             )}
                         </div>
                     </div>
@@ -223,10 +301,14 @@ function ProductFormModal({ product, categories, ingredients, onClose, onSubmit 
                             {isSubmitting ? (
                                 <>
                                     <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                                    {product ? "Memperbarui..." : "Menambahkan..."}
+                                    {product
+                                        ? "Memperbarui..."
+                                        : "Menambahkan..."}
                                 </>
+                            ) : product ? (
+                                "Perbarui Produk"
                             ) : (
-                                product ? "Perbarui Produk" : "Tambah Produk"
+                                "Tambah Produk"
                             )}
                         </button>
                     </div>

@@ -3,12 +3,15 @@ import Sidebar from "../components/Sidebar";
 import TopBar from "../components/TopBar";
 import CompositionTable from "../components/composition/CompositionTable";
 import CompositionFormModal from "../components/composition/CompositionFormModal";
+import CompositionDetailModal from "../components/composition/CompositionDetailModal";
 import { useComposition } from "../hooks/useComposition";
 
 function CompositionManagement() {
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
     const [showFormModal, setShowFormModal] = useState(false);
     const [editingComposition, setEditingComposition] = useState(null);
+    const [showDetailModal, setShowDetailModal] = useState(false);
+    const [selectedComposition, setSelectedComposition] = useState(null);
     const [searchTerm, setSearchTerm] = useState("");
 
     // Use composition hook for real data
@@ -20,7 +23,7 @@ function CompositionManagement() {
         createComposition,
         updateComposition,
         deleteComposition,
-        refreshData
+        refreshData,
     } = useComposition();
 
     // Handle tambah komposisi baru
@@ -35,7 +38,10 @@ function CompositionManagement() {
 
     // Handle update komposisi
     const handleUpdateComposition = async (updatedComposition) => {
-        const result = await updateComposition(updatedComposition.id, updatedComposition);
+        const result = await updateComposition(
+            updatedComposition.id,
+            updatedComposition
+        );
         if (result.success) {
             setEditingComposition(null);
             setShowFormModal(false);
@@ -60,15 +66,23 @@ function CompositionManagement() {
         setShowFormModal(true);
     };
 
+    // Handle lihat detail komposisi
+    const handleViewDetail = (composition) => {
+        setSelectedComposition(composition);
+        setShowDetailModal(true);
+    };
+
     // Filter compositions based on search term
-    const filteredCompositions = compositionData.filter(composition => {
+    const filteredCompositions = compositionData.filter((composition) => {
         if (!searchTerm) return true;
-        
+
         const searchLower = searchTerm.toLowerCase();
         return (
             composition.variant_name.toLowerCase().includes(searchLower) ||
             composition.product_name.toLowerCase().includes(searchLower) ||
-            composition.ingredient_name.toLowerCase().includes(searchLower)
+            composition.ingredients.some((ingredient) =>
+                ingredient.ingredient_name.toLowerCase().includes(searchLower)
+            )
         );
     });
 
@@ -158,13 +172,27 @@ function CompositionManagement() {
                             <div className="mb-4 sm:mb-6 bg-red-50 border border-red-200 rounded-xl p-3 sm:p-4">
                                 <div className="flex items-center gap-3">
                                     <div className="w-6 h-6 sm:w-8 sm:h-8 bg-red-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                                        <svg className="w-4 h-4 sm:w-5 sm:h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                        <svg
+                                            className="w-4 h-4 sm:w-5 sm:h-5 text-red-600"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            viewBox="0 0 24 24"
+                                        >
+                                            <path
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                                strokeWidth={2}
+                                                d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                                            />
                                         </svg>
                                     </div>
                                     <div className="min-w-0 flex-1">
-                                        <h3 className="font-semibold text-red-800 text-sm sm:text-base">Terjadi Kesalahan</h3>
-                                        <p className="text-xs sm:text-sm text-red-600 break-words">{error}</p>
+                                        <h3 className="font-semibold text-red-800 text-sm sm:text-base">
+                                            Terjadi Kesalahan
+                                        </h3>
+                                        <p className="text-xs sm:text-sm text-red-600 break-words">
+                                            {error}
+                                        </p>
                                     </div>
                                 </div>
                             </div>
@@ -174,11 +202,24 @@ function CompositionManagement() {
                         {searchTerm && (
                             <div className="mb-4 bg-blue-50 border border-blue-200 rounded-xl p-3">
                                 <div className="flex items-center gap-2">
-                                    <svg className="w-4 h-4 text-blue-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                    <svg
+                                        className="w-4 h-4 text-blue-600 flex-shrink-0"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        viewBox="0 0 24 24"
+                                    >
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            strokeWidth={2}
+                                            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                                        />
                                     </svg>
                                     <span className="text-xs sm:text-sm text-blue-800 break-words">
-                                        Menampilkan {filteredCompositions.length} dari {compositionData.length} komposisi untuk pencarian "{searchTerm}"
+                                        Menampilkan{" "}
+                                        {filteredCompositions.length} dari{" "}
+                                        {compositionData.length} komposisi untuk
+                                        pencarian "{searchTerm}"
                                     </span>
                                 </div>
                             </div>
@@ -188,13 +229,26 @@ function CompositionManagement() {
                         {searchTerm && filteredCompositions.length === 0 && (
                             <div className="text-center py-8 sm:py-12">
                                 <div className="w-12 h-12 sm:w-16 sm:h-16 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-3 sm:mb-4">
-                                    <svg className="w-6 h-6 sm:w-8 sm:h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                    <svg
+                                        className="w-6 h-6 sm:w-8 sm:h-8 text-gray-400"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        viewBox="0 0 24 24"
+                                    >
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            strokeWidth={2}
+                                            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                                        />
                                     </svg>
                                 </div>
-                                <h3 className="text-base sm:text-lg font-bold text-gray-700 mb-2">Tidak ada hasil ditemukan</h3>
+                                <h3 className="text-base sm:text-lg font-bold text-gray-700 mb-2">
+                                    Tidak ada hasil ditemukan
+                                </h3>
                                 <p className="text-gray-500 text-xs sm:text-sm mb-4 px-4">
-                                    Tidak ada komposisi yang cocok dengan pencarian "{searchTerm}"
+                                    Tidak ada komposisi yang cocok dengan
+                                    pencarian "{searchTerm}"
                                 </p>
                                 <button
                                     onClick={() => setSearchTerm("")}
@@ -211,6 +265,7 @@ function CompositionManagement() {
                                 data={filteredCompositions}
                                 onEdit={handleEditComposition}
                                 onDelete={handleDeleteComposition}
+                                onViewDetail={handleViewDetail}
                             />
                         </div>
                     </div>
@@ -227,7 +282,21 @@ function CompositionManagement() {
                         setShowFormModal(false);
                         setEditingComposition(null);
                     }}
-                    onSubmit={editingComposition ? handleUpdateComposition : handleAddComposition}
+                    onSubmit={
+                        editingComposition
+                            ? handleUpdateComposition
+                            : handleAddComposition
+                    }
+                />
+            )}
+
+            {showDetailModal && (
+                <CompositionDetailModal
+                    composition={selectedComposition}
+                    onClose={() => {
+                        setShowDetailModal(false);
+                        setSelectedComposition(null);
+                    }}
                 />
             )}
         </>

@@ -6,9 +6,9 @@ function PaymentModal({ total, onProcess, onClose }) {
     const [transferProof, setTransferProof] = useState("");
 
     const formatPrice = (price) => {
-        return new Intl.NumberFormat('id-ID', {
-            style: 'currency',
-            currency: 'IDR'
+        return new Intl.NumberFormat("id-ID", {
+            style: "currency",
+            currency: "IDR",
         }).format(price);
     };
 
@@ -16,8 +16,11 @@ function PaymentModal({ total, onProcess, onClose }) {
 
     const handleSubmit = (e) => {
         e.preventDefault();
-        
-        if (paymentMethod === "tunai" && (!cashAmount || parseFloat(cashAmount) < total)) {
+
+        if (
+            paymentMethod === "tunai" &&
+            (!cashAmount || parseFloat(cashAmount) < total)
+        ) {
             alert("Jumlah tunai tidak mencukupi");
             return;
         }
@@ -29,34 +32,59 @@ function PaymentModal({ total, onProcess, onClose }) {
 
         onProcess({
             method: paymentMethod,
-            cashAmount: paymentMethod === "tunai" ? parseFloat(cashAmount) : null,
-            transferProof: paymentMethod === "transfer" ? transferProof : null
+            cashAmount:
+                paymentMethod === "tunai" ? parseFloat(cashAmount) : null,
+            transferProof: paymentMethod === "transfer" ? transferProof : null,
         });
     };
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
                 {/* Header */}
                 <div className="bg-gradient-to-r from-green-50 to-blue-50 px-6 py-5 border-b border-gray-200 rounded-t-2xl">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
                             <div className="w-10 h-10 bg-gradient-to-br from-green-500 to-blue-500 rounded-xl flex items-center justify-center shadow-lg">
-                                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+                                <svg
+                                    className="w-5 h-5 text-white"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    viewBox="0 0 24 24"
+                                >
+                                    <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        strokeWidth={2}
+                                        d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"
+                                    />
                                 </svg>
                             </div>
                             <div>
-                                <h3 className="text-lg font-bold text-gray-800">Pembayaran</h3>
-                                <p className="text-sm text-gray-500">Pilih metode pembayaran</p>
+                                <h3 className="text-lg font-bold text-gray-800">
+                                    Pembayaran
+                                </h3>
+                                <p className="text-sm text-gray-500">
+                                    Pilih metode pembayaran
+                                </p>
                             </div>
                         </div>
                         <button
                             onClick={onClose}
                             className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
                         >
-                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            <svg
+                                className="w-6 h-6"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M6 18L18 6M6 6l12 12"
+                                />
                             </svg>
                         </button>
                     </div>
@@ -67,7 +95,9 @@ function PaymentModal({ total, onProcess, onClose }) {
                     {/* Total Amount */}
                     <div className="bg-gray-50 rounded-xl p-4">
                         <div className="flex items-center justify-between">
-                            <span className="text-lg font-semibold text-gray-800">Total Pembayaran:</span>
+                            <span className="text-lg font-semibold text-gray-800">
+                                Total Pembayaran:
+                            </span>
                             <span className="text-2xl font-bold text-green-600">
                                 {formatPrice(total)}
                             </span>
@@ -86,7 +116,9 @@ function PaymentModal({ total, onProcess, onClose }) {
                                     name="payment_method"
                                     value="tunai"
                                     checked={paymentMethod === "tunai"}
-                                    onChange={(e) => setPaymentMethod(e.target.value)}
+                                    onChange={(e) =>
+                                        setPaymentMethod(e.target.value)
+                                    }
                                     className="w-4 h-4 text-green-600 bg-gray-100 border-gray-300 focus:ring-green-500"
                                 />
                                 <div className="ml-3 flex items-center gap-3">
@@ -94,8 +126,12 @@ function PaymentModal({ total, onProcess, onClose }) {
                                         💵
                                     </div>
                                     <div>
-                                        <span className="font-medium text-gray-800">Tunai</span>
-                                        <p className="text-sm text-gray-500">Pembayaran dengan uang tunai</p>
+                                        <span className="font-medium text-gray-800">
+                                            Tunai
+                                        </span>
+                                        <p className="text-sm text-gray-500">
+                                            Pembayaran dengan uang tunai
+                                        </p>
                                     </div>
                                 </div>
                             </label>
@@ -106,7 +142,9 @@ function PaymentModal({ total, onProcess, onClose }) {
                                     name="payment_method"
                                     value="qris"
                                     checked={paymentMethod === "qris"}
-                                    onChange={(e) => setPaymentMethod(e.target.value)}
+                                    onChange={(e) =>
+                                        setPaymentMethod(e.target.value)
+                                    }
                                     className="w-4 h-4 text-green-600 bg-gray-100 border-gray-300 focus:ring-green-500"
                                 />
                                 <div className="ml-3 flex items-center gap-3">
@@ -114,8 +152,12 @@ function PaymentModal({ total, onProcess, onClose }) {
                                         📱
                                     </div>
                                     <div>
-                                        <span className="font-medium text-gray-800">QRIS</span>
-                                        <p className="text-sm text-gray-500">Scan QR code untuk pembayaran</p>
+                                        <span className="font-medium text-gray-800">
+                                            QRIS
+                                        </span>
+                                        <p className="text-sm text-gray-500">
+                                            Scan QR code untuk pembayaran
+                                        </p>
                                     </div>
                                 </div>
                             </label>
@@ -126,7 +168,9 @@ function PaymentModal({ total, onProcess, onClose }) {
                                     name="payment_method"
                                     value="transfer"
                                     checked={paymentMethod === "transfer"}
-                                    onChange={(e) => setPaymentMethod(e.target.value)}
+                                    onChange={(e) =>
+                                        setPaymentMethod(e.target.value)
+                                    }
                                     className="w-4 h-4 text-green-600 bg-gray-100 border-gray-300 focus:ring-green-500"
                                 />
                                 <div className="ml-3 flex items-center gap-3">
@@ -134,8 +178,12 @@ function PaymentModal({ total, onProcess, onClose }) {
                                         🏦
                                     </div>
                                     <div>
-                                        <span className="font-medium text-gray-800">Transfer</span>
-                                        <p className="text-sm text-gray-500">Transfer bank dengan bukti</p>
+                                        <span className="font-medium text-gray-800">
+                                            Transfer
+                                        </span>
+                                        <p className="text-sm text-gray-500">
+                                            Transfer bank dengan bukti
+                                        </p>
                                     </div>
                                 </div>
                             </label>
@@ -159,7 +207,9 @@ function PaymentModal({ total, onProcess, onClose }) {
                             {cashAmount && change >= 0 && (
                                 <div className="mt-2 p-3 bg-green-50 border border-green-200 rounded-lg">
                                     <div className="flex justify-between items-center">
-                                        <span className="text-sm text-green-700">Kembalian:</span>
+                                        <span className="text-sm text-green-700">
+                                            Kembalian:
+                                        </span>
                                         <span className="font-bold text-green-600">
                                             {formatPrice(change)}
                                         </span>
@@ -169,7 +219,8 @@ function PaymentModal({ total, onProcess, onClose }) {
                             {cashAmount && change < 0 && (
                                 <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-lg">
                                     <p className="text-sm text-red-700">
-                                        Jumlah tunai tidak mencukupi. Kurang {formatPrice(Math.abs(change))}
+                                        Jumlah tunai tidak mencukupi. Kurang{" "}
+                                        {formatPrice(Math.abs(change))}
                                     </p>
                                 </div>
                             )}
@@ -184,7 +235,9 @@ function PaymentModal({ total, onProcess, onClose }) {
                             </label>
                             <textarea
                                 value={transferProof}
-                                onChange={(e) => setTransferProof(e.target.value)}
+                                onChange={(e) =>
+                                    setTransferProof(e.target.value)
+                                }
                                 placeholder="Masukkan nomor rekening atau bukti transfer"
                                 rows={3}
                                 className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
@@ -199,7 +252,9 @@ function PaymentModal({ total, onProcess, onClose }) {
                             <div className="w-32 h-32 bg-white border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center mx-auto mb-4">
                                 <div className="text-center">
                                     <div className="text-4xl mb-2">📱</div>
-                                    <p className="text-xs text-gray-500">QR Code</p>
+                                    <p className="text-xs text-gray-500">
+                                        QR Code
+                                    </p>
                                 </div>
                             </div>
                             <p className="text-sm text-gray-600">

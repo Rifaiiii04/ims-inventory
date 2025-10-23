@@ -2,13 +2,6 @@ import React from "react";
 
 function VariantTable({ data, onEdit, onDelete }) {
 
-    const formatCurrency = (amount) => {
-        return new Intl.NumberFormat('id-ID', {
-            style: 'currency',
-            currency: 'IDR',
-            minimumFractionDigits: 0,
-        }).format(amount);
-    };
 
     if (data.length === 0) {
         return (
@@ -39,9 +32,6 @@ function VariantTable({ data, onEdit, onDelete }) {
                                 Produk
                             </th>
                             <th className="px-4 sm:px-6 py-3 sm:py-4 text-left text-xs sm:text-sm font-semibold text-gray-600 uppercase tracking-wider">
-                                Harga
-                            </th>
-                            <th className="px-4 sm:px-6 py-3 sm:py-4 text-left text-xs sm:text-sm font-semibold text-gray-600 uppercase tracking-wider">
                                 Stok
                             </th>
                             <th className="px-4 sm:px-6 py-3 sm:py-4 text-left text-xs sm:text-sm font-semibold text-gray-600 uppercase tracking-wider">
@@ -69,11 +59,6 @@ function VariantTable({ data, onEdit, onDelete }) {
                                 <td className="px-4 sm:px-6 py-3 sm:py-4">
                                     <p className="text-sm sm:text-base text-gray-900 truncate">
                                         {variant.product_name}
-                                    </p>
-                                </td>
-                                <td className="px-4 sm:px-6 py-3 sm:py-4">
-                                    <p className="text-sm sm:text-base font-semibold text-green-600">
-                                        {formatCurrency(variant.harga)}
                                     </p>
                                 </td>
                                 <td className="px-4 sm:px-6 py-3 sm:py-4">

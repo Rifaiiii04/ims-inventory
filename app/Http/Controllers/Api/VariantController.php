@@ -26,7 +26,6 @@ class VariantController extends Controller
                     'name' => $variant->nama_varian,
                     'product_id' => $variant->id_produk,
                     'product_name' => $variant->produk->nama_produk ?? 'Produk Tidak Diketahui',
-                    'harga' => (float)$variant->harga,
                     'stok' => (float)$variant->stok_varian,
                     'created_at' => $variant->created_at->format('Y-m-d H:i:s'),
                     'updated_at' => $variant->updated_at->format('Y-m-d H:i:s'),
@@ -97,7 +96,6 @@ class VariantController extends Controller
             $validator = Validator::make($request->all(), [
                 'name' => 'required|string|max:100',
                 'product_id' => 'required|exists:tbl_produk,id_produk',
-                'harga' => 'required|numeric|min:0',
                 'stok' => 'required|numeric|min:0'
             ]);
 
@@ -112,7 +110,6 @@ class VariantController extends Controller
             $variant = TblVarian::create([
                 'nama_varian' => $request->name,
                 'id_produk' => $request->product_id,
-                'harga' => $request->harga,
                 'stok_varian' => $request->stok,
             ]);
 
@@ -127,7 +124,6 @@ class VariantController extends Controller
                     'name' => $variant->nama_varian,
                     'product_id' => $variant->id_produk,
                     'product_name' => $variant->produk->nama_produk ?? 'Produk Tidak Diketahui',
-                    'harga' => (float)$variant->harga,
                     'stok' => (float)$variant->stok_varian,
                     'created_at' => $variant->created_at->format('Y-m-d H:i:s'),
                     'updated_at' => $variant->updated_at->format('Y-m-d H:i:s'),
@@ -161,7 +157,6 @@ class VariantController extends Controller
             $validator = Validator::make($request->all(), [
                 'name' => 'required|string|max:100',
                 'product_id' => 'required|exists:tbl_produk,id_produk',
-                'harga' => 'required|numeric|min:0',
                 'stok' => 'required|numeric|min:0'
             ]);
 
@@ -176,7 +171,6 @@ class VariantController extends Controller
             $variant->update([
                 'nama_varian' => $request->name,
                 'id_produk' => $request->product_id,
-                'harga' => $request->harga,
                 'stok_varian' => $request->stok,
             ]);
 
@@ -191,7 +185,6 @@ class VariantController extends Controller
                     'name' => $variant->nama_varian,
                     'product_id' => $variant->id_produk,
                     'product_name' => $variant->produk->nama_produk ?? 'Produk Tidak Diketahui',
-                    'harga' => (float)$variant->harga,
                     'stok' => (float)$variant->stok_varian,
                     'created_at' => $variant->created_at->format('Y-m-d H:i:s'),
                     'updated_at' => $variant->updated_at->format('Y-m-d H:i:s'),
@@ -220,6 +213,24 @@ class VariantController extends Controller
                     'success' => false,
                     'message' => 'Data varian tidak ditemukan'
                 ], 404);
+            }
+
+            // Check if variant is used in compositions
+            $compositionsCount = \App\Models\TblKomposisi::where('id_varian', $id)->count();
+            if ($compositionsCount > 0) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Varian tidak dapat dihapus karena masih digunakan dalam komposisi. Hapus komposisi terlebih dahulu.'
+                ], 400);
+            }
+
+            // Check if variant is used in transactions
+            $transactionsCount = \App\Models\TblTransaksiDetail::where('id_varian', $id)->count();
+            if ($transactionsCount > 0) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Varian tidak dapat dihapus karena masih digunakan dalam transaksi.'
+                ], 400);
             }
 
             $variant->delete();
@@ -257,6 +268,78 @@ class VariantController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Terjadi kesalahan saat mengambil data produk',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get variants by product ID
+     */
+    public function getByProduct($productId)
+    {
+        try {
+            $variants = TblVarian::where('id_produk', $productId)
+                ->with(['produk:id_produk,nama_produk'])
+                ->orderBy('nama_varian', 'asc')
+                ->get();
+
+            $formattedVariants = $variants->map(function($variant) {
+                return [
+                    'id' => $variant->id_varian,
+                    'name' => $variant->nama_varian,
+                    'product_id' => $variant->id_produk,
+                    'product_name' => $variant->produk->nama_produk ?? 'Produk Tidak Diketahui',
+                    'stok' => (float)$variant->stok_varian,
+                    'created_at' => $variant->created_at->format('Y-m-d H:i:s'),
+                    'updated_at' => $variant->updated_at->format('Y-m-d H:i:s'),
+                ];
+            });
+
+            return response()->json([
+                'success' => true,
+                'data' => $formattedVariants
+            ], 200);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Terjadi kesalahan saat mengambil data varian',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get variants for POS
+     */
+    public function getForPOS()
+    {
+        try {
+            $variants = TblVarian::with(['produk:id_produk,nama_produk'])
+                ->where('stok_varian', '>', 0)
+                ->orderBy('nama_varian', 'asc')
+                ->get();
+
+            $formattedVariants = $variants->map(function($variant) {
+                return [
+                    'id' => $variant->id_varian,
+                    'name' => $variant->nama_varian,
+                    'product_name' => $variant->produk->nama_produk ?? 'Produk Tidak Diketahui',
+                    'stok' => (float)$variant->stok_varian,
+                    'is_available' => $variant->stok_varian > 0
+                ];
+            });
+
+            return response()->json([
+                'success' => true,
+                'data' => $formattedVariants
+            ], 200);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Terjadi kesalahan saat mengambil data varian untuk POS',
                 'error' => $e->getMessage()
             ], 500);
         }

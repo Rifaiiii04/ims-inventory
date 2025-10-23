@@ -15,13 +15,16 @@ class TblVarian extends Model
     protected $fillable = [
         'nama_varian',
         'id_produk',
-        'harga',
         'stok_varian',
+        'unit',
+        'conversion_rate',
+        'conversion_unit',
+        'description',
     ];
 
     protected $casts = [
-        'harga' => 'decimal:2',
         'stok_varian' => 'decimal:2',
+        'conversion_rate' => 'decimal:2',
     ];
 
     // Relasi dengan produk

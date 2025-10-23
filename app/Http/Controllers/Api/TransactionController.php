@@ -10,6 +10,7 @@ use App\Models\TblBahan;
 use App\Models\TblKomposisi;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 
 class TransactionController extends Controller
@@ -68,7 +69,7 @@ class TransactionController extends Controller
     {
         try {
             // Log request data for debugging
-            \Log::info('Transaction request data:', $request->all());
+            Log::info('Transaction request data:', $request->all());
             
             $validator = Validator::make($request->all(), [
                 'items' => 'required|array|min:1',
@@ -80,7 +81,7 @@ class TransactionController extends Controller
             ]);
 
             if ($validator->fails()) {
-                \Log::error('Validation failed:', $validator->errors()->toArray());
+                Log::error('Validation failed:', $validator->errors()->toArray());
                 return response()->json([
                     'success' => false,
                     'message' => 'Data tidak valid',
@@ -110,16 +111,16 @@ class TransactionController extends Controller
                 $items = [];
 
                 foreach ($request->items as $item) {
-                    \Log::info('Processing item:', $item);
+                    Log::info('Processing item:', $item);
                     
                     $variant = TblVarian::find($item['variant_id']);
                     if (!$variant) {
-                        \Log::error('Variant not found:', ['variant_id' => $item['variant_id']]);
+                        Log::error('Variant not found:', ['variant_id' => $item['variant_id']]);
                         throw new \Exception("Varian tidak ditemukan");
                     }
 
                     if ($variant->stok_varian < $item['quantity']) {
-                        \Log::error('Insufficient stock:', [
+                        Log::error('Insufficient stock:', [
                             'variant' => $variant->nama_varian,
                             'requested' => $item['quantity'],
                             'available' => $variant->stok_varian
@@ -127,19 +128,41 @@ class TransactionController extends Controller
                         throw new \Exception("Stok {$variant->nama_varian} tidak mencukupi");
                     }
 
-                    $subtotal = $variant->harga * $item['quantity'];
+                    // Cek stok bahan berdasarkan komposisi
+                    $compositions = DB::table('tbl_komposisi')
+                        ->join('tbl_bahan', 'tbl_komposisi.id_bahan', '=', 'tbl_bahan.id_bahan')
+                        ->where('tbl_komposisi.id_varian', $variant->id_varian)
+                        ->get();
+
+                    foreach ($compositions as $composition) {
+                        $requiredIngredient = $composition->jumlah_per_porsi * $item['quantity'];
+                        if ($composition->stok_bahan < $requiredIngredient) {
+                            Log::error('Insufficient ingredient stock:', [
+                                'ingredient' => $composition->nama_bahan,
+                                'required' => $requiredIngredient,
+                                'available' => $composition->stok_bahan,
+                                'variant' => $variant->nama_varian
+                            ]);
+                            throw new \Exception("Stok bahan {$composition->nama_bahan} tidak mencukupi untuk memproduksi {$variant->nama_varian}. Dibutuhkan: {$requiredIngredient} {$composition->satuan}, Tersedia: {$composition->stok_bahan} {$composition->satuan}");
+                        }
+                    }
+
+                    // Ambil harga dari produk, bukan varian
+                    $produk = $variant->produk;
+                    $harga = $produk->harga ?? 0; // Asumsikan ada kolom harga di produk
+                    $subtotal = $harga * $item['quantity'];
                     $totalAmount += $subtotal;
 
                     $items[] = [
                         'variant' => $variant,
                         'quantity' => $item['quantity'],
-                        'price' => $variant->harga,
+                        'price' => $harga,
                         'subtotal' => $subtotal
                     ];
                 }
 
                 // Create transaction
-                \Log::info('Creating transaction with data:', [
+                Log::info('Creating transaction with data:', [
                     'tanggal_waktu' => now(),
                     'total_transaksi' => $totalAmount,
                     'metode_bayar' => $paymentMethod,
@@ -155,11 +178,11 @@ class TransactionController extends Controller
                     'created_by' => auth()->id(),
                 ]);
                 
-                \Log::info('Transaction created successfully:', ['transaction_id' => $transaction->id_transaksi]);
+                Log::info('Transaction created successfully:', ['transaction_id' => $transaction->id_transaksi]);
 
                 // Create transaction details and update stock
                 foreach ($items as $item) {
-                    \Log::info('Creating transaction detail:', [
+                    Log::info('Creating transaction detail:', [
                         'id_transaksi' => $transaction->id_transaksi,
                         'id_produk' => $item['variant']->id_produk,
                         'id_varian' => $item['variant']->id_varian,
@@ -179,7 +202,7 @@ class TransactionController extends Controller
                     ]);
 
                     // Update variant stock
-                    \Log::info('Updating variant stock:', [
+                    Log::info('Updating variant stock:', [
                         'variant_id' => $item['variant']->id_varian,
                         'current_stock' => $item['variant']->stok_varian,
                         'decrement_by' => $item['quantity']
@@ -202,7 +225,7 @@ class TransactionController extends Controller
                                 ->decrement('stok_bahan', $ingredientUsage);
                         }
                     } catch (\Exception $e) {
-                        \Log::warning('Failed to update ingredient stock:', ['error' => $e->getMessage()]);
+                        Log::warning('Failed to update ingredient stock:', ['error' => $e->getMessage()]);
                         // Continue even if ingredient update fails
                     }
                 }
@@ -227,7 +250,7 @@ class TransactionController extends Controller
             }
 
         } catch (\Exception $e) {
-            \Log::error('Transaction error:', [
+            Log::error('Transaction error:', [
                 'message' => $e->getMessage(),
                 'file' => $e->getFile(),
                 'line' => $e->getLine(),
@@ -248,7 +271,7 @@ class TransactionController extends Controller
     public function getHistory(Request $request)
     {
         try {
-            \Log::info('Fetching transaction history with filters:', $request->all());
+            Log::info('Fetching transaction history with filters:', $request->all());
             
             $query = TblTransaksi::with(['user', 'details'])
                 ->orderBy('tanggal_waktu', 'desc');

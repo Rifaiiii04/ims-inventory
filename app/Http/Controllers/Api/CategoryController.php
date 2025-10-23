@@ -15,16 +15,20 @@ class CategoryController extends Controller
     public function index(Request $request)
     {
         try {
-            $categories = TblKategori::orderBy('nama_kategori', 'asc')->get();
+            $categories = TblKategori::withCount(['produk', 'bahan'])
+                ->orderBy('nama_kategori', 'asc')
+                ->get();
 
             $formattedCategories = $categories->map(function($category) {
                 return [
                     'id' => $category->id_kategori,
                     'name' => $category->nama_kategori,
                     'description' => $category->deskripsi,
-                    'product_count' => rand(5, 25), // Dummy data untuk jumlah produk
-                    'created_at' => $category->created_at ? $category->created_at->format('Y-m-d') : '-',
-                    'updated_at' => $category->updated_at ? $category->updated_at->format('Y-m-d') : '-',
+                    'product_count' => $category->produk_count,
+                    'ingredient_count' => $category->bahan_count,
+                    'total_items' => $category->produk_count + $category->bahan_count,
+                    'created_at' => $category->created_at ? $category->created_at->format('Y-m-d H:i:s') : '-',
+                    'updated_at' => $category->updated_at ? $category->updated_at->format('Y-m-d H:i:s') : '-',
                 ];
             });
 
@@ -61,9 +65,11 @@ class CategoryController extends Controller
                 'id' => $category->id_kategori,
                 'name' => $category->nama_kategori,
                 'description' => $category->deskripsi,
-                'product_count' => rand(5, 25), // Dummy data untuk jumlah produk
-                'created_at' => $category->created_at ? $category->created_at->format('Y-m-d') : '-',
-                'updated_at' => $category->updated_at ? $category->updated_at->format('Y-m-d') : '-',
+                'product_count' => $category->produk()->count(),
+                'ingredient_count' => $category->bahan()->count(),
+                'total_items' => $category->produk()->count() + $category->bahan()->count(),
+                'created_at' => $category->created_at ? $category->created_at->format('Y-m-d H:i:s') : '-',
+                'updated_at' => $category->updated_at ? $category->updated_at->format('Y-m-d H:i:s') : '-',
             ];
 
             return response()->json([
@@ -111,9 +117,11 @@ class CategoryController extends Controller
                     'id' => $category->id_kategori,
                     'name' => $category->nama_kategori,
                     'description' => $category->deskripsi,
-                    'product_count' => rand(5, 25), // Dummy data untuk jumlah produk
-                    'created_at' => $category->created_at ? $category->created_at->format('Y-m-d') : '-',
-                    'updated_at' => $category->updated_at ? $category->updated_at->format('Y-m-d') : '-',
+                    'product_count' => 0,
+                    'ingredient_count' => 0,
+                    'total_items' => 0,
+                    'created_at' => $category->created_at ? $category->created_at->format('Y-m-d H:i:s') : '-',
+                    'updated_at' => $category->updated_at ? $category->updated_at->format('Y-m-d H:i:s') : '-',
                 ]
             ], 201);
 
@@ -169,9 +177,11 @@ class CategoryController extends Controller
                     'id' => $category->id_kategori,
                     'name' => $category->nama_kategori,
                     'description' => $category->deskripsi,
-                    'product_count' => rand(5, 25), // Dummy data untuk jumlah produk
-                    'created_at' => $category->created_at ? $category->created_at->format('Y-m-d') : '-',
-                    'updated_at' => $category->updated_at ? $category->updated_at->format('Y-m-d') : '-',
+                    'product_count' => $category->produk()->count(),
+                    'ingredient_count' => $category->bahan()->count(),
+                    'total_items' => $category->produk()->count() + $category->bahan()->count(),
+                    'created_at' => $category->created_at ? $category->created_at->format('Y-m-d H:i:s') : '-',
+                    'updated_at' => $category->updated_at ? $category->updated_at->format('Y-m-d H:i:s') : '-',
                 ]
             ], 200);
 

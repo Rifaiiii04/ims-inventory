@@ -16,8 +16,13 @@ class TblProduk extends Model
         'nama_produk',
         'id_kategori',
         'deskripsi',
+        'harga',
         'created_by',
         'status',
+    ];
+
+    protected $casts = [
+        'harga' => 'decimal:2',
     ];
 
     // Relasi dengan kategori
@@ -42,5 +47,11 @@ class TblProduk extends Model
     public function komposisi()
     {
         return $this->hasManyThrough(TblKomposisi::class, TblVarian::class, 'id_produk', 'id_varian', 'id_produk', 'id_varian');
+    }
+
+    // Relasi dengan bagian tubuh
+    public function bagianTubuh()
+    {
+        return $this->hasMany(TblBagianTubuh::class, 'id_produk', 'id_produk');
     }
 }

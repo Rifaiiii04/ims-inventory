@@ -62,23 +62,23 @@ function ProductTableModern({ data, onEdit, onDelete, onViewHistory }) {
             ),
         },
         {
-            header: "Bahan",
-            accessor: "ingredients",
-            render: (value) => (
-                <div className="flex flex-wrap gap-1">
-                    {value.slice(0, 2).map((ing, idx) => (
-                        <span
-                            key={idx}
-                            className="text-xs bg-gradient-to-r from-gray-100 to-gray-200 px-2 py-1 rounded-lg font-medium text-gray-700"
-                        >
-                            {ing}
+            header: "Komposisi",
+            accessor: "ingredients_count",
+            render: (value, item) => (
+                <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
+                        <span className="text-green-600 font-semibold text-sm">
+                            {value || 0}
                         </span>
-                    ))}
-                    {value.length > 2 && (
-                        <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-lg">
-                            +{value.length - 2}
-                        </span>
-                    )}
+                    </div>
+                    <div>
+                        <div className="text-sm font-medium text-gray-900">
+                            {value || 0} bahan
+                        </div>
+                        <div className="text-xs text-gray-500">
+                            {item.composition_count || 0} komposisi
+                        </div>
+                    </div>
                 </div>
             ),
         },
@@ -93,7 +93,7 @@ function ProductTableModern({ data, onEdit, onDelete, onViewHistory }) {
         },
         {
             header: "Harga",
-            accessor: "sellPrice",
+            accessor: "harga",
             render: (value) => (
                 <div>
                     <div className="text-sm font-bold text-green-600">
@@ -137,7 +137,7 @@ function ProductTableModern({ data, onEdit, onDelete, onViewHistory }) {
                 </div>
                 <div className="text-right">
                     <div className="text-base font-bold text-green-600">
-                        Rp {item.sellPrice.toLocaleString("id-ID")}
+                        Rp {item.harga.toLocaleString("id-ID")}
                     </div>
                     <div className="text-xs text-gray-500">per unit</div>
                 </div>

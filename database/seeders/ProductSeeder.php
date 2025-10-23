@@ -14,31 +14,27 @@ class ProductSeeder extends Seeder
     {
         // Insert produk contoh (berdasarkan data frontend)
         $produkData = [
-            // Makanan
-            ['Nasi', 1, 'Nasi putih hangat', 1],
-            ['Ayam Bakar', 1, 'Ayam bakar bumbu khas', 1],
-            ['Ayam Goreng', 1, 'Ayam goreng crispy', 1],
-            ['Tusukan (Sate-satean)', 1, 'Sate cumi bumbu khas', 1],
-            ['Lele Goreng', 1, 'Lele goreng crispy', 1],
-            ['Nila Goreng', 1, 'Nila goreng bumbu kuning', 1],
-            ['Cobek Nila', 1, 'Nila cobek bumbu pedas', 1],
-            ['Kepala Ayam', 1, 'Kepala ayam goreng', 1],
-            ['Tempe Goreng', 1, 'Tempe goreng crispy', 1],
-            ['Tahu Goreng', 1, 'Tahu goreng crispy', 1],
-            ['Cumi Goreng', 1, 'Cumi goreng bumbu khas', 1],
-            ['Pencok', 1, 'Pencok bumbu khas', 1],
-            ['Receuh Timun', 1, 'Timun receuh segar', 1],
-            ['Asin Japuh', 1, 'Ikan asin japuh goreng', 1],
-            ['Asin Peda', 1, 'Ikan asin peda goreng', 1],
-            ['Asin Pindang', 1, 'Ikan asin pindang goreng', 1],
-            ['Tumis Kangkung', 1, 'Kangkung tumis bumbu khas', 1],
-            ['Tumis Terong', 1, 'Terong tumis bumbu khas', 1],
+            // Makanan - Produk dengan multiple varian
+            ['Ayam', 1, 'Ayam dengan berbagai varian masakan', 15000, 1],
+            ['Nasi', 1, 'Nasi putih hangat', 5000, 1],
+            ['Lele', 1, 'Lele dengan berbagai varian masakan', 10000, 1],
+            ['Nila', 1, 'Nila dengan berbagai varian masakan', 18000, 1],
+            ['Tusukan (Sate-satean)', 1, 'Sate cumi bumbu khas', 3000, 1],
+            ['Kepala Ayam', 1, 'Kepala ayam goreng', 2000, 1],
+            ['Tempe', 1, 'Tempe dengan berbagai varian masakan', 1000, 1],
+            ['Tahu', 1, 'Tahu dengan berbagai varian masakan', 1000, 1],
+            ['Cumi', 1, 'Cumi dengan berbagai varian masakan', 8000, 1],
+            ['Pencok', 1, 'Pencok bumbu khas', 8000, 1],
+            ['Receuh Timun', 1, 'Timun receuh segar', 8000, 1],
+            ['Asin Japuh', 1, 'Ikan asin japuh goreng', 5000, 1],
+            ['Asin Peda', 1, 'Ikan asin peda goreng', 8000, 1],
+            ['Asin Pindang', 1, 'Ikan asin pindang goreng', 8000, 1],
+            ['Tumis Kangkung', 1, 'Kangkung tumis bumbu khas', 10000, 1],
+            ['Tumis Terong', 1, 'Terong tumis bumbu khas', 10000, 1],
             
-            // Minuman
-            ['Es Teh Manis', 2, 'Es teh manis segar', 1],
-            ['Es Teh Tawar', 2, 'Es teh tawar segar', 1],
-            ['Es Teh Jus', 2, 'Es teh dengan jus', 1],
-            ['Es Jeruk', 2, 'Es jeruk segar', 1],
+            // Minuman - Produk dengan multiple varian
+            ['Es Teh', 2, 'Es teh dengan berbagai varian', 4000, 1],
+            ['Es Jeruk', 2, 'Es jeruk segar', 7000, 1],
         ];
 
         foreach ($produkData as $produk) {
@@ -46,7 +42,8 @@ class ProductSeeder extends Seeder
                 'nama_produk' => $produk[0],
                 'id_kategori' => $produk[1],
                 'deskripsi' => $produk[2],
-                'created_by' => $produk[3],
+                'harga' => $produk[3],
+                'created_by' => $produk[4],
                 'status' => 'aktif',
                 'created_at' => now(),
                 'updated_at' => now(),

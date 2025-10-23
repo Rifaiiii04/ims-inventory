@@ -20,14 +20,14 @@ function ProductManagement() {
         createProduct,
         updateProduct,
         deleteProduct,
-        refreshData
+        refreshData,
     } = useProduct();
 
     // Handle tambah produk baru
     const handleAddProduct = async (newProduct) => {
         const result = await createProduct(newProduct);
         if (result.success) {
-        setShowFormModal(false);
+            setShowFormModal(false);
         } else {
             alert(result.message);
         }
@@ -37,8 +37,8 @@ function ProductManagement() {
     const handleUpdateProduct = async (updatedProduct) => {
         const result = await updateProduct(updatedProduct.id, updatedProduct);
         if (result.success) {
-        setEditingProduct(null);
-        setShowFormModal(false);
+            setEditingProduct(null);
+            setShowFormModal(false);
         } else {
             alert(result.message);
         }
@@ -46,7 +46,11 @@ function ProductManagement() {
 
     // Handle hapus produk
     const handleDeleteProduct = async (id) => {
-        if (confirm("Apakah Anda yakin ingin menghapus produk ini? Semua varian dan komposisi terkait juga akan dihapus.")) {
+        if (
+            confirm(
+                "Apakah Anda yakin ingin menghapus produk ini? Semua varian dan komposisi terkait juga akan dihapus."
+            )
+        ) {
             const result = await deleteProduct(id);
             if (!result.success) {
                 alert(result.message);
@@ -61,16 +65,18 @@ function ProductManagement() {
     };
 
     // Filter products based on search term
-    const filteredProducts = productData.filter(product => {
+    const filteredProducts = (productData || []).filter((product) => {
         if (!searchTerm) return true;
-        
+
         const searchLower = searchTerm.toLowerCase();
         return (
-            product.name.toLowerCase().includes(searchLower) ||
-            product.category_name.toLowerCase().includes(searchLower) ||
-            product.main_ingredients.some(ingredient => 
-                ingredient.toLowerCase().includes(searchLower)
-            )
+            product.name?.toLowerCase().includes(searchLower) ||
+            product.category_name?.toLowerCase().includes(searchLower) ||
+            (product.unique_ingredients &&
+                Array.isArray(product.unique_ingredients) &&
+                product.unique_ingredients.some((ingredient) =>
+                    ingredient?.toLowerCase().includes(searchLower)
+                ))
         );
     });
 
@@ -160,13 +166,27 @@ function ProductManagement() {
                             <div className="mb-4 sm:mb-6 bg-red-50 border border-red-200 rounded-xl p-3 sm:p-4">
                                 <div className="flex items-center gap-3">
                                     <div className="w-6 h-6 sm:w-8 sm:h-8 bg-red-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                                        <svg className="w-4 h-4 sm:w-5 sm:h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                        <svg
+                                            className="w-4 h-4 sm:w-5 sm:h-5 text-red-600"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            viewBox="0 0 24 24"
+                                        >
+                                            <path
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                                strokeWidth={2}
+                                                d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                                            />
                                         </svg>
                                     </div>
                                     <div className="min-w-0 flex-1">
-                                        <h3 className="font-semibold text-red-800 text-sm sm:text-base">Terjadi Kesalahan</h3>
-                                        <p className="text-xs sm:text-sm text-red-600 break-words">{error}</p>
+                                        <h3 className="font-semibold text-red-800 text-sm sm:text-base">
+                                            Terjadi Kesalahan
+                                        </h3>
+                                        <p className="text-xs sm:text-sm text-red-600 break-words">
+                                            {error}
+                                        </p>
                                     </div>
                                 </div>
                             </div>
@@ -176,11 +196,23 @@ function ProductManagement() {
                         {searchTerm && (
                             <div className="mb-4 bg-blue-50 border border-blue-200 rounded-xl p-3">
                                 <div className="flex items-center gap-2">
-                                    <svg className="w-4 h-4 text-blue-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                    <svg
+                                        className="w-4 h-4 text-blue-600 flex-shrink-0"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        viewBox="0 0 24 24"
+                                    >
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            strokeWidth={2}
+                                            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                                        />
                                     </svg>
                                     <span className="text-xs sm:text-sm text-blue-800 break-words">
-                                        Menampilkan {filteredProducts.length} dari {productData.length} produk untuk pencarian "{searchTerm}"
+                                        Menampilkan {filteredProducts.length}{" "}
+                                        dari {productData?.length || 0} produk
+                                        untuk pencarian "{searchTerm}"
                                     </span>
                                 </div>
                             </div>
@@ -190,13 +222,26 @@ function ProductManagement() {
                         {searchTerm && filteredProducts.length === 0 && (
                             <div className="text-center py-8 sm:py-12">
                                 <div className="w-12 h-12 sm:w-16 sm:h-16 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-3 sm:mb-4">
-                                    <svg className="w-6 h-6 sm:w-8 sm:h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                    <svg
+                                        className="w-6 h-6 sm:w-8 sm:h-8 text-gray-400"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        viewBox="0 0 24 24"
+                                    >
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            strokeWidth={2}
+                                            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                                        />
                                     </svg>
                                 </div>
-                                <h3 className="text-base sm:text-lg font-bold text-gray-700 mb-2">Tidak ada hasil ditemukan</h3>
+                                <h3 className="text-base sm:text-lg font-bold text-gray-700 mb-2">
+                                    Tidak ada hasil ditemukan
+                                </h3>
                                 <p className="text-gray-500 text-xs sm:text-sm mb-4 px-4">
-                                    Tidak ada produk yang cocok dengan pencarian "{searchTerm}"
+                                    Tidak ada produk yang cocok dengan pencarian
+                                    "{searchTerm}"
                                 </p>
                                 <button
                                     onClick={() => setSearchTerm("")}
@@ -207,14 +252,43 @@ function ProductManagement() {
                             </div>
                         )}
 
+                        {/* Loading State */}
+                        {!productData && !error && (
+                            <div className="text-center py-8 sm:py-12">
+                                <div className="w-12 h-12 sm:w-16 sm:h-16 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-3 sm:mb-4">
+                                    <svg
+                                        className="w-6 h-6 sm:w-8 sm:h-8 text-gray-400 animate-spin"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        viewBox="0 0 24 24"
+                                    >
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            strokeWidth={2}
+                                            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                                        />
+                                    </svg>
+                                </div>
+                                <h3 className="text-base sm:text-lg font-bold text-gray-700 mb-2">
+                                    Memuat data produk...
+                                </h3>
+                                <p className="text-gray-500 text-xs sm:text-sm">
+                                    Mohon tunggu sebentar
+                                </p>
+                            </div>
+                        )}
+
                         {/* Product Table */}
-                        <div className="overflow-x-auto">
-                        <ProductTable
-                                data={filteredProducts}
-                            onEdit={handleEditProduct}
-                            onDelete={handleDeleteProduct}
-                        />
-                        </div>
+                        {productData && (
+                            <div className="overflow-x-auto">
+                                <ProductTable
+                                    data={filteredProducts}
+                                    onEdit={handleEditProduct}
+                                    onDelete={handleDeleteProduct}
+                                />
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>
@@ -229,7 +303,9 @@ function ProductManagement() {
                         setShowFormModal(false);
                         setEditingProduct(null);
                     }}
-                    onSubmit={editingProduct ? handleUpdateProduct : handleAddProduct}
+                    onSubmit={
+                        editingProduct ? handleUpdateProduct : handleAddProduct
+                    }
                 />
             )}
         </>

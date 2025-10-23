@@ -21,7 +21,9 @@ class ProductController extends Controller
         try {
             $products = TblProduk::with([
                 'kategori:id_kategori,nama_kategori',
-                'varian:id_varian,id_produk,nama_varian,harga,stok_varian'
+                'varian:id_varian,id_produk,nama_varian,stok_varian',
+                'varian.komposisi:id_komposisi,id_varian,id_bahan,jumlah_per_porsi',
+                'varian.komposisi.bahan:id_bahan,nama_bahan'
             ])
             ->orderBy('nama_produk', 'asc')
             ->get();
@@ -30,11 +32,22 @@ class ProductController extends Controller
                 // Hitung total stok dari varian
                 $totalStock = $product->varian->sum('stok_varian');
                 
-                // Ambil harga terendah dari varian
-                $minPrice = $product->varian->min('harga');
+                // Ambil harga dari produk
+                $productPrice = $product->harga ?? 0;
                 
-                // Ambil bahan utama (kosong untuk sementara)
-                $mainIngredients = [];
+                // Hitung komposisi dari semua varian
+                $allIngredients = collect();
+                $compositionCount = 0;
+                
+                foreach ($product->varian as $variant) {
+                    foreach ($variant->komposisi as $composition) {
+                        $allIngredients->push($composition->bahan->nama_bahan);
+                        $compositionCount++;
+                    }
+                }
+                
+                // Ambil bahan unik
+                $uniqueIngredients = $allIngredients->unique()->values()->toArray();
                 
                 return [
                     'id' => $product->id_produk,
@@ -44,9 +57,11 @@ class ProductController extends Controller
                     'category_name' => $product->kategori->nama_kategori ?? 'Tidak ada kategori',
                     'status' => $product->status,
                     'total_stock' => $totalStock,
-                    'min_price' => $minPrice ? (float)$minPrice : 0,
+                    'harga' => (float)$productPrice,
                     'variant_count' => $product->varian->count(),
-                    'main_ingredients' => $mainIngredients,
+                    'composition_count' => $compositionCount,
+                    'unique_ingredients' => $uniqueIngredients,
+                    'ingredients_count' => count($uniqueIngredients),
                     'created_at' => $product->created_at->format('Y-m-d H:i:s'),
                     'updated_at' => $product->updated_at->format('Y-m-d H:i:s'),
                 ];
@@ -74,7 +89,7 @@ class ProductController extends Controller
         try {
             $product = TblProduk::with([
                 'kategori:id_kategori,nama_kategori',
-                'varian:id_varian,id_produk,nama_varian,harga,stok_varian'
+                'varian:id_varian,id_produk,nama_varian,stok_varian'
             ])->find($id);
 
             if (!$product) {
@@ -87,8 +102,8 @@ class ProductController extends Controller
             // Hitung total stok dari varian
             $totalStock = $product->varian->sum('stok_varian');
             
-            // Ambil harga terendah dari varian
-            $minPrice = $product->varian->min('harga');
+            // Ambil harga dari produk
+            $productPrice = $product->harga ?? 0;
             
             // Ambil semua bahan (kosong untuk sementara)
             $ingredients = [];
@@ -101,7 +116,7 @@ class ProductController extends Controller
                 'category_name' => $product->kategori->nama_kategori ?? 'Tidak ada kategori',
                 'status' => $product->status,
                 'total_stock' => $totalStock,
-                'min_price' => $minPrice ? (float)$minPrice : 0,
+                'harga' => (float)$productPrice,
                 'variant_count' => $product->varian->count(),
                 'ingredients' => $ingredients,
                 'created_at' => $product->created_at->format('Y-m-d H:i:s'),
@@ -132,6 +147,7 @@ class ProductController extends Controller
                 'name' => 'required|string|max:100',
                 'description' => 'nullable|string|max:255',
                 'category_id' => 'required|exists:tbl_kategori,id_kategori',
+                'harga' => 'required|numeric|min:0',
                 'status' => 'required|in:aktif,nonaktif'
             ]);
 
@@ -147,6 +163,7 @@ class ProductController extends Controller
                 'nama_produk' => $request->name,
                 'deskripsi' => $request->description,
                 'id_kategori' => $request->category_id,
+                'harga' => $request->harga,
                 'status' => $request->status,
                 'created_by' => auth()->id()
             ]);
@@ -201,6 +218,7 @@ class ProductController extends Controller
                 'name' => 'required|string|max:100',
                 'description' => 'nullable|string|max:255',
                 'category_id' => 'required|exists:tbl_kategori,id_kategori',
+                'harga' => 'required|numeric|min:0',
                 'status' => 'required|in:aktif,nonaktif'
             ]);
 
@@ -225,8 +243,8 @@ class ProductController extends Controller
             // Hitung total stok dari varian
             $totalStock = $product->varian->sum('stok_varian');
             
-            // Ambil harga terendah dari varian
-            $minPrice = $product->varian->min('harga');
+            // Ambil harga dari produk
+            $productPrice = $product->harga ?? 0;
             
             // Ambil bahan utama (kosong untuk sementara)
             $mainIngredients = [];
@@ -242,7 +260,7 @@ class ProductController extends Controller
                     'category_name' => $product->kategori->nama_kategori ?? 'Tidak ada kategori',
                     'status' => $product->status,
                     'total_stock' => $totalStock,
-                    'min_price' => $minPrice ? (float)$minPrice : 0,
+                    'harga' => (float)$productPrice,
                     'variant_count' => $product->varian->count(),
                     'main_ingredients' => $mainIngredients,
                     'created_at' => $product->created_at->format('Y-m-d H:i:s'),

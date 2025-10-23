@@ -39,56 +39,35 @@ function CashierFormModal({ cashier, onClose, onSave }) {
     };
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-                {/* Header */}
-                <div className="bg-gradient-to-r from-blue-50 to-green-50 px-6 py-5 border-b border-gray-200 rounded-t-2xl">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-green-500 rounded-xl flex items-center justify-center shadow-lg">
-                                <svg
-                                    xmlns="http://www.w3.org/2000/svg"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                    strokeWidth={2}
-                                    stroke="currentColor"
-                                    className="w-5 h-5 text-white"
-                                >
-                                    <path
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z"
-                                    />
-                                </svg>
-                            </div>
-                            <div>
-                                <h3 className="text-lg font-bold text-gray-800">
-                                    {cashier
-                                        ? "Edit Akun Kasir"
-                                        : "Tambah Akun Kasir Baru"}
-                                </h3>
-                                <p className="text-sm text-gray-500">
-                                    {cashier
-                                        ? "Update informasi akun kasir"
-                                        : "Buat akun baru untuk kasir"}
-                                </p>
-                            </div>
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+                {/* Modal Header */}
+                <div className="bg-gradient-to-r from-green-600 to-green-500 text-white p-6">
+                    <div className="flex justify-between items-center">
+                        <div>
+                            <h2 className="text-xl font-bold mb-1">
+                                {cashier ? "Edit Kasir" : "Tambah Kasir"}
+                            </h2>
+                            <p className="text-green-50 text-sm">
+                                {cashier
+                                    ? "Perbarui data kasir"
+                                    : "Tambahkan kasir baru"}
+                            </p>
                         </div>
                         <button
                             onClick={onClose}
-                            className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                            className="text-white hover:bg-white/20 p-2 rounded-lg transition-colors"
                         >
                             <svg
-                                xmlns="http://www.w3.org/2000/svg"
+                                className="w-5 h-5"
                                 fill="none"
-                                viewBox="0 0 24 24"
-                                strokeWidth={2}
                                 stroke="currentColor"
-                                className="w-6 h-6"
+                                viewBox="0 0 24 24"
                             >
                                 <path
                                     strokeLinecap="round"
                                     strokeLinejoin="round"
+                                    strokeWidth={2}
                                     d="M6 18L18 6M6 6l12 12"
                                 />
                             </svg>
@@ -102,8 +81,7 @@ function CashierFormModal({ cashier, onClose, onSave }) {
                         {/* Username */}
                         <div>
                             <label className="block text-sm font-semibold text-gray-700 mb-2">
-                                Username{" "}
-                                <span className="text-red-500">*</span>
+                                Username <span className="text-red-500">*</span>
                             </label>
                             <input
                                 type="text"
@@ -151,7 +129,10 @@ function CashierFormModal({ cashier, onClose, onSave }) {
                         {/* Password */}
                         <div>
                             <label className="block text-sm font-semibold text-gray-700 mb-2">
-                                Password {!cashier && <span className="text-red-500">*</span>}
+                                Password{" "}
+                                {!cashier && (
+                                    <span className="text-red-500">*</span>
+                                )}
                             </label>
                             <input
                                 type="password"
@@ -159,7 +140,11 @@ function CashierFormModal({ cashier, onClose, onSave }) {
                                 value={formData.password}
                                 onChange={handleChange}
                                 className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                                placeholder={cashier ? "Kosongkan jika tidak ingin mengubah" : "Masukkan password"}
+                                placeholder={
+                                    cashier
+                                        ? "Kosongkan jika tidak ingin mengubah"
+                                        : "Masukkan password"
+                                }
                                 required={!cashier}
                             />
                         </div>
