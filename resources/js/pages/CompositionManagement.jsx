@@ -19,6 +19,7 @@ function CompositionManagement() {
         compositions: compositionData,
         variants,
         ingredients,
+        loading,
         error,
         createComposition,
         updateComposition,
@@ -199,7 +200,7 @@ function CompositionManagement() {
                         )}
 
                         {/* Search Results Info */}
-                        {searchTerm && (
+                        {!loading && searchTerm && (
                             <div className="mb-4 bg-blue-50 border border-blue-200 rounded-xl p-3">
                                 <div className="flex items-center gap-2">
                                     <svg
@@ -218,19 +219,55 @@ function CompositionManagement() {
                                     <span className="text-xs sm:text-sm text-blue-800 break-words">
                                         Menampilkan{" "}
                                         {filteredCompositions.length} dari{" "}
-                                        {compositionData.length} komposisi untuk
-                                        pencarian "{searchTerm}"
+                                        {compositionData?.length || 0} komposisi
+                                        untuk pencarian "{searchTerm}"
                                     </span>
                                 </div>
                             </div>
                         )}
 
                         {/* No Search Results */}
-                        {searchTerm && filteredCompositions.length === 0 && (
-                            <div className="text-center py-8 sm:py-12">
-                                <div className="w-12 h-12 sm:w-16 sm:h-16 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-3 sm:mb-4">
+                        {!loading &&
+                            searchTerm &&
+                            filteredCompositions.length === 0 && (
+                                <div className="text-center py-8 sm:py-12">
+                                    <div className="w-12 h-12 sm:w-16 sm:h-16 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-3 sm:mb-4">
+                                        <svg
+                                            className="w-6 h-6 sm:w-8 sm:h-8 text-gray-400"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            viewBox="0 0 24 24"
+                                        >
+                                            <path
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                                strokeWidth={2}
+                                                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                                            />
+                                        </svg>
+                                    </div>
+                                    <h3 className="text-base sm:text-lg font-bold text-gray-700 mb-2">
+                                        Tidak ada hasil ditemukan
+                                    </h3>
+                                    <p className="text-gray-500 text-xs sm:text-sm mb-4 px-4">
+                                        Tidak ada komposisi yang cocok dengan
+                                        pencarian "{searchTerm}"
+                                    </p>
+                                    <button
+                                        onClick={() => setSearchTerm("")}
+                                        className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors text-xs sm:text-sm"
+                                    >
+                                        Hapus Pencarian
+                                    </button>
+                                </div>
+                            )}
+
+                        {/* Loading State */}
+                        {loading && (
+                            <div className="text-center py-12">
+                                <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
                                     <svg
-                                        className="w-6 h-6 sm:w-8 sm:h-8 text-gray-400"
+                                        className="w-8 h-8 text-gray-400 animate-spin"
                                         fill="none"
                                         stroke="currentColor"
                                         viewBox="0 0 24 24"
@@ -239,35 +276,63 @@ function CompositionManagement() {
                                             strokeLinecap="round"
                                             strokeLinejoin="round"
                                             strokeWidth={2}
-                                            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                                            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
                                         />
                                     </svg>
                                 </div>
-                                <h3 className="text-base sm:text-lg font-bold text-gray-700 mb-2">
-                                    Tidak ada hasil ditemukan
+                                <h3 className="text-lg font-bold text-gray-700 mb-2">
+                                    Memuat data komposisi...
                                 </h3>
-                                <p className="text-gray-500 text-xs sm:text-sm mb-4 px-4">
-                                    Tidak ada komposisi yang cocok dengan
-                                    pencarian "{searchTerm}"
+                                <p className="text-gray-500 text-sm">
+                                    Mohon tunggu sebentar
                                 </p>
-                                <button
-                                    onClick={() => setSearchTerm("")}
-                                    className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors text-xs sm:text-sm"
-                                >
-                                    Hapus Pencarian
-                                </button>
                             </div>
                         )}
 
                         {/* Composition Table */}
-                        <div className="overflow-x-auto">
-                            <CompositionTable
-                                data={filteredCompositions}
-                                onEdit={handleEditComposition}
-                                onDelete={handleDeleteComposition}
-                                onViewDetail={handleViewDetail}
-                            />
-                        </div>
+                        {!loading && (
+                            <div className="overflow-x-auto">
+                                <CompositionTable
+                                    data={filteredCompositions}
+                                    onEdit={handleEditComposition}
+                                    onDelete={handleDeleteComposition}
+                                    onViewDetail={handleViewDetail}
+                                />
+                            </div>
+                        )}
+
+                        {/* No Data State */}
+                        {!loading && !compositionData && !error && (
+                            <div className="text-center py-12">
+                                <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                                    <svg
+                                        className="w-8 h-8 text-gray-400"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        viewBox="0 0 24 24"
+                                    >
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            strokeWidth={2}
+                                            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                                        />
+                                    </svg>
+                                </div>
+                                <h3 className="text-lg font-bold text-gray-700 mb-2">
+                                    Belum ada komposisi
+                                </h3>
+                                <p className="text-gray-500 text-sm mb-4">
+                                    Mulai dengan menambahkan komposisi pertama
+                                </p>
+                                <button
+                                    onClick={() => setShowFormModal(true)}
+                                    className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                                >
+                                    Tambah Komposisi
+                                </button>
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>

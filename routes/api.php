@@ -13,6 +13,7 @@ use App\Http\Controllers\Api\CategoryController;
 use App\Http\Controllers\Api\TransactionController;
 use App\Http\Controllers\Api\WhatsAppAgentController;
 use App\Http\Controllers\Api\NotificationController;
+use App\Http\Controllers\Api\ReportController;
 
 /*
 |--------------------------------------------------------------------------
@@ -33,6 +34,8 @@ Route::get('/products', [ProductController::class, 'index']);
 Route::get('/compositions', [CompositionController::class, 'index']);
 Route::get('/dashboard/summary', [DashboardController::class, 'getSummary']);
 Route::get('/dashboard/low-stock', [DashboardController::class, 'getLowStockAlerts']);
+Route::get('/reports/inventory', [ReportController::class, 'getInventoryReport']);
+Route::get('/reports/categories', [ReportController::class, 'getCategories']);
 
 // Protected routes
 Route::middleware('auth:sanctum')->group(function () {
@@ -40,7 +43,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/auth/me', [AuthController::class, 'me']);
     Route::post('/auth/refresh', [AuthController::class, 'refresh']);
     
-    // Dashboard routes
+    // Report routes (export only - protected)
+    Route::post('/reports/inventory/export/excel', [ReportController::class, 'exportExcel']);
+    Route::post('/reports/inventory/export/pdf', [ReportController::class, 'exportPDF']);
     
     // Stock routes
     Route::apiResource('stocks', StockController::class);
