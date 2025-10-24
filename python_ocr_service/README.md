@@ -11,15 +11,21 @@ cd python_ocr_service
 pip install -r requirements.txt
 ```
 
-### 2. Setup Gemini API Key
+### 2. Start Service
 
-Edit `start_hybrid_service.bat` dan ganti API key:
+API key Gemini sudah dikonfigurasi. Langsung jalankan:
 
-```batch
-set GEMINI_API_KEY=your_actual_gemini_api_key_here
+```bash
+start_hybrid_service.bat
 ```
 
-### 3. Start Service
+Atau manual:
+
+```bash
+python ocr_service_hybrid.py
+```
+
+## 📋 API Endpoints
 
 **Option A: Menggunakan Batch File (Recommended)**
 

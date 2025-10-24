@@ -26,13 +26,10 @@ print("EasyOCR initialized successfully!")
 # Initialize Gemini AI
 print("Initializing Gemini AI...")
 # Set your Gemini API key here
-GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', 'YOUR_GEMINI_API_KEY_HERE')
-if GEMINI_API_KEY == 'YOUR_GEMINI_API_KEY_HERE':
-    print("WARNING: Please set GEMINI_API_KEY environment variable!")
-else:
-    genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel('gemini-1.5-flash')
-    print("Gemini AI initialized successfully!")
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', 'AIzaSyBzb2hZXhceAjTlW1nfiXdlK710-t5TQ20')
+genai.configure(api_key=GEMINI_API_KEY)
+model = genai.GenerativeModel('gemini-1.5-flash')
+print("Gemini AI initialized successfully!")
 
 app = Flask(__name__)
 
@@ -119,34 +116,47 @@ def classify_with_gemini(text_list, image_file=None):
         
         # Create prompt for Gemini
         prompt = f"""
-        Anda adalah AI yang ahli dalam menganalisis struk belanja dan kwitansi. 
-        Dari teks berikut yang diekstrak dari gambar struk belanja, ekstrak informasi barang-barang yang dibeli.
+        Anda adalah AI yang ahli dalam menganalisis struk belanja, kwitansi, dan daftar belanjaan TULISAN TANGAN.
+        Dari teks berikut yang diekstrak dari gambar, ekstrak SEMUA item yang dibeli, bahkan jika formatnya tidak sempurna.
 
         Teks yang diekstrak:
         {combined_text}
 
-        Tolong analisis dan ekstrak setiap item yang dibeli dengan format JSON berikut:
+        ANALISIS FLEKSIBEL:
+        - Terima tulisan tangan yang tidak sempurna
+        - Abaikan header, footer, total, tanda tangan
+        - Fokus pada item-item yang dibeli
+        - Terima singkatan (Bks, BKS, klg, Btl, dll)
+        - Terima format harga yang bervariasi (Rp 1.000, 1000, 1-000, dll)
+
+        Format output JSON:
         {{
             "items": [
                 {{
                     "nama_barang": "nama item yang dibeli",
                     "jumlah": "jumlah/banyaknya",
                     "harga": "harga per item (hanya angka)",
-                    "unit": "satuan (pcs, kg, liter, dll)",
+                    "unit": "satuan (pcs, kg, liter, bungkus, kaleng, botol, dll)",
                     "category_id": 1,
                     "minStock": 10
                 }}
             ]
         }}
 
-        Aturan:
-        1. Hanya ekstrak item yang benar-benar dibeli (bukan header, total, dll)
-        2. Jika tidak ada informasi jumlah, gunakan "1"
-        3. Harga harus dalam format angka saja (tanpa Rp, koma, titik)
-        4. Unit default adalah "pcs" jika tidak jelas
-        5. category_id default adalah 1
-        6. minStock default adalah 10
-        7. Jika tidak ada item yang valid, kembalikan array kosong
+        ATURAN FLEKSIBEL:
+        1. Ekstrak SEMUA item yang terlihat seperti barang belanjaan
+        2. Jika jumlah tidak jelas, gunakan "1"
+        3. Harga: bersihkan dari Rp, titik, koma, strip (contoh: "Rp 1.500" → "1500")
+        4. Unit: terima singkatan (Bks=bungkus, klg=kaleng, Btl=botol, kg=kilogram)
+        5. Nama barang: bersihkan dari angka dan simbol, ambil nama asli
+        6. Jika ada item yang meragukan, tetap masukkan dengan confidence rendah
+        7. JANGAN kembalikan array kosong kecuali benar-benar tidak ada item
+
+        CONTOH PARSING:
+        - "1 Bks T.Kanji" → nama_barang: "Tepung Kanji", jumlah: "1", unit: "bungkus"
+        - "2 klg olympic" → nama_barang: "Olympic", jumlah: "2", unit: "kaleng"
+        - "Rp 12.000" → harga: "12000"
+        - "5 Bks Mie sedap" → nama_barang: "Mie Sedap", jumlah: "5", unit: "bungkus"
 
         Jawab hanya dengan JSON yang valid, tanpa penjelasan tambahan.
         """
@@ -187,28 +197,35 @@ def classify_with_gemini(text_list, image_file=None):
         return parse_receipt_text_fallback(text_list)
 
 def parse_receipt_text_fallback(text_list):
-    """Fallback parsing if Gemini fails"""
+    """Fallback parsing if Gemini fails - FLEKSIBEL untuk tulisan tangan"""
     try:
         if not text_list:
             return []
 
-        print("=== Fallback Parsing ===")
+        print("=== Fallback Parsing (Fleksibel) ===")
         items = []
         import re
+        
+        # Skip common non-item words
+        skip_words = ['total', 'jumlah', 'rp', 'harga', 'nama', 'barang', 'banyaknya', 'tanda', 'terima', 'perhatian', 'hormat', 'kami']
         
         # Look for patterns that might be items with prices
         for i, text in enumerate(text_list):
             text = text.strip()
             
             # Skip empty or very short text
-            if len(text) < 3:
+            if len(text) < 2:
+                continue
+                
+            # Skip if it's clearly a header/footer
+            if any(word in text.lower() for word in skip_words):
                 continue
             
-            # Look for price patterns (various formats)
+            # Look for price patterns (various formats) - LEBIH FLEKSIBEL
             price_patterns = [
-                r'[Rr][Pp]\.?\s*(\d+(?:\.\d{3})*(?:,\d{2})?)',  # Rp 1.500 or Rp. 1500
-                r'(\d+(?:\.\d{3})*(?:,\d{2})?)\s*[Rr][Pp]',    # 1500 Rp
-                r'(\d+(?:\.\d{3})*(?:,\d{2})?)',               # Just numbers
+                r'[Rr][Pp]\.?\s*(\d+(?:[\.\-]\d{3})*(?:,\d{2})?)',  # Rp 1.500, Rp 1-500, Rp. 1500
+                r'(\d+(?:[\.\-]\d{3})*(?:,\d{2})?)\s*[Rr][Pp]',    # 1500 Rp, 1-500 Rp
+                r'(\d+(?:[\.\-]\d{3})*(?:,\d{2})?)',               # Just numbers
             ]
             
             price_value = None
@@ -217,12 +234,12 @@ def parse_receipt_text_fallback(text_list):
                 if price_match:
                     try:
                         price_str = price_match.group(1) if price_match.groups() else price_match.group(0)
-                        # Clean price string
-                        price_str = price_str.replace('.', '').replace(',', '.')
+                        # Clean price string - handle various formats
+                        price_str = price_str.replace('.', '').replace('-', '').replace(',', '.')
                         price_value = float(price_str)
                         
-                        # Only accept reasonable prices (between 1000 and 1000000)
-                        if 1000 <= price_value <= 1000000:
+                        # Accept prices from 100 to 10,000,000 (lebih fleksibel)
+                        if 100 <= price_value <= 10000000:
                             break
                         else:
                             price_value = None
@@ -230,15 +247,35 @@ def parse_receipt_text_fallback(text_list):
                         continue
             
             if price_value:
-                # Look for item name
+                # Look for item name - LEBIH FLEKSIBEL
                 item_name = ""
+                quantity = "1"
+                unit = "pcs"
                 
                 # Try to find item name in the same text (remove price part)
-                clean_text = re.sub(r'[Rr][Pp]\.?\s*\d+(?:\.\d{3})*(?:,\d{2})?', '', text)
-                clean_text = re.sub(r'\d+(?:\.\d{3})*(?:,\d{2})?\s*[Rr][Pp]', '', clean_text)
+                clean_text = re.sub(r'[Rr][Pp]\.?\s*\d+(?:[\.\-]\d{3})*(?:,\d{2})?', '', text)
+                clean_text = re.sub(r'\d+(?:[\.\-]\d{3})*(?:,\d{2})?\s*[Rr][Pp]', '', clean_text)
                 clean_text = clean_text.strip()
                 
-                if len(clean_text) > 2:
+                # Extract quantity and unit from text
+                qty_match = re.search(r'^(\d+)\s*([a-zA-Z]+)', clean_text)
+                if qty_match:
+                    quantity = qty_match.group(1)
+                    unit_text = qty_match.group(2).lower()
+                    # Map common abbreviations
+                    unit_map = {
+                        'bks': 'bungkus', 'bks.': 'bungkus', 'bks': 'bungkus',
+                        'klg': 'kaleng', 'klg.': 'kaleng',
+                        'btl': 'botol', 'btl.': 'botol', 'btl': 'botol',
+                        'kg': 'kg', 'kg.': 'kg',
+                        'pcs': 'pcs', 'pcs.': 'pcs',
+                        'ikat': 'ikat', 'ikat.': 'ikat'
+                    }
+                    unit = unit_map.get(unit_text, 'pcs')
+                    # Remove quantity and unit from item name
+                    clean_text = re.sub(r'^\d+\s*[a-zA-Z]+\.?\s*', '', clean_text)
+                
+                if len(clean_text) > 1:
                     item_name = clean_text
                 else:
                     # Look in previous texts
@@ -246,27 +283,92 @@ def parse_receipt_text_fallback(text_list):
                         if j < len(text_list):
                             prev_text = text_list[j].strip()
                             # Skip if it looks like a price or header
-                            if (len(prev_text) > 3 and 
+                            if (len(prev_text) > 2 and 
                                 not re.search(r'[Rr][Pp]', prev_text) and
                                 not re.search(r'^\d+$', prev_text) and
-                                not prev_text.lower() in ['banyaknya', 'nama', 'barang', 'harga', 'jumlah']):
+                                not any(word in prev_text.lower() for word in skip_words)):
                                 item_name = prev_text
                                 break
+                
+                # Clean item name
+                if item_name:
+                    # Remove common prefixes and clean up
+                    item_name = re.sub(r'^\d+\.?\s*', '', item_name)  # Remove numbering
+                    item_name = re.sub(r'^[a-zA-Z]+\.?\s*', '', item_name)  # Remove single letters
+                    item_name = item_name.strip()
+                
+                if item_name and len(item_name) > 1:
+                    items.append({
+                        'nama_barang': item_name,
+                        'jumlah': quantity,
+                        'harga': str(int(price_value)),
+                        'unit': unit,
+                        'category_id': 1,
+                        'minStock': 10
+                    })
+                    print(f"Found item: {item_name} - {quantity} {unit} - Rp {int(price_value)}")
+        
+        # If no items found with prices, try to find items without prices
+        if len(items) == 0:
+            print("No items with prices found, trying to find items without prices...")
+            for i, text in enumerate(text_list):
+                text = text.strip()
+                
+                # Skip empty or very short text
+                if len(text) < 3:
+                    continue
+                    
+                # Skip if it's clearly a header/footer
+                if any(word in text.lower() for word in skip_words):
+                    continue
+                
+                # Skip if it's just numbers
+                if re.match(r'^\d+$', text):
+                    continue
+                
+                # Skip if it contains price patterns
+                if re.search(r'[Rr][Pp]|^\d+[\.\-]\d+', text):
+                    continue
+                
+                # This might be an item name
+                item_name = text
+                quantity = "1"
+                unit = "pcs"
+                
+                # Extract quantity and unit
+                qty_match = re.search(r'^(\d+)\s*([a-zA-Z]+)', item_name)
+                if qty_match:
+                    quantity = qty_match.group(1)
+                    unit_text = qty_match.group(2).lower()
+                    unit_map = {
+                        'bks': 'bungkus', 'bks.': 'bungkus',
+                        'klg': 'kaleng', 'klg.': 'kaleng',
+                        'btl': 'botol', 'btl.': 'botol',
+                        'kg': 'kg', 'kg.': 'kg',
+                        'pcs': 'pcs', 'pcs.': 'pcs',
+                        'ikat': 'ikat', 'ikat.': 'ikat'
+                    }
+                    unit = unit_map.get(unit_text, 'pcs')
+                    item_name = re.sub(r'^\d+\s*[a-zA-Z]+\.?\s*', '', item_name)
+                
+                # Clean item name
+                item_name = re.sub(r'^\d+\.?\s*', '', item_name)
+                item_name = item_name.strip()
                 
                 if item_name and len(item_name) > 2:
                     items.append({
                         'nama_barang': item_name,
-                        'jumlah': '1',
-                        'harga': str(int(price_value)),
-                        'unit': 'pcs',
+                        'jumlah': quantity,
+                        'harga': '0',  # No price found
+                        'unit': unit,
                         'category_id': 1,
                         'minStock': 10
                     })
-                    print(f"Found item: {item_name} - Rp {int(price_value)}")
+                    print(f"Found item (no price): {item_name} - {quantity} {unit}")
         
         print(f"=== Parsed {len(items)} items (fallback) ===")
         for item in items:
-            print(f"- {item['nama_barang']}: {item['harga']}")
+            print(f"- {item['nama_barang']}: {item['harga']} ({item['unit']})")
             
         return items
 

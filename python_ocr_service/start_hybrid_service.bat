@@ -3,8 +3,7 @@ echo Starting Hybrid OCR Service (EasyOCR + Gemini AI)...
 echo.
 
 REM Set your Gemini API key here
-REM Replace YOUR_GEMINI_API_KEY_HERE with your actual API key
-set GEMINI_API_KEY=YOUR_GEMINI_API_KEY_HERE
+set GEMINI_API_KEY=AIzaSyBzb2hZXhceAjTlW1nfiXdlK710-t5TQ20
 
 echo Gemini API Key: %GEMINI_API_KEY%
 echo.
