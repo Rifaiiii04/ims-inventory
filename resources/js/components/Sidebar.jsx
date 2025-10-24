@@ -87,7 +87,7 @@ function Sidebar() {
     // Render menu items based on config
     const renderMenuItems = () => {
         // Get filtered menu based on user level
-        const filteredMenus = getFilteredMenu(user?.level || 'admin');
+        const filteredMenus = getFilteredMenu(user?.level || "admin");
         return filteredMenus.map((menu, index) => {
             const menuElement = (() => {
                 if (menu.type === "single") {
@@ -158,8 +158,8 @@ function Sidebar() {
     return (
         <>
             <div
-                className={`bg-gradient-to-br from-white via-gray-50 to-gray-100 border border-gray-200/50 rounded-2xl h-full overflow-x-hidden overflow-y-auto transition-all duration-300 relative shadow-xl backdrop-blur-sm ${
-                    isCollapsed ? "w-20" : "w-full md:w-80"
+                className={`bg-white border border-gray-200/50 rounded-2xl h-full overflow-x-hidden overflow-y-auto transition-all duration-300 relative shadow-xl ${
+                    isCollapsed ? "w-16 lg:w-20" : "w-full sm:w-72 lg:w-80"
                 }`}
             >
                 {/* Toggle Button */}
@@ -176,7 +176,7 @@ function Sidebar() {
                     />
 
                     {!isCollapsed && (
-                        <div className="px-6 py-3 border-b border-gray-200/50">
+                        <div className="px-4 sm:px-6 py-2 sm:py-3 border-b border-gray-200/50">
                             <h1 className="text-xs font-bold text-gray-500 uppercase tracking-wider">
                                 Main Menu
                             </h1>
@@ -184,8 +184,8 @@ function Sidebar() {
                     )}
 
                     <ul
-                        className={`flex flex-col justify-start items-start pb-6 space-y-3 ${
-                            isCollapsed ? "px-2" : "px-3"
+                        className={`flex flex-col justify-start items-start pb-20 sm:pb-6 space-y-2 sm:space-y-3 ${
+                            isCollapsed ? "px-2" : "px-2 sm:px-3"
                         }`}
                     >
                         {renderMenuItems()}
@@ -193,17 +193,21 @@ function Sidebar() {
 
                     {/* User Profile Section */}
                     {!isCollapsed && user && (
-                        <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-gray-200/50 bg-gradient-to-r from-gray-50 to-white">
-                            <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-green-600 rounded-full flex items-center justify-center text-white text-sm font-bold">
-                                    {user.nama_user ? user.nama_user.charAt(0).toUpperCase() : 'U'}
+                        <div className="absolute bottom-0 left-0 right-0 p-3 sm:p-4 border-t border-gray-200/50 bg-white">
+                            <div className="flex items-center gap-2 sm:gap-3">
+                                <div className="w-7 h-7 sm:w-8 sm:h-8 bg-gradient-to-br from-green-500 to-green-600 rounded-full flex items-center justify-center text-white text-xs sm:text-sm font-bold">
+                                    {user.nama_user
+                                        ? user.nama_user.charAt(0).toUpperCase()
+                                        : "U"}
                                 </div>
                                 <div className="flex-1 min-w-0">
-                                    <p className="text-sm font-semibold text-gray-800 truncate">
-                                        {user.nama_user || 'User'}
+                                    <p className="text-xs sm:text-sm font-semibold text-gray-800 truncate">
+                                        {user.nama_user || "User"}
                                     </p>
                                     <p className="text-xs text-gray-500 truncate">
-                                        {user.level === 'admin' ? 'Administrator' : 'Kasir'}
+                                        {user.level === "admin"
+                                            ? "Administrator"
+                                            : "Kasir"}
                                     </p>
                                 </div>
                                 <button

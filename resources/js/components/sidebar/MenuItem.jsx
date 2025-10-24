@@ -16,7 +16,7 @@ function MenuItem({
             title={isCollapsed ? label : ""}
         >
             <div
-                className={`flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer transition-all duration-200 ${
+                className={`flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2 sm:py-3 rounded-xl cursor-pointer transition-all duration-200 ${
                     isActive
                         ? "bg-gradient-to-r from-green-500 to-green-600 text-white shadow-lg shadow-green-500/25"
                         : "text-gray-600 hover:bg-gradient-to-r hover:from-green-50 hover:to-green-100 hover:text-green-700 hover:shadow-md"
@@ -39,7 +39,7 @@ function MenuItem({
                 {/* Label */}
                 {!isCollapsed && (
                     <span
-                        className={`font-medium transition-all duration-200 ${
+                        className={`font-medium transition-all duration-200 text-sm sm:text-base ${
                             isActive
                                 ? "text-white font-semibold"
                                 : "group-hover:font-semibold"

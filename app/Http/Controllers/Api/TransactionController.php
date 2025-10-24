@@ -8,6 +8,7 @@ use App\Models\TblTransaksiDetail;
 use App\Models\TblVarian;
 use App\Models\TblBahan;
 use App\Models\TblKomposisi;
+use App\Models\TblProduk;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -27,6 +28,7 @@ class TransactionController extends Controller
                     'tbl_produk.id_produk',
                     'tbl_produk.nama_produk',
                     'tbl_produk.deskripsi',
+                    'tbl_produk.harga as harga_produk',
                     'tbl_kategori.nama_kategori'
                 )
                 ->orderBy('tbl_produk.nama_produk', 'asc')
@@ -36,15 +38,43 @@ class TransactionController extends Controller
                 $variants = DB::table('tbl_varian')
                     ->where('id_produk', $product->id_produk)
                     ->where('stok_varian', '>', 0)
-                    ->select('id_varian', 'nama_varian', 'harga', 'stok_varian', 'id_produk')
-                    ->get();
+                    ->select('id_varian', 'nama_varian', 'stok_varian', 'id_produk', 'unit')
+                    ->get()
+                    ->map(function($variant) use ($product) {
+                        // Gunakan harga dari produk sebagai harga varian jika varian tidak punya harga sendiri
+                        return [
+                            'id_varian' => $variant->id_varian,
+                            'nama_varian' => $variant->nama_varian,
+                            'harga' => $product->harga_produk, // Harga dari produk
+                            'stok_varian' => $variant->stok_varian,
+                            'id_produk' => $variant->id_produk,
+                            'unit' => $variant->unit,
+                            'compositions' => $this->getVariantCompositions($variant->id_varian)
+                        ];
+                    });
+
+                // Jika produk tidak punya variant, buat "virtual variant" untuk produk itu sendiri
+                if ($variants->isEmpty()) {
+                    $variants = collect([[
+                        'id_varian' => 'product_' . $product->id_produk, // ID khusus untuk produk tanpa variant
+                        'nama_varian' => $product->nama_produk,
+                        'harga' => $product->harga_produk,
+                        'stok_varian' => 999, // Stok virtual untuk produk tanpa variant
+                        'id_produk' => $product->id_produk,
+                        'unit' => 'pcs',
+                        'compositions' => [],
+                        'is_direct_product' => true // Flag untuk produk langsung
+                    ]]);
+                }
 
                 return [
                     'id' => $product->id_produk,
                     'name' => $product->nama_produk,
                     'description' => $product->deskripsi ?? '',
                     'category' => $product->nama_kategori ?? 'Umum',
-                    'variants' => $variants
+                    'harga' => $product->harga_produk,
+                    'variants' => $variants,
+                    'has_variants' => $variants->count() > 1 || ($variants->count() === 1 && !isset($variants->first()['is_direct_product']))
                 ];
             });
 
@@ -60,6 +90,25 @@ class TransactionController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+    /**
+     * Get variant compositions for stock calculation
+     */
+    private function getVariantCompositions($variantId)
+    {
+        return DB::table('tbl_komposisi')
+            ->join('tbl_bahan', 'tbl_komposisi.id_bahan', '=', 'tbl_bahan.id_bahan')
+            ->where('tbl_komposisi.id_varian', $variantId)
+            ->select(
+                'tbl_komposisi.id_bahan',
+                'tbl_bahan.nama_bahan',
+                'tbl_komposisi.jumlah_per_porsi',
+                'tbl_komposisi.satuan',
+                'tbl_bahan.stok_bahan',
+                'tbl_bahan.min_stok'
+            )
+            ->get();
     }
 
     /**
@@ -113,43 +162,89 @@ class TransactionController extends Controller
                 foreach ($request->items as $item) {
                     Log::info('Processing item:', $item);
                     
-                    $variant = TblVarian::find($item['variant_id']);
-                    if (!$variant) {
-                        Log::error('Variant not found:', ['variant_id' => $item['variant_id']]);
-                        throw new \Exception("Varian tidak ditemukan");
-                    }
-
-                    if ($variant->stok_varian < $item['quantity']) {
-                        Log::error('Insufficient stock:', [
-                            'variant' => $variant->nama_varian,
-                            'requested' => $item['quantity'],
-                            'available' => $variant->stok_varian
+                    // Cek apakah ini produk langsung atau variant
+                    $isDirectProduct = str_starts_with($item['variant_id'], 'product_');
+                    
+                    if ($isDirectProduct) {
+                        // Handle produk langsung (tanpa variant)
+                        $productId = str_replace('product_', '', $item['variant_id']);
+                        $product = TblProduk::find($productId);
+                        
+                        if (!$product) {
+                            Log::error('Product not found:', ['product_id' => $productId]);
+                            throw new \Exception("Produk tidak ditemukan");
+                        }
+                        
+                        // Buat objek variant virtual untuk konsistensi
+                        $variant = (object) [
+                            'id_varian' => $item['variant_id'],
+                            'nama_varian' => $product->nama_produk,
+                            'id_produk' => $product->id_produk,
+                            'stok_varian' => 999, // Stok virtual
+                            'is_direct_product' => true
+                        ];
+                        
+                        // Skip stock check untuk produk langsung
+                        Log::info('Processing direct product:', [
+                            'product' => $product->nama_produk,
+                            'quantity' => $item['quantity']
                         ]);
-                        throw new \Exception("Stok {$variant->nama_varian} tidak mencukupi");
-                    }
+                    } else {
+                        // Handle variant normal
+                        $variant = TblVarian::find($item['variant_id']);
+                        if (!$variant) {
+                            Log::error('Variant not found:', ['variant_id' => $item['variant_id']]);
+                            throw new \Exception("Varian tidak ditemukan");
+                        }
 
-                    // Cek stok bahan berdasarkan komposisi
-                    $compositions = DB::table('tbl_komposisi')
-                        ->join('tbl_bahan', 'tbl_komposisi.id_bahan', '=', 'tbl_bahan.id_bahan')
-                        ->where('tbl_komposisi.id_varian', $variant->id_varian)
-                        ->get();
-
-                    foreach ($compositions as $composition) {
-                        $requiredIngredient = $composition->jumlah_per_porsi * $item['quantity'];
-                        if ($composition->stok_bahan < $requiredIngredient) {
-                            Log::error('Insufficient ingredient stock:', [
-                                'ingredient' => $composition->nama_bahan,
-                                'required' => $requiredIngredient,
-                                'available' => $composition->stok_bahan,
-                                'variant' => $variant->nama_varian
+                        if ($variant->stok_varian < $item['quantity']) {
+                            Log::error('Insufficient stock:', [
+                                'variant' => $variant->nama_varian,
+                                'requested' => $item['quantity'],
+                                'available' => $variant->stok_varian
                             ]);
-                            throw new \Exception("Stok bahan {$composition->nama_bahan} tidak mencukupi untuk memproduksi {$variant->nama_varian}. Dibutuhkan: {$requiredIngredient} {$composition->satuan}, Tersedia: {$composition->stok_bahan} {$composition->satuan}");
+                            throw new \Exception("Stok {$variant->nama_varian} tidak mencukupi");
                         }
                     }
 
-                    // Ambil harga dari produk, bukan varian
-                    $produk = $variant->produk;
-                    $harga = $produk->harga ?? 0; // Asumsikan ada kolom harga di produk
+                    // Cek stok bahan berdasarkan komposisi (hanya untuk variant, bukan produk langsung)
+                    if (!$isDirectProduct) {
+                        $compositions = DB::table('tbl_komposisi')
+                            ->join('tbl_bahan', 'tbl_komposisi.id_bahan', '=', 'tbl_bahan.id_bahan')
+                            ->where('tbl_komposisi.id_varian', $variant->id_varian)
+                            ->select(
+                                'tbl_komposisi.id_bahan',
+                                'tbl_bahan.nama_bahan',
+                                'tbl_komposisi.jumlah_per_porsi',
+                                'tbl_komposisi.satuan',
+                                'tbl_bahan.stok_bahan',
+                                'tbl_bahan.min_stok'
+                            )
+                            ->get();
+
+                        foreach ($compositions as $composition) {
+                            $requiredIngredient = $composition->jumlah_per_porsi * $item['quantity'];
+                            if ($composition->stok_bahan < $requiredIngredient) {
+                                Log::error('Insufficient ingredient stock:', [
+                                    'ingredient' => $composition->nama_bahan,
+                                    'required' => $requiredIngredient,
+                                    'available' => $composition->stok_bahan,
+                                    'variant' => $variant->nama_varian,
+                                    'composition_per_portion' => $composition->jumlah_per_porsi,
+                                    'quantity_ordered' => $item['quantity']
+                                ]);
+                                throw new \Exception("Stok bahan {$composition->nama_bahan} tidak mencukupi untuk memproduksi {$variant->nama_varian}. Dibutuhkan: {$requiredIngredient} {$composition->satuan}, Tersedia: {$composition->stok_bahan} {$composition->satuan}");
+                            }
+                        }
+                    }
+
+                    // Ambil harga dari produk
+                    if ($isDirectProduct) {
+                        $harga = $product->harga ?? 0;
+                    } else {
+                        $produk = $variant->produk;
+                        $harga = $produk->harga ?? 0;
+                    }
                     $subtotal = $harga * $item['quantity'];
                     $totalAmount += $subtotal;
 
@@ -195,38 +290,58 @@ class TransactionController extends Controller
                     TblTransaksiDetail::create([
                         'id_transaksi' => $transaction->id_transaksi,
                         'id_produk' => $item['variant']->id_produk,
-                        'id_varian' => $item['variant']->id_varian,
+                        'id_varian' => $isDirectProduct ? null : $item['variant']->id_varian, // Null untuk produk langsung
                         'jumlah' => $item['quantity'],
                         'harga_satuan' => $item['price'],
                         'total_harga' => $item['subtotal']
                     ]);
 
-                    // Update variant stock
-                    Log::info('Updating variant stock:', [
-                        'variant_id' => $item['variant']->id_varian,
-                        'current_stock' => $item['variant']->stok_varian,
-                        'decrement_by' => $item['quantity']
-                    ]);
-                    
-                    DB::table('tbl_varian')
-                        ->where('id_varian', $item['variant']->id_varian)
-                        ->decrement('stok_varian', $item['quantity']);
-
-                    // Update ingredient stock based on composition
-                    try {
-                        $compositions = DB::table('tbl_komposisi')
+                    // Update variant stock (hanya untuk variant, bukan produk langsung)
+                    if (!$isDirectProduct) {
+                        Log::info('Updating variant stock:', [
+                            'variant_id' => $item['variant']->id_varian,
+                            'current_stock' => $item['variant']->stok_varian,
+                            'decrement_by' => $item['quantity']
+                        ]);
+                        
+                        DB::table('tbl_varian')
                             ->where('id_varian', $item['variant']->id_varian)
-                            ->get();
-                            
-                        foreach ($compositions as $composition) {
-                            $ingredientUsage = $composition->jumlah_per_porsi * $item['quantity'];
-                            DB::table('tbl_bahan')
-                                ->where('id_bahan', $composition->id_bahan)
-                                ->decrement('stok_bahan', $ingredientUsage);
+                            ->decrement('stok_varian', $item['quantity']);
+
+                        // Update ingredient stock based on composition
+                        try {
+                            $compositions = DB::table('tbl_komposisi')
+                                ->where('id_varian', $item['variant']->id_varian)
+                                ->get();
+                                
+                            foreach ($compositions as $composition) {
+                                $ingredientUsage = $composition->jumlah_per_porsi * $item['quantity'];
+                                
+                                Log::info('Updating ingredient stock:', [
+                                    'ingredient_id' => $composition->id_bahan,
+                                    'usage_per_portion' => $composition->jumlah_per_porsi,
+                                    'quantity_ordered' => $item['quantity'],
+                                    'total_usage' => $ingredientUsage,
+                                    'variant' => $item['variant']->nama_varian
+                                ]);
+                                
+                                DB::table('tbl_bahan')
+                                    ->where('id_bahan', $composition->id_bahan)
+                                    ->decrement('stok_bahan', $ingredientUsage);
+                            }
+                        } catch (\Exception $e) {
+                            Log::error('Failed to update ingredient stock:', [
+                                'error' => $e->getMessage(),
+                                'variant_id' => $item['variant']->id_varian,
+                                'quantity' => $item['quantity']
+                            ]);
+                            // Continue even if ingredient update fails
                         }
-                    } catch (\Exception $e) {
-                        Log::warning('Failed to update ingredient stock:', ['error' => $e->getMessage()]);
-                        // Continue even if ingredient update fails
+                    } else {
+                        Log::info('Skipping stock update for direct product:', [
+                            'product' => $item['variant']->nama_varian,
+                            'quantity' => $item['quantity']
+                        ]);
                     }
                 }
 

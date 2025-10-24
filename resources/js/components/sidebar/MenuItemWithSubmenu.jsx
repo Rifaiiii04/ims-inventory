@@ -15,7 +15,7 @@ function MenuItemWithSubmenu({
         return (
             <li className="w-full">
                 <div
-                    className={`group relative flex items-center justify-center cursor-pointer transition-all duration-200 py-3 px-2 rounded-xl ${
+                    className={`group relative flex items-center justify-center cursor-pointer transition-all duration-200 py-2 sm:py-3 px-2 rounded-xl ${
                         isActive
                             ? "bg-gradient-to-r from-green-500 to-green-600 text-white shadow-lg shadow-green-500/25"
                             : "text-gray-600 hover:bg-gradient-to-r hover:from-green-50 hover:to-green-100 hover:text-green-700 hover:shadow-md"

@@ -4,7 +4,7 @@ function SubMenuItem({ icon, label, onClick, isActive = false }) {
     return (
         <li className="w-full">
             <div
-                className={`group relative flex items-center gap-3 cursor-pointer transition-all duration-200 py-2.5 px-4 rounded-lg ${
+                className={`group relative flex items-center gap-2 sm:gap-3 cursor-pointer transition-all duration-200 py-2 sm:py-2.5 px-3 sm:px-4 rounded-lg ${
                     isActive
                         ? "bg-gradient-to-r from-green-100 to-green-200 text-green-700 font-semibold shadow-sm border-l-4 border-green-500"
                         : "text-gray-600 hover:bg-gradient-to-r hover:from-gray-50 hover:to-green-50 hover:text-green-700 hover:font-medium"
@@ -27,7 +27,7 @@ function SubMenuItem({ icon, label, onClick, isActive = false }) {
 
                 {/* Label */}
                 <span
-                    className={`transition-all duration-200 ${
+                    className={`transition-all duration-200 text-sm sm:text-base ${
                         isActive
                             ? "text-green-700 font-semibold"
                             : "group-hover:font-medium"

@@ -18,3 +18,5 @@ echo Starting service...
 python ocr_service_hybrid.py
 
 pause
+
+
