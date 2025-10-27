@@ -1,9 +1,4 @@
 #!/usr/bin/env python3
-"""
-OCR Service - EasyOCR + Gemini AI
-Versi hybrid: EasyOCR untuk ekstraksi teks, Gemini untuk klasifikasi
-"""
-
 import json
 import traceback
 import os
@@ -21,14 +16,12 @@ import base64
 from dotenv import load_dotenv
 load_dotenv()
 
-# Initialize EasyOCR
 print("Initializing EasyOCR...")
 reader = easyocr.Reader(['en', 'id'])
 print("EasyOCR initialized successfully!")
 
-# Initialize Gemini AI
+
 print("Initializing Gemini AI...")
-# Set your Gemini API key here
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel('gemini-flash-latest')
@@ -36,7 +29,6 @@ print("Gemini AI initialized successfully!")
 
 app = Flask(__name__)
 
-# Create upload directory
 UPLOAD_FOLDER = 'uploads'
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
@@ -59,28 +51,21 @@ def save_image(image_file):
 def preprocess(image_file):
     """Preprocess image for better OCR - SIMPLE seperti contoh user"""
     try:
-        # Reset file pointer
         image_file.seek(0)
         
-        # Read image bytes
         image_bytes = image_file.read()
         image_file.seek(0)
         
-        # Decode with OpenCV
         nparr = np.frombuffer(image_bytes, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         
         if img is None:
             print("Failed to decode image")
             return None
-        
-        # Convert to grayscale
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         
-        # Apply Gaussian blur
         blur = cv2.GaussianBlur(gray, (5, 5), 0)
         
-        # Apply threshold
         _, thresh = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
         
         return thresh
@@ -91,17 +76,14 @@ def preprocess(image_file):
 def extract_text_with_easyocr(image_file):
     """Extract text using EasyOCR - SIMPLE seperti contoh user"""
     try:
-        # Reset file pointer
         image_file.seek(0)
         
         print("\n=== Step 1: EasyOCR Text Extraction ===")
         
-        # Preprocess image seperti contoh user
         processed = preprocess(image_file)
         if processed is None:
             return []
         
-        # Extract text with EasyOCR
         result = reader.readtext(processed, detail=0)
         print(f"\n=== Hasil OCR ===")
         print(result)
@@ -118,15 +100,10 @@ def classify_with_gemini(text_list, image_file=None):
         if not text_list:
             return []
 
-        # Prepare text for Gemini
         combined_text = "\n".join(text_list)
-        
-        # Prompt simple seperti contoh user
         prompt = f"""
         berikut teks hasil OCR dari struk belanja:
-
         {combined_text}
-
         tolong ektrak jadi JSON dengan format:
         [
         {{
@@ -138,7 +115,6 @@ def classify_with_gemini(text_list, image_file=None):
         nama barang yang relevan dengan text yang berantakan tersebut. untuk harga itu formatnya Rp / Rupiah dan hanya angka saja tanpa simbol apapun.
         """
 
-        # Call Gemini AI
         if GEMINI_API_KEY != 'YOUR_GEMINI_API_KEY_HERE':
             response = model.generate_content(prompt)
             result_text = response.text.strip()
@@ -146,22 +122,19 @@ def classify_with_gemini(text_list, image_file=None):
             print(f"\n=== Output dari Gemini ===")
             print(result_text)
             
-            # Parse JSON response - remove markdown code fences if present
             try:
-                # Remove markdown code fences (```json and ```)
                 cleaned_text = result_text.strip()
                 if cleaned_text.startswith('```json'):
-                    cleaned_text = cleaned_text[7:]  # Remove ```json
+                    cleaned_text = cleaned_text[7:]
                 elif cleaned_text.startswith('```'):
-                    cleaned_text = cleaned_text[3:]  # Remove ```
+                    cleaned_text = cleaned_text[3:]
                 
                 if cleaned_text.endswith('```'):
-                    cleaned_text = cleaned_text[:-3]  # Remove trailing ```
+                    cleaned_text = cleaned_text[:-3]
                 
                 cleaned_text = cleaned_text.strip()
                 
                 result_json = json.loads(cleaned_text)
-                # Convert to expected format
                 items = []
                 for item in result_json:
                     items.append({
@@ -179,9 +152,7 @@ def classify_with_gemini(text_list, image_file=None):
             except json.JSONDecodeError as e:
                 print(f"JSON parse error: {e}")
                 print(f"Raw response: {result_text}")
-                # Try to extract JSON manually if automatic parsing fails
                 try:
-                    # Try to find JSON array between [ and ]
                     start_idx = result_text.find('[')
                     end_idx = result_text.rfind(']')
                     if start_idx != -1 and end_idx != -1:
@@ -222,7 +193,6 @@ def parse_receipt_text_fallback(text_list):
         print("=== Fallback Parsing (Simple) ===")
         items = []
         
-        # Simple fallback - just return empty array
         print("Gemini failed, returning empty array")
         return items
 
@@ -233,12 +203,10 @@ def parse_receipt_text_fallback(text_list):
 def process_image_hybrid(image_file):
     """Process image with EasyOCR + Gemini AI"""
     try:
-        # Save image
         image_path, saved_filename = save_image(image_file)
         if not image_path:
             return []
 
-        # Step 1: Extract text with EasyOCR
         print("\n=== Step 1: EasyOCR Text Extraction ===")
         text_list = extract_text_with_easyocr(image_file)
         
@@ -246,7 +214,6 @@ def process_image_hybrid(image_file):
             print("No text found by EasyOCR")
             return []
 
-        # Step 2: Classify and structure with Gemini AI
         print("\n=== Step 2: Gemini AI Classification ===")
         result_json = classify_with_gemini(text_list, image_file)
         
@@ -269,7 +236,6 @@ def process_photo():
         
         print(f"Processing image: {image_file.filename}")
         
-        # Process image with hybrid approach
         result = process_image_hybrid(image_file)
         
         print(f"Extracted {len(result)} items")
@@ -311,7 +277,6 @@ def test_gemini():
                 "error": "Gemini API key not configured"
             }), 400
         
-        # Test with simple prompt
         response = model.generate_content("Hello, are you working?")
         return jsonify({
             "success": True,
