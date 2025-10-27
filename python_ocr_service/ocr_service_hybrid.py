@@ -18,6 +18,9 @@ from PIL import Image
 import io
 import base64
 
+from dotenv import load_dotenv
+load_dotenv()
+
 # Initialize EasyOCR
 print("Initializing EasyOCR...")
 reader = easyocr.Reader(['en', 'id'])
@@ -26,9 +29,9 @@ print("EasyOCR initialized successfully!")
 # Initialize Gemini AI
 print("Initializing Gemini AI...")
 # Set your Gemini API key here
-GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', 'AIzaSyBzb2hZXhceAjTlW1nfiXdlK710-t5TQ20')
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-1.5-flash')
+model = genai.GenerativeModel('gemini-flash-latest')
 print("Gemini AI initialized successfully!")
 
 app = Flask(__name__)
@@ -54,16 +57,30 @@ def save_image(image_file):
         return None, None
 
 def preprocess(image_file):
-    """Preprocess image for better OCR"""
+    """Preprocess image for better OCR - SIMPLE seperti contoh user"""
     try:
+        # Reset file pointer
+        image_file.seek(0)
+        
+        # Read image bytes
         image_bytes = image_file.read()
         image_file.seek(0)
         
+        # Decode with OpenCV
         nparr = np.frombuffer(image_bytes, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         
+        if img is None:
+            print("Failed to decode image")
+            return None
+        
+        # Convert to grayscale
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        
+        # Apply Gaussian blur
         blur = cv2.GaussianBlur(gray, (5, 5), 0)
+        
+        # Apply threshold
         _, thresh = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
         
         return thresh
@@ -72,33 +89,23 @@ def preprocess(image_file):
         return None
 
 def extract_text_with_easyocr(image_file):
-    """Extract text using EasyOCR"""
+    """Extract text using EasyOCR - SIMPLE seperti contoh user"""
     try:
         # Reset file pointer
         image_file.seek(0)
         
-        # Preprocess image
+        print("\n=== Step 1: EasyOCR Text Extraction ===")
+        
+        # Preprocess image seperti contoh user
         processed = preprocess(image_file)
         if processed is None:
             return []
-
+        
         # Extract text with EasyOCR
         result = reader.readtext(processed, detail=0)
-        print(f"\n=== Hasil EasyOCR ===")
+        print(f"\n=== Hasil OCR ===")
         print(result)
         
-        # If no text found, try with original image
-        if not result:
-            print("No text found in processed image, trying original...")
-            image_file.seek(0)
-            image = Image.open(image_file)
-            if image.mode != 'RGB':
-                image = image.convert('RGB')
-            img_array = np.array(image)
-            result = reader.readtext(img_array, detail=0)
-            print(f"=== Hasil EasyOCR Original ===")
-            print(result)
-
         return result
 
     except Exception as e:
@@ -106,7 +113,7 @@ def extract_text_with_easyocr(image_file):
         return []
 
 def classify_with_gemini(text_list, image_file=None):
-    """Classify and structure text using Gemini AI"""
+    """Classify and structure text using Gemini AI - SIMPLE seperti contoh user"""
     try:
         if not text_list:
             return []
@@ -114,51 +121,21 @@ def classify_with_gemini(text_list, image_file=None):
         # Prepare text for Gemini
         combined_text = "\n".join(text_list)
         
-        # Create prompt for Gemini
+        # Prompt simple seperti contoh user
         prompt = f"""
-        Anda adalah AI yang ahli dalam menganalisis struk belanja, kwitansi, dan daftar belanjaan TULISAN TANGAN.
-        Dari teks berikut yang diekstrak dari gambar, ekstrak SEMUA item yang dibeli, bahkan jika formatnya tidak sempurna.
+        berikut teks hasil OCR dari struk belanja:
 
-        Teks yang diekstrak:
         {combined_text}
 
-        ANALISIS FLEKSIBEL:
-        - Terima tulisan tangan yang tidak sempurna
-        - Abaikan header, footer, total, tanda tangan
-        - Fokus pada item-item yang dibeli
-        - Terima singkatan (Bks, BKS, klg, Btl, dll)
-        - Terima format harga yang bervariasi (Rp 1.000, 1000, 1-000, dll)
-
-        Format output JSON:
+        tolong ektrak jadi JSON dengan format:
+        [
         {{
-            "items": [
-                {{
-                    "nama_barang": "nama item yang dibeli",
-                    "jumlah": "jumlah/banyaknya",
-                    "harga": "harga per item (hanya angka)",
-                    "unit": "satuan (pcs, kg, liter, bungkus, kaleng, botol, dll)",
-                    "category_id": 1,
-                    "minStock": 10
-                }}
-            ]
-        }}
+            "nama_barang": "...", "jumlah": "...", "harga": "..."
+        }}]
 
-        ATURAN FLEKSIBEL:
-        1. Ekstrak SEMUA item yang terlihat seperti barang belanjaan
-        2. Jika jumlah tidak jelas, gunakan "1"
-        3. Harga: bersihkan dari Rp, titik, koma, strip (contoh: "Rp 1.500" → "1500")
-        4. Unit: terima singkatan (Bks=bungkus, klg=kaleng, Btl=botol, kg=kilogram)
-        5. Nama barang: bersihkan dari angka dan simbol, ambil nama asli
-        6. Jika ada item yang meragukan, tetap masukkan dengan confidence rendah
-        7. JANGAN kembalikan array kosong kecuali benar-benar tidak ada item
-
-        CONTOH PARSING:
-        - "1 Bks T.Kanji" → nama_barang: "Tepung Kanji", jumlah: "1", unit: "bungkus"
-        - "2 klg olympic" → nama_barang: "Olympic", jumlah: "2", unit: "kaleng"
-        - "Rp 12.000" → harga: "12000"
-        - "5 Bks Mie sedap" → nama_barang: "Mie Sedap", jumlah: "5", unit: "bungkus"
-
-        Jawab hanya dengan JSON yang valid, tanpa penjelasan tambahan.
+        jika ada data yang tidak jelas, isi null. dan jika ada kata yang bukan nama barang, jumlah, atau harga, abaikan saja.
+        cukup kembalikan JSON tanpa penjelasan apapun. dan juga untuk nama barang nya di koreksi lagi penulisannya jika ada yang salah. koreksi penulisan nama barang berdasarkan 
+        nama barang yang relevan dengan text yang berantakan tersebut. untuk harga itu formatnya Rp / Rupiah dan hanya angka saja tanpa simbol apapun.
         """
 
         # Call Gemini AI
@@ -166,26 +143,66 @@ def classify_with_gemini(text_list, image_file=None):
             response = model.generate_content(prompt)
             result_text = response.text.strip()
             
-            # Clean response (remove markdown formatting if any)
-            if result_text.startswith('```json'):
-                result_text = result_text[7:]
-            if result_text.endswith('```'):
-                result_text = result_text[:-3]
-            
-            print(f"\n=== Response Gemini ===")
+            print(f"\n=== Output dari Gemini ===")
             print(result_text)
             
-            # Parse JSON response
+            # Parse JSON response - remove markdown code fences if present
             try:
-                result_json = json.loads(result_text)
-                items = result_json.get('items', [])
-                print(f"\n=== Parsed {len(items)} items by Gemini ===")
+                # Remove markdown code fences (```json and ```)
+                cleaned_text = result_text.strip()
+                if cleaned_text.startswith('```json'):
+                    cleaned_text = cleaned_text[7:]  # Remove ```json
+                elif cleaned_text.startswith('```'):
+                    cleaned_text = cleaned_text[3:]  # Remove ```
+                
+                if cleaned_text.endswith('```'):
+                    cleaned_text = cleaned_text[:-3]  # Remove trailing ```
+                
+                cleaned_text = cleaned_text.strip()
+                
+                result_json = json.loads(cleaned_text)
+                # Convert to expected format
+                items = []
+                for item in result_json:
+                    items.append({
+                        'nama_barang': item.get('nama_barang', ''),
+                        'jumlah': item.get('jumlah', '1'),
+                        'harga': item.get('harga', '0'),
+                        'unit': 'pcs',
+                        'category_id': 1,
+                        'minStock': 10
+                    })
+                print(f"\n=== Parsed {len(items)} items ===")
                 for item in items:
-                    print(f"- {item.get('nama_barang', 'N/A')}: {item.get('harga', 'N/A')}")
+                    print(f"- {item['nama_barang']}: {item['harga']}")
                 return items
             except json.JSONDecodeError as e:
                 print(f"JSON parse error: {e}")
                 print(f"Raw response: {result_text}")
+                # Try to extract JSON manually if automatic parsing fails
+                try:
+                    # Try to find JSON array between [ and ]
+                    start_idx = result_text.find('[')
+                    end_idx = result_text.rfind(']')
+                    if start_idx != -1 and end_idx != -1:
+                        json_str = result_text[start_idx:end_idx+1]
+                        result_json = json.loads(json_str)
+                        items = []
+                        for item in result_json:
+                            items.append({
+                                'nama_barang': item.get('nama_barang', ''),
+                                'jumlah': item.get('jumlah', '1'),
+                                'harga': item.get('harga', '0'),
+                                'unit': 'pcs',
+                                'category_id': 1,
+                                'minStock': 10
+                            })
+                        print(f"\n=== Parsed {len(items)} items (after manual extraction) ===")
+                        for item in items:
+                            print(f"- {item['nama_barang']}: {item['harga']}")
+                        return items
+                except:
+                    pass
                 return []
         else:
             print("Gemini API key not configured, using fallback parsing...")
@@ -197,184 +214,20 @@ def classify_with_gemini(text_list, image_file=None):
         return parse_receipt_text_fallback(text_list)
 
 def parse_receipt_text_fallback(text_list):
-    """Fallback parsing if Gemini fails - FLEKSIBEL untuk tulisan tangan"""
+    """Fallback parsing if Gemini fails - SIMPLE"""
     try:
         if not text_list:
             return []
 
-        print("=== Fallback Parsing (Fleksibel) ===")
+        print("=== Fallback Parsing (Simple) ===")
         items = []
-        import re
         
-        # Skip common non-item words
-        skip_words = ['total', 'jumlah', 'rp', 'harga', 'nama', 'barang', 'banyaknya', 'tanda', 'terima', 'perhatian', 'hormat', 'kami']
-        
-        # Look for patterns that might be items with prices
-        for i, text in enumerate(text_list):
-            text = text.strip()
-            
-            # Skip empty or very short text
-            if len(text) < 2:
-                continue
-                
-            # Skip if it's clearly a header/footer
-            if any(word in text.lower() for word in skip_words):
-                continue
-            
-            # Look for price patterns (various formats) - LEBIH FLEKSIBEL
-            price_patterns = [
-                r'[Rr][Pp]\.?\s*(\d+(?:[\.\-]\d{3})*(?:,\d{2})?)',  # Rp 1.500, Rp 1-500, Rp. 1500
-                r'(\d+(?:[\.\-]\d{3})*(?:,\d{2})?)\s*[Rr][Pp]',    # 1500 Rp, 1-500 Rp
-                r'(\d+(?:[\.\-]\d{3})*(?:,\d{2})?)',               # Just numbers
-            ]
-            
-            price_value = None
-            for pattern in price_patterns:
-                price_match = re.search(pattern, text)
-                if price_match:
-                    try:
-                        price_str = price_match.group(1) if price_match.groups() else price_match.group(0)
-                        # Clean price string - handle various formats
-                        price_str = price_str.replace('.', '').replace('-', '').replace(',', '.')
-                        price_value = float(price_str)
-                        
-                        # Accept prices from 100 to 10,000,000 (lebih fleksibel)
-                        if 100 <= price_value <= 10000000:
-                            break
-                        else:
-                            price_value = None
-                    except ValueError:
-                        continue
-            
-            if price_value:
-                # Look for item name - LEBIH FLEKSIBEL
-                item_name = ""
-                quantity = "1"
-                unit = "pcs"
-                
-                # Try to find item name in the same text (remove price part)
-                clean_text = re.sub(r'[Rr][Pp]\.?\s*\d+(?:[\.\-]\d{3})*(?:,\d{2})?', '', text)
-                clean_text = re.sub(r'\d+(?:[\.\-]\d{3})*(?:,\d{2})?\s*[Rr][Pp]', '', clean_text)
-                clean_text = clean_text.strip()
-                
-                # Extract quantity and unit from text
-                qty_match = re.search(r'^(\d+)\s*([a-zA-Z]+)', clean_text)
-                if qty_match:
-                    quantity = qty_match.group(1)
-                    unit_text = qty_match.group(2).lower()
-                    # Map common abbreviations
-                    unit_map = {
-                        'bks': 'bungkus', 'bks.': 'bungkus', 'bks': 'bungkus',
-                        'klg': 'kaleng', 'klg.': 'kaleng',
-                        'btl': 'botol', 'btl.': 'botol', 'btl': 'botol',
-                        'kg': 'kg', 'kg.': 'kg',
-                        'pcs': 'pcs', 'pcs.': 'pcs',
-                        'ikat': 'ikat', 'ikat.': 'ikat'
-                    }
-                    unit = unit_map.get(unit_text, 'pcs')
-                    # Remove quantity and unit from item name
-                    clean_text = re.sub(r'^\d+\s*[a-zA-Z]+\.?\s*', '', clean_text)
-                
-                if len(clean_text) > 1:
-                    item_name = clean_text
-                else:
-                    # Look in previous texts
-                    for j in range(max(0, i-3), i):
-                        if j < len(text_list):
-                            prev_text = text_list[j].strip()
-                            # Skip if it looks like a price or header
-                            if (len(prev_text) > 2 and 
-                                not re.search(r'[Rr][Pp]', prev_text) and
-                                not re.search(r'^\d+$', prev_text) and
-                                not any(word in prev_text.lower() for word in skip_words)):
-                                item_name = prev_text
-                                break
-                
-                # Clean item name
-                if item_name:
-                    # Remove common prefixes and clean up
-                    item_name = re.sub(r'^\d+\.?\s*', '', item_name)  # Remove numbering
-                    item_name = re.sub(r'^[a-zA-Z]+\.?\s*', '', item_name)  # Remove single letters
-                    item_name = item_name.strip()
-                
-                if item_name and len(item_name) > 1:
-                    items.append({
-                        'nama_barang': item_name,
-                        'jumlah': quantity,
-                        'harga': str(int(price_value)),
-                        'unit': unit,
-                        'category_id': 1,
-                        'minStock': 10
-                    })
-                    print(f"Found item: {item_name} - {quantity} {unit} - Rp {int(price_value)}")
-        
-        # If no items found with prices, try to find items without prices
-        if len(items) == 0:
-            print("No items with prices found, trying to find items without prices...")
-            for i, text in enumerate(text_list):
-                text = text.strip()
-                
-                # Skip empty or very short text
-                if len(text) < 3:
-                    continue
-                    
-                # Skip if it's clearly a header/footer
-                if any(word in text.lower() for word in skip_words):
-                    continue
-                
-                # Skip if it's just numbers
-                if re.match(r'^\d+$', text):
-                    continue
-                
-                # Skip if it contains price patterns
-                if re.search(r'[Rr][Pp]|^\d+[\.\-]\d+', text):
-                    continue
-                
-                # This might be an item name
-                item_name = text
-                quantity = "1"
-                unit = "pcs"
-                
-                # Extract quantity and unit
-                qty_match = re.search(r'^(\d+)\s*([a-zA-Z]+)', item_name)
-                if qty_match:
-                    quantity = qty_match.group(1)
-                    unit_text = qty_match.group(2).lower()
-                    unit_map = {
-                        'bks': 'bungkus', 'bks.': 'bungkus',
-                        'klg': 'kaleng', 'klg.': 'kaleng',
-                        'btl': 'botol', 'btl.': 'botol',
-                        'kg': 'kg', 'kg.': 'kg',
-                        'pcs': 'pcs', 'pcs.': 'pcs',
-                        'ikat': 'ikat', 'ikat.': 'ikat'
-                    }
-                    unit = unit_map.get(unit_text, 'pcs')
-                    item_name = re.sub(r'^\d+\s*[a-zA-Z]+\.?\s*', '', item_name)
-                
-                # Clean item name
-                item_name = re.sub(r'^\d+\.?\s*', '', item_name)
-                item_name = item_name.strip()
-                
-                if item_name and len(item_name) > 2:
-                    items.append({
-                        'nama_barang': item_name,
-                        'jumlah': quantity,
-                        'harga': '0',  # No price found
-                        'unit': unit,
-                        'category_id': 1,
-                        'minStock': 10
-                    })
-                    print(f"Found item (no price): {item_name} - {quantity} {unit}")
-        
-        print(f"=== Parsed {len(items)} items (fallback) ===")
-        for item in items:
-            print(f"- {item['nama_barang']}: {item['harga']} ({item['unit']})")
-            
+        # Simple fallback - just return empty array
+        print("Gemini failed, returning empty array")
         return items
 
     except Exception as e:
         print(f"Fallback parse error: {e}")
-        traceback.print_exc()
         return []
 
 def process_image_hybrid(image_file):

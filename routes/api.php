@@ -107,9 +107,10 @@ Route::middleware('auth:sanctum')->group(function () {
 Route::post('/whatsapp/webhook', [WhatsAppAgentController::class, 'processStockMessage']);
 
 // OCR routes
-Route::post('/ocr/process-receipt', [App\Http\Controllers\Api\OcrController::class, 'processReceipt']);
-Route::post('/ocr/process-photo', [App\Http\Controllers\Api\OcrController::class, 'processPhoto']);
-Route::get('/ocr/health', [App\Http\Controllers\Api\OcrController::class, 'healthCheck']);
+use App\Http\Controllers\Api\OcrController;
+Route::post('/ocr/process-receipt', [OcrController::class, 'processReceipt']);
+Route::post('/ocr/process-photo', [OcrController::class, 'processPhoto']);
+Route::get('/ocr/health', [OcrController::class, 'healthCheck']);
 
 // Debug route
 Route::post('/ocr/test', function() {
