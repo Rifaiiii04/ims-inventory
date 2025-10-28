@@ -38,6 +38,8 @@ Route::middleware(['throttle:api'])->group(function () {
     Route::get('/compositions/ingredients/list', [CompositionController::class, 'ingredients']);
     Route::get('/categories', [CategoryController::class, 'index']);
     Route::post('/categories', [CategoryController::class, 'store']);
+    Route::put('/categories/{id}', [CategoryController::class, 'update']);
+    Route::delete('/categories/{id}', [CategoryController::class, 'destroy']);
     Route::get('/dashboard/summary', [DashboardController::class, 'getSummary']);
     Route::get('/dashboard/low-stock', [DashboardController::class, 'getLowStockAlerts']);
     Route::get('/reports/inventory', [ReportController::class, 'getInventoryReport']);
