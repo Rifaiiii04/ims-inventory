@@ -53,7 +53,8 @@ class CompositionController extends Controller
             $compositions = $compositionsWithVariants
                 ->union($compositionsDirectToProduct)
                 ->get()
-                ->sortByDesc('id_produk');
+                ->sortByDesc('id_produk')
+                ->values(); // Reset keys to make it a proper indexed array
 
             // Format each composition individually
             $formattedCompositions = $compositions->map(function($composition) {

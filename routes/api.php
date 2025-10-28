@@ -29,14 +29,21 @@ use App\Http\Controllers\Api\ReportController;
 // Public routes
 Route::post('/auth/login', [AuthController::class, 'login']);
 
-// Temporary public routes for testing
-Route::get('/products', [ProductController::class, 'index']);
-Route::get('/compositions', [CompositionController::class, 'index']);
-Route::get('/dashboard/summary', [DashboardController::class, 'getSummary']);
-Route::get('/dashboard/low-stock', [DashboardController::class, 'getLowStockAlerts']);
-Route::get('/reports/inventory', [ReportController::class, 'getInventoryReport']);
-Route::get('/reports/sales', [ReportController::class, 'getSalesReport']);
-Route::get('/reports/categories', [ReportController::class, 'getCategories']);
+// Temporary public routes for testing (without api middleware)
+Route::middleware(['throttle:api'])->group(function () {
+    Route::get('/products', [ProductController::class, 'index']);
+    Route::get('/compositions', [CompositionController::class, 'index']);
+    Route::post('/compositions', [CompositionController::class, 'store']);
+    Route::get('/compositions/variants/list', [CompositionController::class, 'variants']);
+    Route::get('/compositions/ingredients/list', [CompositionController::class, 'ingredients']);
+    Route::get('/categories', [CategoryController::class, 'index']);
+    Route::post('/categories', [CategoryController::class, 'store']);
+    Route::get('/dashboard/summary', [DashboardController::class, 'getSummary']);
+    Route::get('/dashboard/low-stock', [DashboardController::class, 'getLowStockAlerts']);
+    Route::get('/reports/inventory', [ReportController::class, 'getInventoryReport']);
+    Route::get('/reports/sales', [ReportController::class, 'getSalesReport']);
+    Route::get('/reports/categories', [ReportController::class, 'getCategories']);
+});
 
 // Protected routes
 Route::middleware('auth:sanctum')->group(function () {
@@ -64,13 +71,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/products/categories/list', [ProductController::class, 'categories']);
     Route::get('/products/ingredients/list', [ProductController::class, 'ingredients']);
     
-    // Composition routes
-    Route::apiResource('compositions', CompositionController::class);
-    Route::get('/compositions/variants/list', [CompositionController::class, 'variants']);
-    Route::get('/compositions/ingredients/list', [CompositionController::class, 'ingredients']);
+    // Composition routes (moved to public section above)
     
-    // Category routes
-    Route::apiResource('categories', CategoryController::class);
+    // Category routes (moved to public section above)
     
     // Cashier routes
     Route::get('/cashiers/statistics', [CashierController::class, 'statistics']);

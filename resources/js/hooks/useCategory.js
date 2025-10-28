@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import axios from 'axios';
+import { useState, useEffect } from "react";
+import axios from "axios";
 
 export const useCategory = () => {
     const [categories, setCategories] = useState([]);
@@ -9,41 +9,57 @@ export const useCategory = () => {
         try {
             setError(null);
 
-            const response = await axios.get('/api/categories');
+            const response = await axios.get("/api/categories");
             if (response.data.success) {
-                setCategories(response.data.data);
+                // Ensure data is always an array
+                const categoriesData = Array.isArray(response.data.data)
+                    ? response.data.data
+                    : [];
+                setCategories(categoriesData);
+            } else {
+                setCategories([]);
             }
-
         } catch (err) {
-            console.error('Error fetching categories:', err);
-            setError(err.response?.data?.message || 'Terjadi kesalahan saat mengambil data kategori');
+            console.error("Error fetching categories:", err);
+            setError(
+                err.response?.data?.message ||
+                    "Terjadi kesalahan saat mengambil data kategori"
+            );
+            setCategories([]);
         }
     };
 
     const createCategory = async (categoryData) => {
         try {
-            const response = await axios.post('/api/categories', categoryData);
+            const response = await axios.post("/api/categories", categoryData);
             if (response.data.success) {
                 await fetchCategories(); // Refresh data
                 return { success: true, data: response.data.data };
             }
             return { success: false, message: response.data.message };
         } catch (err) {
-            const errorMessage = err.response?.data?.message || 'Terjadi kesalahan saat menambahkan kategori';
+            const errorMessage =
+                err.response?.data?.message ||
+                "Terjadi kesalahan saat menambahkan kategori";
             return { success: false, message: errorMessage };
         }
     };
 
     const updateCategory = async (id, categoryData) => {
         try {
-            const response = await axios.put(`/api/categories/${id}`, categoryData);
+            const response = await axios.put(
+                `/api/categories/${id}`,
+                categoryData
+            );
             if (response.data.success) {
                 await fetchCategories(); // Refresh data
                 return { success: true, data: response.data.data };
             }
             return { success: false, message: response.data.message };
         } catch (err) {
-            const errorMessage = err.response?.data?.message || 'Terjadi kesalahan saat memperbarui kategori';
+            const errorMessage =
+                err.response?.data?.message ||
+                "Terjadi kesalahan saat memperbarui kategori";
             return { success: false, message: errorMessage };
         }
     };
@@ -57,7 +73,9 @@ export const useCategory = () => {
             }
             return { success: false, message: response.data.message };
         } catch (err) {
-            const errorMessage = err.response?.data?.message || 'Terjadi kesalahan saat menghapus kategori';
+            const errorMessage =
+                err.response?.data?.message ||
+                "Terjadi kesalahan saat menghapus kategori";
             return { success: false, message: errorMessage };
         }
     };
@@ -76,6 +94,6 @@ export const useCategory = () => {
         createCategory,
         updateCategory,
         deleteCategory,
-        refreshData
+        refreshData,
     };
 };

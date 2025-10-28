@@ -75,16 +75,16 @@ function CompositionManagement() {
     };
 
     // Filter compositions based on search term
-    const filteredCompositions = compositionData.filter((composition) => {
+    const filteredCompositions = (
+        Array.isArray(compositionData) ? compositionData : []
+    ).filter((composition) => {
         if (!searchTerm) return true;
 
         const searchLower = searchTerm.toLowerCase();
         return (
-            composition.variant_name.toLowerCase().includes(searchLower) ||
-            composition.product_name.toLowerCase().includes(searchLower) ||
-            composition.ingredients.some((ingredient) =>
-                ingredient.ingredient_name.toLowerCase().includes(searchLower)
-            )
+            composition.variant_name?.toLowerCase().includes(searchLower) ||
+            composition.product_name?.toLowerCase().includes(searchLower) ||
+            composition.ingredient_name?.toLowerCase().includes(searchLower)
         );
     });
 
@@ -220,8 +220,10 @@ function CompositionManagement() {
                                     <span className="text-xs sm:text-sm text-blue-800 break-words">
                                         Menampilkan{" "}
                                         {filteredCompositions.length} dari{" "}
-                                        {compositionData?.length || 0} komposisi
-                                        untuk pencarian "{searchTerm}"
+                                        {Array.isArray(compositionData)
+                                            ? compositionData.length
+                                            : 0}{" "}
+                                        komposisi untuk pencarian "{searchTerm}"
                                     </span>
                                 </div>
                             </div>
@@ -303,37 +305,41 @@ function CompositionManagement() {
                         )}
 
                         {/* No Data State */}
-                        {!loading && !compositionData && !error && (
-                            <div className="text-center py-12">
-                                <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                                    <svg
-                                        className="w-8 h-8 text-gray-400"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        viewBox="0 0 24 24"
+                        {!loading &&
+                            (!Array.isArray(compositionData) ||
+                                compositionData.length === 0) &&
+                            !error && (
+                                <div className="text-center py-12">
+                                    <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                                        <svg
+                                            className="w-8 h-8 text-gray-400"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            viewBox="0 0 24 24"
+                                        >
+                                            <path
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                                strokeWidth={2}
+                                                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                                            />
+                                        </svg>
+                                    </div>
+                                    <h3 className="text-lg font-bold text-gray-700 mb-2">
+                                        Belum ada komposisi
+                                    </h3>
+                                    <p className="text-gray-500 text-sm mb-4">
+                                        Mulai dengan menambahkan komposisi
+                                        pertama
+                                    </p>
+                                    <button
+                                        onClick={() => setShowFormModal(true)}
+                                        className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
                                     >
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            strokeWidth={2}
-                                            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                                        />
-                                    </svg>
+                                        Tambah Komposisi
+                                    </button>
                                 </div>
-                                <h3 className="text-lg font-bold text-gray-700 mb-2">
-                                    Belum ada komposisi
-                                </h3>
-                                <p className="text-gray-500 text-sm mb-4">
-                                    Mulai dengan menambahkan komposisi pertama
-                                </p>
-                                <button
-                                    onClick={() => setShowFormModal(true)}
-                                    className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-                                >
-                                    Tambah Komposisi
-                                </button>
-                            </div>
-                        )}
+                            )}
                     </div>
                 </div>
             </div>
