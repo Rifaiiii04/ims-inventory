@@ -1,6 +1,45 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import axios from "axios";
 import { useAuth } from "../contexts/AuthContext";
+
+// Cache configuration
+const CACHE_KEY = "composition_data_cache";
+const CACHE_DURATION = 5 * 60 * 1000; // 5 menit dalam milliseconds
+
+// Helper functions untuk cache
+const getCachedData = (key) => {
+    try {
+        const cached = localStorage.getItem(key);
+        if (!cached) return null;
+
+        const { data, timestamp } = JSON.parse(cached);
+        const now = Date.now();
+
+        // Jika cache masih valid (kurang dari cache duration)
+        if (now - timestamp < CACHE_DURATION) {
+            return data;
+        }
+
+        // Cache expired, hapus
+        localStorage.removeItem(key);
+        return null;
+    } catch (err) {
+        console.error("Error reading cache:", err);
+        return null;
+    }
+};
+
+const setCachedData = (key, data) => {
+    try {
+        const cache = {
+            data,
+            timestamp: Date.now(),
+        };
+        localStorage.setItem(key, JSON.stringify(cache));
+    } catch (err) {
+        console.error("Error setting cache:", err);
+    }
+};
 
 export const useComposition = () => {
     const { isAuthenticated } = useAuth();
@@ -10,119 +49,291 @@ export const useComposition = () => {
     const [ingredients, setIngredients] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const hasInitialData = useRef(false);
 
-    const fetchCompositions = useCallback(async () => {
+    // Load cached data immediately
+    useEffect(() => {
         if (!isAuthenticated) {
             setLoading(false);
             return;
         }
-        setLoading(true);
-        setError(null);
-        try {
-            const response = await axios.get("/api/compositions");
-            if (response.data.success) {
-                // Ensure the data is always an array
-                const compositionsData = Array.isArray(response.data.data)
-                    ? response.data.data
-                    : [];
-                setCompositions(compositionsData);
-            } else {
-                setError(response.data.message);
-                setCompositions([]); // Set empty array on error
+
+        const cachedCompositions = getCachedData(`${CACHE_KEY}_compositions`);
+        const cachedVariants = getCachedData(`${CACHE_KEY}_variants`);
+        const cachedProducts = getCachedData(`${CACHE_KEY}_products`);
+        const cachedIngredients = getCachedData(`${CACHE_KEY}_ingredients`);
+
+        if (
+            cachedCompositions ||
+            cachedVariants ||
+            cachedProducts ||
+            cachedIngredients
+        ) {
+            if (cachedCompositions) {
+                setCompositions(cachedCompositions);
+                hasInitialData.current = true;
             }
-        } catch (err) {
-            console.error("Error fetching compositions:", err);
-            setError(
-                err.response?.data?.message ||
-                    "Terjadi kesalahan saat mengambil data komposisi"
-            );
-            setCompositions([]); // Set empty array on error
-        } finally {
-            setLoading(false);
+            if (cachedVariants) {
+                setVariants(cachedVariants);
+            }
+            if (cachedProducts) {
+                setProducts(cachedProducts);
+            }
+            if (cachedIngredients) {
+                setIngredients(cachedIngredients);
+            }
+            // Set loading ke false jika ada cached data
+            if (cachedCompositions) {
+                setLoading(false);
+            }
         }
     }, [isAuthenticated]);
 
-    const fetchVariants = useCallback(async () => {
-        if (!isAuthenticated) return;
-        try {
-            const response = await axios.get("/api/compositions/variants/list");
-            if (response.data.success) {
-                const variantsData = Array.isArray(response.data.data)
-                    ? response.data.data
-                    : [];
-                setVariants(variantsData);
-            } else {
-                console.error(
-                    "Error fetching variants:",
-                    response.data.message
+    const fetchCompositions = useCallback(
+        async (forceRefresh = false) => {
+            if (!isAuthenticated) {
+                setLoading(false);
+                return;
+            }
+
+            // Jika ada cached data dan tidak force refresh, skip loading
+            if (!forceRefresh && hasInitialData.current) {
+                // Background refresh - update data tanpa loading state
+                try {
+                    const response = await axios.get("/api/compositions");
+                    if (response.data.success) {
+                        const compositionsData = Array.isArray(
+                            response.data.data
+                        )
+                            ? response.data.data
+                            : [];
+                        setCompositions(compositionsData);
+                        setCachedData(
+                            `${CACHE_KEY}_compositions`,
+                            compositionsData
+                        );
+                    }
+                } catch (err) {
+                    console.error("Error fetching compositions:", err);
+                    // Jika error, tetap gunakan cached data
+                }
+                return;
+            }
+
+            setLoading(true);
+            setError(null);
+            try {
+                const response = await axios.get("/api/compositions");
+                if (response.data.success) {
+                    const compositionsData = Array.isArray(response.data.data)
+                        ? response.data.data
+                        : [];
+                    setCompositions(compositionsData);
+                    setCachedData(
+                        `${CACHE_KEY}_compositions`,
+                        compositionsData
+                    );
+                    hasInitialData.current = true;
+                } else {
+                    setError(response.data.message);
+                    setCompositions([]);
+                }
+            } catch (err) {
+                console.error("Error fetching compositions:", err);
+                setError(
+                    err.response?.data?.message ||
+                        "Terjadi kesalahan saat mengambil data komposisi"
                 );
+                setCompositions([]);
+            } finally {
+                setLoading(false);
+            }
+        },
+        [isAuthenticated]
+    );
+
+    const fetchVariants = useCallback(
+        async (forceRefresh = false) => {
+            if (!isAuthenticated) return;
+
+            const cachedVariants = getCachedData(`${CACHE_KEY}_variants`);
+            if (!forceRefresh && cachedVariants) {
+                // Background refresh
+                try {
+                    const response = await axios.get(
+                        "/api/compositions/variants/list"
+                    );
+                    if (response.data.success) {
+                        const variantsData = Array.isArray(response.data.data)
+                            ? response.data.data
+                            : [];
+                        setVariants(variantsData);
+                        setCachedData(`${CACHE_KEY}_variants`, variantsData);
+                    }
+                } catch (err) {
+                    console.error("Error fetching variants:", err);
+                }
+                return;
+            }
+
+            try {
+                const response = await axios.get(
+                    "/api/compositions/variants/list"
+                );
+                if (response.data.success) {
+                    const variantsData = Array.isArray(response.data.data)
+                        ? response.data.data
+                        : [];
+                    setVariants(variantsData);
+                    setCachedData(`${CACHE_KEY}_variants`, variantsData);
+                } else {
+                    console.error(
+                        "Error fetching variants:",
+                        response.data.message
+                    );
+                    setVariants([]);
+                }
+            } catch (err) {
+                console.error("Error fetching variants:", err);
                 setVariants([]);
             }
-        } catch (err) {
-            console.error("Error fetching variants:", err);
-            setVariants([]);
-        }
-    }, [isAuthenticated]);
+        },
+        [isAuthenticated]
+    );
 
-    const fetchProducts = useCallback(async () => {
-        if (!isAuthenticated) return;
-        try {
-            const response = await axios.get("/api/products");
-            if (response.data.success) {
-                const productsData = Array.isArray(response.data.data)
-                    ? response.data.data
-                    : [];
-                setProducts(productsData);
-            } else {
-                console.error(
-                    "Error fetching products:",
-                    response.data.message
-                );
+    const fetchProducts = useCallback(
+        async (forceRefresh = false) => {
+            if (!isAuthenticated) return;
+
+            const cachedProducts = getCachedData(`${CACHE_KEY}_products`);
+            if (!forceRefresh && cachedProducts) {
+                // Background refresh
+                try {
+                    const response = await axios.get("/api/products");
+                    if (response.data.success) {
+                        const productsData = Array.isArray(response.data.data)
+                            ? response.data.data
+                            : [];
+                        setProducts(productsData);
+                        setCachedData(`${CACHE_KEY}_products`, productsData);
+                    }
+                } catch (err) {
+                    console.error("Error fetching products:", err);
+                }
+                return;
+            }
+
+            try {
+                const response = await axios.get("/api/products");
+                if (response.data.success) {
+                    const productsData = Array.isArray(response.data.data)
+                        ? response.data.data
+                        : [];
+                    setProducts(productsData);
+                    setCachedData(`${CACHE_KEY}_products`, productsData);
+                } else {
+                    console.error(
+                        "Error fetching products:",
+                        response.data.message
+                    );
+                    setProducts([]);
+                }
+            } catch (err) {
+                console.error("Error fetching products:", err);
                 setProducts([]);
             }
-        } catch (err) {
-            console.error("Error fetching products:", err);
-            setProducts([]);
-        }
-    }, [isAuthenticated]);
+        },
+        [isAuthenticated]
+    );
 
-    const fetchIngredients = useCallback(async () => {
-        if (!isAuthenticated) return;
-        try {
-            const response = await axios.get(
-                "/api/compositions/ingredients/list"
-            );
-            if (response.data.success) {
-                const ingredientsData = Array.isArray(response.data.data)
-                    ? response.data.data
-                    : [];
-                setIngredients(ingredientsData);
-            } else {
-                console.error(
-                    "Error fetching ingredients:",
-                    response.data.message
+    const fetchIngredients = useCallback(
+        async (forceRefresh = false) => {
+            if (!isAuthenticated) return;
+
+            const cachedIngredients = getCachedData(`${CACHE_KEY}_ingredients`);
+            if (!forceRefresh && cachedIngredients) {
+                // Background refresh
+                try {
+                    const response = await axios.get(
+                        "/api/compositions/ingredients/list"
+                    );
+                    if (response.data.success) {
+                        const ingredientsData = Array.isArray(
+                            response.data.data
+                        )
+                            ? response.data.data
+                            : [];
+                        setIngredients(ingredientsData);
+                        setCachedData(
+                            `${CACHE_KEY}_ingredients`,
+                            ingredientsData
+                        );
+                    }
+                } catch (err) {
+                    console.error("Error fetching ingredients:", err);
+                }
+                return;
+            }
+
+            try {
+                const response = await axios.get(
+                    "/api/compositions/ingredients/list"
                 );
+                if (response.data.success) {
+                    const ingredientsData = Array.isArray(response.data.data)
+                        ? response.data.data
+                        : [];
+                    setIngredients(ingredientsData);
+                    setCachedData(`${CACHE_KEY}_ingredients`, ingredientsData);
+                } else {
+                    console.error(
+                        "Error fetching ingredients:",
+                        response.data.message
+                    );
+                    setIngredients([]);
+                }
+            } catch (err) {
+                console.error("Error fetching ingredients:", err);
                 setIngredients([]);
             }
-        } catch (err) {
-            console.error("Error fetching ingredients:", err);
-            setIngredients([]);
-        }
-    }, [isAuthenticated]);
+        },
+        [isAuthenticated]
+    );
 
     useEffect(() => {
-        fetchCompositions();
-        fetchVariants();
-        fetchProducts();
-        fetchIngredients();
+        if (!isAuthenticated) {
+            setLoading(false);
+            return;
+        }
 
-        // Set up auto-refresh for composition data
+        // Cek apakah ada cached data terlebih dahulu
+        const cachedCompositions = getCachedData(`${CACHE_KEY}_compositions`);
+
+        // Jika tidak ada cached data, fetch dengan loading
+        // Jika ada cached data, fetch di background tanpa loading
+        if (!cachedCompositions) {
+            fetchCompositions(true);
+        } else {
+            fetchCompositions(false); // Background refresh
+        }
+
+        fetchVariants(false); // Background refresh
+        fetchProducts(false); // Background refresh
+        fetchIngredients(false); // Background refresh
+
+        // Set up auto-refresh untuk composition data (hanya background refresh)
         const intervalId = setInterval(() => {
-            fetchCompositions();
+            fetchCompositions(false); // Background refresh
         }, 30000); // Refresh every 30 seconds
 
         return () => clearInterval(intervalId);
-    }, [fetchCompositions, fetchVariants, fetchProducts, fetchIngredients]);
+    }, [
+        fetchCompositions,
+        fetchVariants,
+        fetchProducts,
+        fetchIngredients,
+        isAuthenticated,
+    ]);
 
     const createComposition = async (compositionData) => {
         try {
@@ -131,6 +342,8 @@ export const useComposition = () => {
                 compositionData
             );
             if (response.data.success) {
+                // Invalidate cache dan force refresh
+                localStorage.removeItem(`${CACHE_KEY}_compositions`);
                 refreshData();
                 return { success: true, message: response.data.message };
             } else {
@@ -158,6 +371,8 @@ export const useComposition = () => {
                 compositionData
             );
             if (response.data.success) {
+                // Invalidate cache dan force refresh
+                localStorage.removeItem(`${CACHE_KEY}_compositions`);
                 refreshData();
                 return { success: true, message: response.data.message };
             } else {
@@ -182,6 +397,8 @@ export const useComposition = () => {
         try {
             const response = await axios.delete(`/api/compositions/${id}`);
             if (response.data.success) {
+                // Invalidate cache dan force refresh
+                localStorage.removeItem(`${CACHE_KEY}_compositions`);
                 refreshData();
                 return { success: true, message: response.data.message };
             } else {
@@ -203,9 +420,10 @@ export const useComposition = () => {
     };
 
     const refreshData = () => {
-        fetchCompositions();
-        fetchVariants();
-        fetchIngredients();
+        // Force refresh semua data
+        fetchCompositions(true);
+        fetchVariants(true);
+        fetchIngredients(true);
     };
 
     return {

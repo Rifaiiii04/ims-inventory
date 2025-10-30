@@ -1,21 +1,98 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import axios from "axios";
+
+// Cache configuration
+const CACHE_KEY = "category_data_cache";
+const CACHE_DURATION = 5 * 60 * 1000; // 5 menit dalam milliseconds
+
+// Helper functions untuk cache
+const getCachedData = (key) => {
+    try {
+        const cached = localStorage.getItem(key);
+        if (!cached) return null;
+
+        const { data, timestamp } = JSON.parse(cached);
+        const now = Date.now();
+
+        // Jika cache masih valid (kurang dari cache duration)
+        if (now - timestamp < CACHE_DURATION) {
+            return data;
+        }
+
+        // Cache expired, hapus
+        localStorage.removeItem(key);
+        return null;
+    } catch (err) {
+        console.error("Error reading cache:", err);
+        return null;
+    }
+};
+
+const setCachedData = (key, data) => {
+    try {
+        const cache = {
+            data,
+            timestamp: Date.now(),
+        };
+        localStorage.setItem(key, JSON.stringify(cache));
+    } catch (err) {
+        console.error("Error setting cache:", err);
+    }
+};
 
 export const useCategory = () => {
     const [categories, setCategories] = useState([]);
     const [error, setError] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const hasInitialData = useRef(false);
 
-    const fetchCategories = async () => {
+    // Load cached data immediately
+    useEffect(() => {
+        const cachedCategories = getCachedData(`${CACHE_KEY}_categories`);
+
+        if (cachedCategories) {
+            setCategories(cachedCategories);
+            hasInitialData.current = true;
+            setLoading(false);
+        }
+    }, []);
+
+    const fetchCategories = async (forceRefresh = false) => {
+        // Jika ada cached data dan tidak force refresh, skip loading
+        if (!forceRefresh && hasInitialData.current) {
+            // Background refresh - update data tanpa loading state
+            try {
+                setError(null);
+
+                const response = await axios.get("/api/categories");
+                if (response.data.success) {
+                    const categoriesData = Array.isArray(response.data.data)
+                        ? response.data.data
+                        : [];
+                    setCategories(categoriesData);
+                    setCachedData(`${CACHE_KEY}_categories`, categoriesData);
+                } else {
+                    setCategories([]);
+                }
+            } catch (err) {
+                console.error("Error fetching categories:", err);
+                // Jika error, tetap gunakan cached data
+            }
+            return;
+        }
+
         try {
+            setLoading(true);
             setError(null);
 
             const response = await axios.get("/api/categories");
             if (response.data.success) {
-                // Ensure data is always an array
                 const categoriesData = Array.isArray(response.data.data)
                     ? response.data.data
                     : [];
                 setCategories(categoriesData);
+                setCachedData(`${CACHE_KEY}_categories`, categoriesData);
+                hasInitialData.current = true;
             } else {
                 setCategories([]);
             }
@@ -26,6 +103,8 @@ export const useCategory = () => {
                     "Terjadi kesalahan saat mengambil data kategori"
             );
             setCategories([]);
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -33,7 +112,9 @@ export const useCategory = () => {
         try {
             const response = await axios.post("/api/categories", categoryData);
             if (response.data.success) {
-                await fetchCategories(); // Refresh data
+                // Invalidate cache dan force refresh
+                localStorage.removeItem(`${CACHE_KEY}_categories`);
+                await fetchCategories(true);
                 return { success: true, data: response.data.data };
             }
             return { success: false, message: response.data.message };
@@ -52,7 +133,9 @@ export const useCategory = () => {
                 categoryData
             );
             if (response.data.success) {
-                await fetchCategories(); // Refresh data
+                // Invalidate cache dan force refresh
+                localStorage.removeItem(`${CACHE_KEY}_categories`);
+                await fetchCategories(true);
                 return { success: true, data: response.data.data };
             }
             return { success: false, message: response.data.message };
@@ -68,7 +151,9 @@ export const useCategory = () => {
         try {
             const response = await axios.delete(`/api/categories/${id}`);
             if (response.data.success) {
-                await fetchCategories(); // Refresh data
+                // Invalidate cache dan force refresh
+                localStorage.removeItem(`${CACHE_KEY}_categories`);
+                await fetchCategories(true);
                 return { success: true, message: response.data.message };
             }
             return { success: false, message: response.data.message };
@@ -81,16 +166,26 @@ export const useCategory = () => {
     };
 
     const refreshData = () => {
-        fetchCategories();
+        fetchCategories(true);
     };
 
     useEffect(() => {
-        fetchCategories();
+        // Cek apakah ada cached data terlebih dahulu
+        const cachedCategories = getCachedData(`${CACHE_KEY}_categories`);
+
+        // Jika tidak ada cached data, fetch dengan loading
+        // Jika ada cached data, fetch di background tanpa loading
+        if (!cachedCategories) {
+            fetchCategories(true);
+        } else {
+            fetchCategories(false); // Background refresh
+        }
     }, []);
 
     return {
         categories,
         error,
+        loading,
         createCategory,
         updateCategory,
         deleteCategory,

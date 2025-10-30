@@ -1,6 +1,45 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import axios from "axios";
 import { useAuth } from "../contexts/AuthContext";
+
+// Cache configuration
+const CACHE_KEY = "product_data_cache";
+const CACHE_DURATION = 5 * 60 * 1000; // 5 menit dalam milliseconds
+
+// Helper functions untuk cache
+const getCachedData = (key) => {
+    try {
+        const cached = localStorage.getItem(key);
+        if (!cached) return null;
+
+        const { data, timestamp } = JSON.parse(cached);
+        const now = Date.now();
+
+        // Jika cache masih valid (kurang dari cache duration)
+        if (now - timestamp < CACHE_DURATION) {
+            return data;
+        }
+
+        // Cache expired, hapus
+        localStorage.removeItem(key);
+        return null;
+    } catch (err) {
+        console.error("Error reading cache:", err);
+        return null;
+    }
+};
+
+const setCachedData = (key, data) => {
+    try {
+        const cache = {
+            data,
+            timestamp: Date.now(),
+        };
+        localStorage.setItem(key, JSON.stringify(cache));
+    } catch (err) {
+        console.error("Error setting cache:", err);
+    }
+};
 
 export const useProduct = () => {
     const { isAuthenticated } = useAuth();
@@ -9,83 +48,215 @@ export const useProduct = () => {
     const [ingredients, setIngredients] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const hasInitialData = useRef(false);
 
-    const fetchProducts = useCallback(async () => {
+    // Load cached data immediately
+    useEffect(() => {
         if (!isAuthenticated) {
             setLoading(false);
             return;
         }
-        setLoading(true);
-        setError(null);
-        try {
-            const response = await axios.get("/api/products");
-            if (response.data.success) {
-                setProducts(response.data.data);
-            } else {
-                setError(response.data.message);
+
+        const cachedProducts = getCachedData(`${CACHE_KEY}_products`);
+        const cachedCategories = getCachedData(`${CACHE_KEY}_categories`);
+        const cachedIngredients = getCachedData(`${CACHE_KEY}_ingredients`);
+
+        if (cachedProducts || cachedCategories || cachedIngredients) {
+            if (cachedProducts) {
+                setProducts(cachedProducts);
+                hasInitialData.current = true;
             }
-        } catch (err) {
-            console.error("Error fetching products:", err);
-            setError(
-                err.response?.data?.message ||
-                    "Terjadi kesalahan saat mengambil data produk"
-            );
-        } finally {
-            setLoading(false);
+            if (cachedCategories) {
+                setCategories(cachedCategories);
+            }
+            if (cachedIngredients) {
+                setIngredients(cachedIngredients);
+            }
+            // Set loading ke false jika ada cached data
+            if (cachedProducts) {
+                setLoading(false);
+            }
         }
     }, [isAuthenticated]);
 
-    const fetchCategories = useCallback(async () => {
-        if (!isAuthenticated) return;
-        try {
-            const response = await axios.get("/api/products/categories/list");
-            if (response.data.success) {
-                setCategories(response.data.data);
-            } else {
-                console.error(
-                    "Error fetching categories:",
-                    response.data.message
-                );
+    const fetchProducts = useCallback(
+        async (forceRefresh = false) => {
+            if (!isAuthenticated) {
+                setLoading(false);
+                return;
             }
-        } catch (err) {
-            console.error("Error fetching categories:", err);
-        }
-    }, [isAuthenticated]);
 
-    const fetchIngredients = useCallback(async () => {
-        if (!isAuthenticated) return;
-        try {
-            const response = await axios.get("/api/products/ingredients/list");
-            if (response.data.success) {
-                setIngredients(response.data.data);
-            } else {
-                console.error(
-                    "Error fetching ingredients:",
-                    response.data.message
-                );
+            // Jika ada cached data dan tidak force refresh, skip loading
+            if (!forceRefresh && hasInitialData.current) {
+                // Background refresh - update data tanpa loading state
+                try {
+                    const response = await axios.get("/api/products");
+                    if (response.data.success) {
+                        setProducts(response.data.data);
+                        setCachedData(
+                            `${CACHE_KEY}_products`,
+                            response.data.data
+                        );
+                    }
+                } catch (err) {
+                    console.error("Error fetching products:", err);
+                    // Jika error, tetap gunakan cached data
+                }
+                return;
             }
-        } catch (err) {
-            console.error("Error fetching ingredients:", err);
-        }
-    }, [isAuthenticated]);
+
+            setLoading(true);
+            setError(null);
+            try {
+                const response = await axios.get("/api/products");
+                if (response.data.success) {
+                    setProducts(response.data.data);
+                    setCachedData(`${CACHE_KEY}_products`, response.data.data);
+                    hasInitialData.current = true;
+                } else {
+                    setError(response.data.message);
+                }
+            } catch (err) {
+                console.error("Error fetching products:", err);
+                setError(
+                    err.response?.data?.message ||
+                        "Terjadi kesalahan saat mengambil data produk"
+                );
+            } finally {
+                setLoading(false);
+            }
+        },
+        [isAuthenticated]
+    );
+
+    const fetchCategories = useCallback(
+        async (forceRefresh = false) => {
+            if (!isAuthenticated) return;
+
+            const cachedCategories = getCachedData(`${CACHE_KEY}_categories`);
+            if (!forceRefresh && cachedCategories) {
+                // Background refresh
+                try {
+                    const response = await axios.get(
+                        "/api/products/categories/list"
+                    );
+                    if (response.data.success) {
+                        setCategories(response.data.data);
+                        setCachedData(
+                            `${CACHE_KEY}_categories`,
+                            response.data.data
+                        );
+                    }
+                } catch (err) {
+                    console.error("Error fetching categories:", err);
+                }
+                return;
+            }
+
+            try {
+                const response = await axios.get(
+                    "/api/products/categories/list"
+                );
+                if (response.data.success) {
+                    setCategories(response.data.data);
+                    setCachedData(
+                        `${CACHE_KEY}_categories`,
+                        response.data.data
+                    );
+                } else {
+                    console.error(
+                        "Error fetching categories:",
+                        response.data.message
+                    );
+                }
+            } catch (err) {
+                console.error("Error fetching categories:", err);
+            }
+        },
+        [isAuthenticated]
+    );
+
+    const fetchIngredients = useCallback(
+        async (forceRefresh = false) => {
+            if (!isAuthenticated) return;
+
+            const cachedIngredients = getCachedData(`${CACHE_KEY}_ingredients`);
+            if (!forceRefresh && cachedIngredients) {
+                // Background refresh
+                try {
+                    const response = await axios.get(
+                        "/api/products/ingredients/list"
+                    );
+                    if (response.data.success) {
+                        setIngredients(response.data.data);
+                        setCachedData(
+                            `${CACHE_KEY}_ingredients`,
+                            response.data.data
+                        );
+                    }
+                } catch (err) {
+                    console.error("Error fetching ingredients:", err);
+                }
+                return;
+            }
+
+            try {
+                const response = await axios.get(
+                    "/api/products/ingredients/list"
+                );
+                if (response.data.success) {
+                    setIngredients(response.data.data);
+                    setCachedData(
+                        `${CACHE_KEY}_ingredients`,
+                        response.data.data
+                    );
+                } else {
+                    console.error(
+                        "Error fetching ingredients:",
+                        response.data.message
+                    );
+                }
+            } catch (err) {
+                console.error("Error fetching ingredients:", err);
+            }
+        },
+        [isAuthenticated]
+    );
 
     useEffect(() => {
-        fetchProducts();
-        fetchCategories();
-        fetchIngredients();
+        if (!isAuthenticated) {
+            setLoading(false);
+            return;
+        }
 
-        // Set up auto-refresh for product data
+        // Cek apakah ada cached data terlebih dahulu
+        const cachedProducts = getCachedData(`${CACHE_KEY}_products`);
+
+        // Jika tidak ada cached data, fetch dengan loading
+        // Jika ada cached data, fetch di background tanpa loading
+        if (!cachedProducts) {
+            fetchProducts(true);
+        } else {
+            fetchProducts(false); // Background refresh
+        }
+
+        fetchCategories(false); // Background refresh
+        fetchIngredients(false); // Background refresh
+
+        // Set up auto-refresh untuk product data (hanya background refresh)
         const intervalId = setInterval(() => {
-            fetchProducts();
+            fetchProducts(false); // Background refresh
         }, 30000); // Refresh every 30 seconds
 
         return () => clearInterval(intervalId);
-    }, [fetchProducts, fetchCategories, fetchIngredients]);
+    }, [fetchProducts, fetchCategories, fetchIngredients, isAuthenticated]);
 
     const createProduct = async (productData) => {
         try {
             const response = await axios.post("/api/products", productData);
             if (response.data.success) {
+                // Invalidate cache dan force refresh
+                localStorage.removeItem(`${CACHE_KEY}_products`);
                 refreshData();
                 return { success: true, message: response.data.message };
             } else {
@@ -113,6 +284,8 @@ export const useProduct = () => {
                 productData
             );
             if (response.data.success) {
+                // Invalidate cache dan force refresh
+                localStorage.removeItem(`${CACHE_KEY}_products`);
                 refreshData();
                 return { success: true, message: response.data.message };
             } else {
@@ -137,6 +310,8 @@ export const useProduct = () => {
         try {
             const response = await axios.delete(`/api/products/${id}`);
             if (response.data.success) {
+                // Invalidate cache dan force refresh
+                localStorage.removeItem(`${CACHE_KEY}_products`);
                 refreshData();
                 return { success: true, message: response.data.message };
             } else {
@@ -180,9 +355,10 @@ export const useProduct = () => {
     };
 
     const refreshData = () => {
-        fetchProducts();
-        fetchCategories();
-        fetchIngredients();
+        // Force refresh semua data
+        fetchProducts(true);
+        fetchCategories(true);
+        fetchIngredients(true);
     };
 
     return {

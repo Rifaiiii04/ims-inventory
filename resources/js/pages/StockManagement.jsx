@@ -16,22 +16,23 @@ function StockManagement() {
     const [searchTerm, setSearchTerm] = useState("");
 
     // Use stock hook for real data
-    const { 
-        stocks: stockData, 
-        lowStockAlerts, 
-        categories, 
-        error, 
-        createStock, 
-        updateStock, 
-        deleteStock, 
-        refreshData 
+    const {
+        stocks: stockData,
+        lowStockAlerts,
+        categories,
+        loading,
+        error,
+        createStock,
+        updateStock,
+        deleteStock,
+        refreshData,
     } = useStock();
 
     // Handle tambah stok baru
     const handleAddStock = async (newStock) => {
         const result = await createStock(newStock);
         if (result.success) {
-        setShowFormModal(false);
+            setShowFormModal(false);
         } else {
             alert(result.message);
         }
@@ -41,8 +42,8 @@ function StockManagement() {
     const handleUpdateStock = async (updatedStock) => {
         const result = await updateStock(updatedStock.id, updatedStock);
         if (result.success) {
-        setEditingStock(null);
-        setShowFormModal(false);
+            setEditingStock(null);
+            setShowFormModal(false);
         } else {
             alert(result.message);
         }
@@ -71,9 +72,9 @@ function StockManagement() {
     };
 
     // Filter stocks based on search term
-    const filteredStocks = stockData.filter(stock => {
+    const filteredStocks = stockData.filter((stock) => {
         if (!searchTerm) return true;
-        
+
         const searchLower = searchTerm.toLowerCase();
         return (
             stock.name.toLowerCase().includes(searchLower) ||
@@ -155,10 +156,10 @@ function StockManagement() {
                             setShowFormModal(true);
                         }}
                         buttonColor="green"
-                            showSearch={true}
-                            searchValue={searchTerm}
-                            onSearchChange={setSearchTerm}
-                            searchPlaceholder="Cari stok, kategori, atau satuan..."
+                        showSearch={true}
+                        searchValue={searchTerm}
+                        onSearchChange={setSearchTerm}
+                        searchPlaceholder="Cari stok, kategori, atau satuan..."
                     />
 
                     {/* Content */}
@@ -168,13 +169,27 @@ function StockManagement() {
                             <div className="mb-4 sm:mb-6 bg-red-50 border border-red-200 rounded-xl p-3 sm:p-4">
                                 <div className="flex items-center gap-3">
                                     <div className="w-6 h-6 sm:w-8 sm:h-8 bg-red-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                                        <svg className="w-4 h-4 sm:w-5 sm:h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                        <svg
+                                            className="w-4 h-4 sm:w-5 sm:h-5 text-red-600"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            viewBox="0 0 24 24"
+                                        >
+                                            <path
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                                strokeWidth={2}
+                                                d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                                            />
                                         </svg>
                                     </div>
                                     <div className="min-w-0 flex-1">
-                                        <h3 className="font-semibold text-red-800 text-sm sm:text-base">Terjadi Kesalahan</h3>
-                                        <p className="text-xs sm:text-sm text-red-600 break-words">{error}</p>
+                                        <h3 className="font-semibold text-red-800 text-sm sm:text-base">
+                                            Terjadi Kesalahan
+                                        </h3>
+                                        <p className="text-xs sm:text-sm text-red-600 break-words">
+                                            {error}
+                                        </p>
                                     </div>
                                 </div>
                             </div>
@@ -191,11 +206,23 @@ function StockManagement() {
                         {searchTerm && (
                             <div className="mb-4 bg-blue-50 border border-blue-200 rounded-xl p-3">
                                 <div className="flex items-center gap-2">
-                                    <svg className="w-4 h-4 text-blue-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                    <svg
+                                        className="w-4 h-4 text-blue-600 flex-shrink-0"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        viewBox="0 0 24 24"
+                                    >
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            strokeWidth={2}
+                                            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                                        />
                                     </svg>
                                     <span className="text-xs sm:text-sm text-blue-800 break-words">
-                                        Menampilkan {filteredStocks.length} dari {stockData.length} stok untuk pencarian "{searchTerm}"
+                                        Menampilkan {filteredStocks.length} dari{" "}
+                                        {stockData.length} stok untuk pencarian
+                                        "{searchTerm}"
                                     </span>
                                 </div>
                             </div>
@@ -205,13 +232,26 @@ function StockManagement() {
                         {searchTerm && filteredStocks.length === 0 && (
                             <div className="text-center py-8 sm:py-12">
                                 <div className="w-12 h-12 sm:w-16 sm:h-16 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-3 sm:mb-4">
-                                    <svg className="w-6 h-6 sm:w-8 sm:h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                    <svg
+                                        className="w-6 h-6 sm:w-8 sm:h-8 text-gray-400"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        viewBox="0 0 24 24"
+                                    >
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            strokeWidth={2}
+                                            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                                        />
                                     </svg>
                                 </div>
-                                <h3 className="text-base sm:text-lg font-bold text-gray-700 mb-2">Tidak ada hasil ditemukan</h3>
+                                <h3 className="text-base sm:text-lg font-bold text-gray-700 mb-2">
+                                    Tidak ada hasil ditemukan
+                                </h3>
                                 <p className="text-gray-500 text-xs sm:text-sm mb-4 px-4">
-                                    Tidak ada stok yang cocok dengan pencarian "{searchTerm}"
+                                    Tidak ada stok yang cocok dengan pencarian "
+                                    {searchTerm}"
                                 </p>
                                 <button
                                     onClick={() => setSearchTerm("")}
@@ -222,15 +262,71 @@ function StockManagement() {
                             </div>
                         )}
 
+                        {/* Loading State */}
+                        {loading && (
+                            <div className="text-center py-12">
+                                <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                                    <svg
+                                        className="w-8 h-8 text-gray-400 animate-spin"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        viewBox="0 0 24 24"
+                                    >
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            strokeWidth={2}
+                                            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                                        />
+                                    </svg>
+                                </div>
+                                <h3 className="text-lg font-bold text-gray-700 mb-2">
+                                    Memuat data stok...
+                                </h3>
+                                <p className="text-gray-500 text-sm">
+                                    Mohon tunggu sebentar
+                                </p>
+                            </div>
+                        )}
+
                         {/* Stock Table */}
-                        <div className="overflow-x-auto">
-                            <StockTable
-                                data={filteredStocks}
-                                onEdit={handleEditStock}
-                                onDelete={handleDeleteStock}
-                                onViewHistory={handleViewHistory}
-                            />
-                        </div>
+                        {!loading && (
+                            <div className="overflow-x-auto">
+                                <StockTable
+                                    data={filteredStocks}
+                                    onEdit={handleEditStock}
+                                    onDelete={handleDeleteStock}
+                                    onViewHistory={handleViewHistory}
+                                />
+                            </div>
+                        )}
+
+                        {/* No Data State */}
+                        {!loading && stockData.length === 0 && !error && (
+                            <div className="text-center py-12">
+                                <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                                    <svg
+                                        className="w-8 h-8 text-gray-400"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        viewBox="0 0 24 24"
+                                    >
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            strokeWidth={2}
+                                            d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"
+                                        />
+                                    </svg>
+                                </div>
+                                <h3 className="text-lg font-bold text-gray-700 mb-2">
+                                    Tidak ada data stok
+                                </h3>
+                                <p className="text-gray-500 text-sm mb-4">
+                                    Mulai dengan menambahkan stok baru
+                                </p>
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>
