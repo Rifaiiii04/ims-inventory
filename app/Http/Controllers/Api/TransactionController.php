@@ -122,12 +122,41 @@ class TransactionController extends Controller
             
             $validator = Validator::make($request->all(), [
                 'items' => 'required|array|min:1',
-                'items.*.variant_id' => 'required|integer',
+                'items.*.variant_id' => 'required', // Accept both integer (variant) and string (product_*) for direct products
                 'items.*.quantity' => 'required|numeric|min:0.01',
                 'payment_method' => 'required|string|in:tunai,qris,transfer,cash,lainnya',
                 'cash_amount' => 'nullable|numeric|min:0',
                 'transfer_proof' => 'nullable|string'
             ]);
+
+            // Custom validation for variant_id - must be either integer or string starting with 'product_'
+            $validator->after(function ($validator) use ($request) {
+                foreach ($request->items as $index => $item) {
+                    $variantId = $item['variant_id'] ?? null;
+                    if ($variantId === null || $variantId === '') {
+                        continue; // Already handled by 'required' rule
+                    }
+                    
+                    // Convert to string for checking
+                    $variantIdStr = (string) $variantId;
+                    
+                    // Check if it's a product_* string or a numeric value (integer)
+                    if (is_string($variantId) && !str_starts_with($variantIdStr, 'product_')) {
+                        // If it's a string but not product_*, check if it's numeric (could be string number)
+                        if (!is_numeric($variantId)) {
+                            $validator->errors()->add("items.{$index}.variant_id", "Variant ID format tidak valid. Harus integer atau 'product_*'");
+                        }
+                    } elseif (is_numeric($variantId) || ctype_digit($variantIdStr)) {
+                        // Valid integer variant ID
+                        continue;
+                    } elseif (str_starts_with($variantIdStr, 'product_')) {
+                        // Valid product_* format
+                        continue;
+                    } else {
+                        $validator->errors()->add("items.{$index}.variant_id", "Variant ID harus berupa integer atau string 'product_*'");
+                    }
+                }
+            });
 
             if ($validator->fails()) {
                 Log::error('Validation failed:', $validator->errors()->toArray());
@@ -163,11 +192,13 @@ class TransactionController extends Controller
                     Log::info('Processing item:', $item);
                     
                     // Cek apakah ini produk langsung atau variant
-                    $isDirectProduct = str_starts_with($item['variant_id'], 'product_');
+                    // Convert variant_id to string for checking if it's a direct product
+                    $variantIdStr = (string) $item['variant_id'];
+                    $isDirectProduct = str_starts_with($variantIdStr, 'product_');
                     
                     if ($isDirectProduct) {
                         // Handle produk langsung (tanpa variant)
-                        $productId = str_replace('product_', '', $item['variant_id']);
+                        $productId = str_replace('product_', '', $variantIdStr);
                         $product = TblProduk::find($productId);
                         
                         if (!$product) {
@@ -190,8 +221,8 @@ class TransactionController extends Controller
                             'quantity' => $item['quantity']
                         ]);
                     } else {
-                        // Handle variant normal
-                        $variant = TblVarian::find($item['variant_id']);
+                        // Handle variant normal - load with product relation
+                        $variant = TblVarian::with('produk')->find($item['variant_id']);
                         if (!$variant) {
                             Log::error('Variant not found:', ['variant_id' => $item['variant_id']]);
                             throw new \Exception("Varian tidak ditemukan");
@@ -241,77 +272,155 @@ class TransactionController extends Controller
                     // Ambil harga dari produk
                     if ($isDirectProduct) {
                         $harga = $product->harga ?? 0;
+                        $productObj = $product;
                     } else {
+                        // Ensure product relation is loaded
+                        if (!$variant->relationLoaded('produk')) {
+                            $variant->load('produk');
+                        }
                         $produk = $variant->produk;
+                        if (!$produk) {
+                            // Fallback: get product directly
+                            $produk = TblProduk::find($variant->id_produk);
+                        }
                         $harga = $produk->harga ?? 0;
+                        $productObj = $produk;
                     }
                     $subtotal = $harga * $item['quantity'];
                     $totalAmount += $subtotal;
 
                     $items[] = [
                         'variant' => $variant,
+                        'product' => $productObj,
+                        'isDirectProduct' => $isDirectProduct,
                         'quantity' => $item['quantity'],
                         'price' => $harga,
                         'subtotal' => $subtotal
                     ];
                 }
 
+                // Get user ID - ensure it's always set
+                $userId = auth()->id();
+                if (!$userId) {
+                    // If not authenticated, try to get from request or use default
+                    $userId = $request->user_id ?? 1;
+                    Log::warning('No authenticated user, using default user_id:', ['user_id' => $userId]);
+                }
+                
                 // Create transaction
                 Log::info('Creating transaction with data:', [
                     'tanggal_waktu' => now(),
                     'total_transaksi' => $totalAmount,
                     'metode_bayar' => $paymentMethod,
-                    'created_by' => auth()->id(),
+                    'created_by' => $userId,
                 ]);
                 
-                $transaction = TblTransaksi::create([
-                    'tanggal_waktu' => now(),
-                    'total_transaksi' => $totalAmount,
-                    'metode_bayar' => $paymentMethod,
-                    'nama_pelanggan' => 'Pelanggan Umum',
-                    'catatan' => $request->payment_method === 'transfer' ? $request->transfer_proof : null,
-                    'created_by' => auth()->id(),
-                ]);
+                try {
+                    $transaction = TblTransaksi::create([
+                        'tanggal_waktu' => now(),
+                        'total_transaksi' => $totalAmount,
+                        'metode_bayar' => $paymentMethod,
+                        'nama_pelanggan' => 'Pelanggan Umum',
+                        'catatan' => $request->payment_method === 'transfer' ? $request->transfer_proof : null,
+                        'created_by' => $userId,
+                    ]);
+                } catch (\Exception $e) {
+                    Log::error('Failed to create transaction:', [
+                        'error' => $e->getMessage(),
+                        'data' => [
+                            'tanggal_waktu' => now(),
+                            'total_transaksi' => $totalAmount,
+                            'metode_bayar' => $paymentMethod,
+                            'created_by' => $userId,
+                        ]
+                    ]);
+                    throw new \Exception("Gagal membuat transaksi: " . $e->getMessage());
+                }
                 
                 Log::info('Transaction created successfully:', ['transaction_id' => $transaction->id_transaksi]);
 
                 // Create transaction details and update stock
                 foreach ($items as $item) {
+                    $isDirectProduct = $item['isDirectProduct'] ?? false;
+                    
+                    // Ensure product exists and has id_produk
+                    if (!isset($item['product']) || !$item['product']) {
+                        Log::error('Product missing in item:', ['item' => $item]);
+                        throw new \Exception("Data produk tidak valid untuk item transaksi");
+                    }
+                    
+                    $productId = $item['product']->id_produk ?? null;
+                    if (!$productId) {
+                        Log::error('Product ID missing:', ['item' => $item, 'product' => $item['product']]);
+                        throw new \Exception("ID produk tidak ditemukan");
+                    }
+                    
+                    // Get variant_id - for direct products, use null; for normal variants, use integer id_varian
+                    $variantId = null;
+                    if (!$isDirectProduct) {
+                        // For normal variant, ensure id_varian is integer
+                        if (isset($item['variant']) && isset($item['variant']->id_varian)) {
+                            $variantId = is_numeric($item['variant']->id_varian) 
+                                ? (int) $item['variant']->id_varian 
+                                : null;
+                        }
+                    }
+                    
                     Log::info('Creating transaction detail:', [
                         'id_transaksi' => $transaction->id_transaksi,
-                        'id_produk' => $item['variant']->id_produk,
-                        'id_varian' => $item['variant']->id_varian,
+                        'id_produk' => $productId,
+                        'id_varian' => $variantId,
                         'jumlah' => $item['quantity'],
                         'harga_satuan' => $item['price'],
                         'total_harga' => $item['subtotal']
                     ]);
                     
-                    // Create transaction detail
-                    TblTransaksiDetail::create([
-                        'id_transaksi' => $transaction->id_transaksi,
-                        'id_produk' => $item['variant']->id_produk,
-                        'id_varian' => $isDirectProduct ? null : $item['variant']->id_varian, // Null untuk produk langsung
-                        'jumlah' => $item['quantity'],
-                        'harga_satuan' => $item['price'],
-                        'total_harga' => $item['subtotal']
-                    ]);
+                    try {
+                        // Create transaction detail
+                        TblTransaksiDetail::create([
+                            'id_transaksi' => $transaction->id_transaksi,
+                            'id_produk' => $productId,
+                            'id_varian' => $variantId, // Null untuk produk langsung
+                            'jumlah' => $item['quantity'],
+                            'harga_satuan' => $item['price'],
+                            'total_harga' => $item['subtotal']
+                        ]);
+                    } catch (\Exception $e) {
+                        Log::error('Failed to create transaction detail:', [
+                            'error' => $e->getMessage(),
+                            'data' => [
+                                'id_transaksi' => $transaction->id_transaksi,
+                                'id_produk' => $productId,
+                                'id_varian' => $variantId,
+                                'jumlah' => $item['quantity'],
+                                'harga_satuan' => $item['price'],
+                                'total_harga' => $item['subtotal']
+                            ]
+                        ]);
+                        throw new \Exception("Gagal membuat detail transaksi: " . $e->getMessage());
+                    }
 
                     // Update variant stock (hanya untuk variant, bukan produk langsung)
                     if (!$isDirectProduct) {
+                        // Ensure variant_id is integer
+                        $variantIdForUpdate = is_numeric($item['variant']->id_varian) 
+                            ? (int) $item['variant']->id_varian 
+                            : $item['variant']->id_varian;
+                            
                         Log::info('Updating variant stock:', [
-                            'variant_id' => $item['variant']->id_varian,
+                            'variant_id' => $variantIdForUpdate,
                             'current_stock' => $item['variant']->stok_varian,
                             'decrement_by' => $item['quantity']
                         ]);
                         
                         DB::table('tbl_varian')
-                            ->where('id_varian', $item['variant']->id_varian)
+                            ->where('id_varian', $variantIdForUpdate)
                             ->decrement('stok_varian', $item['quantity']);
 
                         // Update ingredient stock based on composition
                         try {
                             $compositions = DB::table('tbl_komposisi')
-                                ->where('id_varian', $item['variant']->id_varian)
+                                ->where('id_varian', $variantIdForUpdate)
                                 ->get();
                                 
                             foreach ($compositions as $composition) {
