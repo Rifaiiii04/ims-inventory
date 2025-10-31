@@ -1,6 +1,7 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import Sidebar from "../../components/Sidebar";
 import TopBar from "../../components/TopBar";
+import { useSalesReport } from "../../hooks/useSalesReport";
 import {
     LineChart,
     Line,
@@ -20,122 +21,40 @@ import {
 function SalesReport() {
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
     const [activeTab, setActiveTab] = useState("daily");
-    const [showFormModal, setShowFormModal] = useState(false);
-    const [editingTransaction, setEditingTransaction] = useState(null);
     const [filterProduct, setFilterProduct] = useState("");
     const [filterCategory, setFilterCategory] = useState("");
     const [filterDate, setFilterDate] = useState("");
     const [filterPayment, setFilterPayment] = useState("");
 
-    // Data penjualan berdasarkan observasi Kedai Angkringan Prasmanan
-    const [salesData, setSalesData] = useState({
-        summary: {
-            totalTransactions: 89,
-            totalRevenue: 1250000,
-            totalProductsSold: 156,
-            topProduct: "Ayam Bakar",
-        },
-        transactions: [
-            {
-                id: 1,
-                product: "Ayam Bakar",
-                category: "Makanan",
-                variant: "Porsi",
-                quantity: 2,
-                unitPrice: 17000,
-                totalPrice: 34000,
-                paymentMethod: "Tunai",
-                date: "2024-01-15",
-                time: "10:30",
-                cashier: "Admin",
-            },
-            {
-                id: 2,
-                product: "Nasi",
-                category: "Makanan",
-                variant: "Porsi",
-                quantity: 2,
-                unitPrice: 5000,
-                totalPrice: 10000,
-                paymentMethod: "Tunai",
-                date: "2024-01-15",
-                time: "10:30",
-                cashier: "Admin",
-            },
-            {
-                id: 3,
-                product: "Es Teh Manis",
-                category: "Minuman",
-                variant: "Gelas",
-                quantity: 2,
-                unitPrice: 5000,
-                totalPrice: 10000,
-                paymentMethod: "QRIS",
-                date: "2024-01-15",
-                time: "11:15",
-                cashier: "Staff1",
-            },
-            {
-                id: 4,
-                product: "Lele Goreng",
-                category: "Makanan",
-                variant: "Porsi",
-                quantity: 1,
-                unitPrice: 10000,
-                totalPrice: 10000,
-                paymentMethod: "Tunai",
-                date: "2024-01-15",
-                time: "12:00",
-                cashier: "Admin",
-            },
-            {
-                id: 5,
-                product: "Tusukan (Sate-satean)",
-                category: "Makanan",
-                variant: "Tusuk",
-                quantity: 5,
-                unitPrice: 3000,
-                totalPrice: 15000,
-                paymentMethod: "QRIS",
-                date: "2024-01-15",
-                time: "12:30",
-                cashier: "Staff1",
-            },
-        ],
-        dailyData: [
-            { date: "2024-01-15", sales: 54000, transactions: 3 },
-            { date: "2024-01-16", sales: 72000, transactions: 4 },
-            { date: "2024-01-17", sales: 68000, transactions: 3 },
-            { date: "2024-01-18", sales: 85000, transactions: 5 },
-            { date: "2024-01-19", sales: 92000, transactions: 6 },
-            { date: "2024-01-20", sales: 78000, transactions: 4 },
-            { date: "2024-01-21", sales: 95000, transactions: 7 },
-        ],
-        weeklyData: [
-            { week: "Minggu 1", sales: 450000, transactions: 25 },
-            { week: "Minggu 2", sales: 520000, transactions: 28 },
-            { week: "Minggu 3", sales: 480000, transactions: 26 },
-            { week: "Minggu 4", sales: 600000, transactions: 32 },
-        ],
-        monthlyData: [
-            { month: "Jan", sales: 2050000, transactions: 111 },
-            { month: "Feb", sales: 2300000, transactions: 125 },
-            { month: "Mar", sales: 2100000, transactions: 118 },
-            { month: "Apr", sales: 2500000, transactions: 135 },
-        ],
-        productPerformance: [
-            { name: "Ayam Bakar", sales: 450000, percentage: 36 },
-            { name: "Lele Goreng", sales: 320000, percentage: 25.6 },
-            { name: "Nasi", sales: 180000, percentage: 14.4 },
-            { name: "Es Teh Manis", sales: 150000, percentage: 12 },
-            { name: "Tusukan", sales: 150000, percentage: 12 },
-        ],
-        paymentMethodData: [
-            { name: "Tunai", value: 65, color: "#10B981" },
-            { name: "QRIS", value: 30, color: "#3B82F6" },
-            { name: "Transfer", value: 5, color: "#8B5CF6" },
-        ],
-    });
+    // Use sales report hook to fetch data from database
+    const {
+        reportData: salesData,
+        products,
+        categories,
+        loading,
+        error,
+        fetchSalesReport,
+    } = useSalesReport();
+
+    // Handle filter changes
+    const handleFilterChange = useCallback(() => {
+        fetchSalesReport({
+            product: filterProduct,
+            category: filterCategory,
+            date: filterDate,
+            payment: filterPayment,
+            period: activeTab,
+        });
+    }, [filterProduct, filterCategory, filterDate, filterPayment, activeTab, fetchSalesReport]);
+
+    // Auto-refresh when filters or period change
+    useEffect(() => {
+        const timeoutId = setTimeout(() => {
+            handleFilterChange();
+        }, 300); // Debounce 300ms
+
+        return () => clearTimeout(timeoutId);
+    }, [filterProduct, filterCategory, filterDate, filterPayment, activeTab, handleFilterChange]);
 
     const formatCurrency = (amount) => {
         return new Intl.NumberFormat("id-ID", {
@@ -152,32 +71,59 @@ function SalesReport() {
         });
     };
 
-    const filteredTransactions = salesData.transactions.filter((transaction) => {
-        const matchesProduct = transaction.product
+    // Get filtered transactions from database
+    const filteredTransactions = salesData?.recent_transactions?.filter((transaction) => {
+        const transactionProduct = transaction.items?.[0]?.product || "";
+        const transactionCategory = ""; // Category will be from transaction details
+        const transactionDate = transaction.date || "";
+        const transactionPayment = transaction.payment_method || "";
+
+        const matchesProduct = transactionProduct
             .toLowerCase()
             .includes(filterProduct.toLowerCase());
-        const matchesCategory = transaction.category
+        const matchesCategory = filterCategory === "" || transactionCategory
             .toLowerCase()
             .includes(filterCategory.toLowerCase());
-        const matchesDate = transaction.date.includes(filterDate);
-        const matchesPayment = transaction.paymentMethod
+        const matchesDate = filterDate === "" || transactionDate.includes(filterDate);
+        const matchesPayment = filterPayment === "" || transactionPayment
             .toLowerCase()
             .includes(filterPayment.toLowerCase());
 
         return matchesProduct && matchesCategory && matchesDate && matchesPayment;
-    });
+    }) || [];
 
+    // Transform chart data from database
     const getCurrentData = () => {
-        switch (activeTab) {
-            case "daily":
-                return salesData.dailyData;
-            case "weekly":
-                return salesData.weeklyData;
-            case "monthly":
-                return salesData.monthlyData;
-            default:
-                return salesData.dailyData;
-        }
+        if (!salesData?.chart_data) return [];
+        
+        return salesData.chart_data.map((item) => {
+            switch (activeTab) {
+                case "daily":
+                    return {
+                        date: item.period,
+                        sales: item.revenue || 0,
+                        transactions: item.transactions || 0,
+                    };
+                case "weekly":
+                    return {
+                        week: item.period,
+                        sales: item.revenue || 0,
+                        transactions: item.transactions || 0,
+                    };
+                case "monthly":
+                    return {
+                        month: item.period,
+                        sales: item.revenue || 0,
+                        transactions: item.transactions || 0,
+                    };
+                default:
+                    return {
+                        date: item.period,
+                        sales: item.revenue || 0,
+                        transactions: item.transactions || 0,
+                    };
+            }
+        });
     };
 
     const getCurrentLabel = () => {
@@ -206,38 +152,74 @@ function SalesReport() {
         }
     };
 
-    const handleEditTransaction = (transaction) => {
-        setEditingTransaction(transaction);
-        setShowFormModal(true);
-    };
+    // Show loading state
+    if (loading) {
+        return (
+            <>
+                <div className="w-screen h-screen flex flex-col lg:flex-row bg-gradient-to-br from-gray-50 to-gray-100">
+                    <div className="flex-1 flex items-center justify-center">
+                        <div className="text-center">
+                            <div className="w-8 h-8 border-4 border-green-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                            <p className="text-gray-600">Memuat data laporan penjualan...</p>
+                        </div>
+                    </div>
+                </div>
+            </>
+        );
+    }
 
-    const handleDeleteTransaction = (id) => {
-        setSalesData((prev) => ({
-            ...prev,
-            transactions: prev.transactions.filter((t) => t.id !== id),
-        }));
-    };
+    // Show error state
+    if (error) {
+        return (
+            <>
+                <div className="w-screen h-screen flex flex-col lg:flex-row bg-gradient-to-br from-gray-50 to-gray-100">
+                    <div className="flex-1 flex items-center justify-center">
+                        <div className="text-center">
+                            <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                            </div>
+                            <h3 className="text-lg font-bold text-gray-800 mb-2">Terjadi Kesalahan</h3>
+                            <p className="text-gray-600 mb-4">{error}</p>
+                            <button
+                                onClick={() => window.location.reload()}
+                                className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors"
+                            >
+                                Coba Lagi
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </>
+        );
+    }
 
-    const handleSaveTransaction = (updatedTransaction) => {
-        if (editingTransaction) {
-            setSalesData((prev) => ({
-                ...prev,
-                transactions: prev.transactions.map((t) =>
-                    t.id === editingTransaction.id ? updatedTransaction : t
-                ),
-            }));
-        } else {
-            setSalesData((prev) => ({
-                ...prev,
-                transactions: [
-                    ...prev.transactions,
-                    { ...updatedTransaction, id: Date.now() },
-                ],
-            }));
-        }
-        setShowFormModal(false);
-        setEditingTransaction(null);
-    };
+    // Get product performance data from database
+    const productPerformance = salesData?.product_performance?.map((product) => {
+        const totalRevenue = salesData?.summary?.total_revenue || 1;
+        return {
+            name: product.name || "Unknown",
+            sales: product.revenue || 0,
+            percentage: totalRevenue > 0 ? ((product.revenue || 0) / totalRevenue * 100).toFixed(1) : 0,
+        };
+    }) || [];
+
+    // Get payment method data from database
+    const paymentMethodData = salesData?.payment_methods?.map((method) => {
+        const colors = {
+            "Tunai": "#10B981",
+            "QRIS": "#3B82F6",
+            "Transfer": "#8B5CF6",
+            "Cash": "#10B981",
+            "lainnya": "#8B5CF6",
+        };
+        return {
+            name: method.name || "Unknown",
+            value: method.count || 0,
+            color: colors[method.name] || "#8B5CF6",
+        };
+    }) || [];
 
     return (
         <>
@@ -305,7 +287,7 @@ function SalesReport() {
                                                 Total Transaksi
                                             </p>
                                             <p className="text-3xl font-bold">
-                                                {salesData.summary.totalTransactions}
+                                                {salesData?.summary?.total_transactions || 0}
                                             </p>
                                         </div>
                                         <div className="w-12 h-12 bg-blue-400/30 rounded-xl flex items-center justify-center">
@@ -334,7 +316,7 @@ function SalesReport() {
                                             </p>
                                             <p className="text-2xl font-bold">
                                                 {formatCurrency(
-                                                    salesData.summary.totalRevenue
+                                                    salesData?.summary?.total_revenue || 0
                                                 )}
                                             </p>
                                         </div>
@@ -363,7 +345,7 @@ function SalesReport() {
                                                 Produk Terjual
                                             </p>
                                             <p className="text-3xl font-bold">
-                                                {salesData.summary.totalProductsSold}
+                                                {salesData?.summary?.total_products_sold || 0}
                                             </p>
                                         </div>
                                         <div className="w-12 h-12 bg-purple-400/30 rounded-xl flex items-center justify-center">
@@ -391,7 +373,7 @@ function SalesReport() {
                                                 Produk Terlaris
                                             </p>
                                             <p className="text-lg font-bold">
-                                                {salesData.summary.topProduct}
+                                                {salesData?.summary?.top_product || "Tidak ada data"}
                                             </p>
                                         </div>
                                         <div className="w-12 h-12 bg-orange-400/30 rounded-xl flex items-center justify-center">
@@ -522,7 +504,7 @@ function SalesReport() {
                                     </h3>
                                     <div className="h-80">
                                         <ResponsiveContainer width="100%" height="100%">
-                                            <BarChart data={salesData.productPerformance}>
+                                            <BarChart data={productPerformance}>
                                                 <CartesianGrid
                                                     strokeDasharray="3 3"
                                                     stroke="#f0f0f0"
@@ -570,7 +552,7 @@ function SalesReport() {
                                         <ResponsiveContainer width="100%" height="100%">
                                             <PieChart>
                                                 <Pie
-                                                    data={salesData.paymentMethodData}
+                                                    data={paymentMethodData}
                                                     cx="50%"
                                                     cy="50%"
                                                     labelLine={false}
@@ -584,7 +566,7 @@ function SalesReport() {
                                                     fill="#8884d8"
                                                     dataKey="value"
                                                 >
-                                                    {salesData.paymentMethodData.map(
+                                                    {paymentMethodData.map(
                                                         (entry, index) => (
                                                             <Cell
                                                                 key={`cell-${index}`}
@@ -613,7 +595,7 @@ function SalesReport() {
                                         Produk Terlaris
                                     </h3>
                                     <div className="space-y-4">
-                                        {salesData.productPerformance.map(
+                                        {productPerformance.map(
                                             (product, index) => (
                                                 <div
                                                     key={index}
@@ -674,12 +656,11 @@ function SalesReport() {
                                                 <option value="">
                                                     Semua Kategori
                                                 </option>
-                                                <option value="Makanan">
-                                                    Makanan
-                                                </option>
-                                                <option value="Minuman">
-                                                    Minuman
-                                                </option>
+                                                {categories.map((category) => (
+                                                    <option key={category.id || category.id_kategori} value={category.id || category.id_kategori}>
+                                                        {category.name || category.nama_kategori}
+                                                    </option>
+                                                ))}
                                             </select>
                                             <input
                                                 type="date"
@@ -742,99 +723,75 @@ function SalesReport() {
                                             </tr>
                                         </thead>
                                         <tbody className="bg-white divide-y divide-gray-200">
-                                            {filteredTransactions.map(
-                                                (transaction) => (
-                                                    <tr
-                                                        key={transaction.id}
-                                                        className="hover:bg-gray-50"
-                                                    >
-                                                        <td className="px-6 py-4 whitespace-nowrap">
-                                                            <div>
-                                                                <div className="text-sm font-medium text-gray-900">
-                                                                    {
-                                                                        transaction.product
-                                                                    }
+                                            {filteredTransactions.length === 0 ? (
+                                                <tr>
+                                                    <td colSpan="9" className="px-6 py-8 text-center text-gray-500">
+                                                        Tidak ada data transaksi
+                                                    </td>
+                                                </tr>
+                                            ) : (
+                                                filteredTransactions.map((transaction) => {
+                                                    const firstItem = transaction.items?.[0];
+                                                    return (
+                                                        <tr
+                                                            key={transaction.id}
+                                                            className="hover:bg-gray-50"
+                                                        >
+                                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                                <div>
+                                                                    <div className="text-sm font-medium text-gray-900">
+                                                                        {firstItem?.product || "Unknown"}
+                                                                    </div>
+                                                                    <div className="text-sm text-gray-500">
+                                                                        {firstItem?.variant || "Default"}
+                                                                    </div>
                                                                 </div>
-                                                                <div className="text-sm text-gray-500">
-                                                                    {
-                                                                        transaction.variant
-                                                                    }
-                                                                </div>
-                                                            </div>
-                                                        </td>
-                                                        <td className="px-6 py-4 whitespace-nowrap">
-                                                            <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
-                                                                {
-                                                                    transaction.category
-                                                                }
-                                                            </span>
-                                                        </td>
-                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                            {transaction.quantity}
-                                                        </td>
-                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                            {formatCurrency(
-                                                                transaction.unitPrice
-                                                            )}
-                                                        </td>
-                                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                                                            {formatCurrency(
-                                                                transaction.totalPrice
-                                                            )}
-                                                        </td>
-                                                        <td className="px-6 py-4 whitespace-nowrap">
-                                                            <span
-                                                                className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                                                                    transaction.paymentMethod ===
-                                                                    "Tunai"
-                                                                        ? "bg-green-100 text-green-800"
-                                                                        : transaction.paymentMethod ===
-                                                                          "QRIS"
-                                                                        ? "bg-blue-100 text-blue-800"
-                                                                        : "bg-purple-100 text-purple-800"
-                                                                }`}
-                                                            >
-                                                                {
-                                                                    transaction.paymentMethod
-                                                                }
-                                                            </span>
-                                                        </td>
-                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                                            {formatDate(
-                                                                transaction.date
-                                                            )}
-                                                            <br />
-                                                            {transaction.time}
-                                                        </td>
-                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                                            {transaction.cashier}
-                                                        </td>
-                                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                                            <div className="flex space-x-2">
-                                                                <button
-                                                                    onClick={() =>
-                                                                        handleEditTransaction(
-                                                                            transaction
-                                                                        )
-                                                                    }
-                                                                    className="text-blue-600 hover:text-blue-900"
+                                                            </td>
+                                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                                <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
+                                                                    -
+                                                                </span>
+                                                            </td>
+                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                                                {transaction.items?.reduce((sum, item) => sum + (item.quantity || 0), 0) || 0}
+                                                            </td>
+                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                                                {formatCurrency(
+                                                                    firstItem?.unit_price || 0
+                                                                )}
+                                                            </td>
+                                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                                                                {formatCurrency(
+                                                                    transaction.total || 0
+                                                                )}
+                                                            </td>
+                                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                                <span
+                                                                    className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                                                                        transaction.payment_method === "Tunai" || transaction.payment_method === "Cash"
+                                                                            ? "bg-green-100 text-green-800"
+                                                                            : transaction.payment_method === "QRIS"
+                                                                            ? "bg-blue-100 text-blue-800"
+                                                                            : "bg-purple-100 text-purple-800"
+                                                                    }`}
                                                                 >
-                                                                    Edit
-                                                                </button>
-                                                                <button
-                                                                    onClick={() =>
-                                                                        handleDeleteTransaction(
-                                                                            transaction.id
-                                                                        )
-                                                                    }
-                                                                    className="text-red-600 hover:text-red-900"
-                                                                >
-                                                                    Hapus
-                                                                </button>
-                                                            </div>
-                                                        </td>
-                                                    </tr>
-                                                )
+                                                                    {transaction.payment_method || "Tunai"}
+                                                                </span>
+                                                            </td>
+                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                                {formatDate(transaction.date)}
+                                                                <br />
+                                                                {transaction.time}
+                                                            </td>
+                                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                                {transaction.cashier || "Admin"}
+                                                            </td>
+                                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                                                -
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })
                                             )}
                                         </tbody>
                                     </table>
