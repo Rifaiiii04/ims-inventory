@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import Sidebar from "../components/Sidebar";
 import TopBar from "../components/TopBar";
 import { useSalesReport } from "../hooks/useSalesReport";
@@ -34,12 +34,11 @@ function SalesReport() {
         loading,
         error,
         fetchSalesReport,
-        exportExcel,
         exportPDF,
     } = useSalesReport();
 
     // Handle filter changes
-    const handleFilterChange = () => {
+    const handleFilterChange = useCallback(() => {
         fetchSalesReport({
             product: filterProduct,
             category: filterCategory,
@@ -47,23 +46,36 @@ function SalesReport() {
             payment: filterPayment,
             period: activeTab,
         });
-    };
+    }, [filterProduct, filterCategory, filterDate, filterPayment, activeTab, fetchSalesReport]);
 
-    // Handle export functions
-    const handleExportExcel = async () => {
-        const result = await exportExcel({
-            product: filterProduct,
-            category: filterCategory,
-            date: filterDate,
-            payment: filterPayment,
-            period: activeTab,
-        });
+    // Auto-refresh when filters or period change
+    useEffect(() => {
+        const timeoutId = setTimeout(() => {
+            handleFilterChange();
+        }, 300); // Debounce 300ms
 
-        if (!result.success) {
-            alert(result.message);
-        }
-    };
+        return () => clearTimeout(timeoutId);
+    }, [filterProduct, filterCategory, filterDate, filterPayment, activeTab, handleFilterChange]);
 
+    // Silent auto-refresh every 30 seconds in background (without loading state)
+    useEffect(() => {
+        const refreshInterval = setInterval(() => {
+            // Silent refresh with current filters - update data without showing loading state
+            fetchSalesReport({
+                product: filterProduct,
+                category: filterCategory,
+                date: filterDate,
+                payment: filterPayment,
+                period: activeTab,
+            }, true); // Silent mode
+        }, 30000); // Refresh every 30 seconds
+
+        return () => {
+            clearInterval(refreshInterval);
+        };
+    }, [filterProduct, filterCategory, filterDate, filterPayment, activeTab, fetchSalesReport]);
+
+    // Handle export function
     const handleExportPDF = async () => {
         const result = await exportPDF({
             product: filterProduct,
@@ -82,17 +94,49 @@ function SalesReport() {
     if (loading) {
         return (
             <div className="flex h-screen bg-gray-50">
-                <Sidebar
-                    isMobileMenuOpen={isMobileMenuOpen}
-                    setIsMobileMenuOpen={setIsMobileMenuOpen}
-                />
+                <button
+                    onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                    className="fixed top-4 left-4 z-50 md:hidden p-2 bg-white rounded-lg shadow-lg"
+                >
+                    <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        strokeWidth={2}
+                        stroke="currentColor"
+                        className="size-6"
+                    >
+                        <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"
+                        />
+                    </svg>
+                </button>
+
+                <div
+                    className={`fixed md:relative md:block z-40 transition-transform duration-300 h-full ${
+                        isMobileMenuOpen
+                            ? "translate-x-0"
+                            : "-translate-x-full md:translate-x-0"
+                    }`}
+                >
+                    <div className="h-full p-3 bg-gradient-to-br from-gray-50 to-gray-100 md:bg-transparent">
+                        <Sidebar />
+                    </div>
+                </div>
+
+                {isMobileMenuOpen && (
+                    <div
+                        className="fixed inset-0 bg-black/50 z-30 md:hidden"
+                        onClick={() => setIsMobileMenuOpen(false)}
+                    />
+                )}
+
                 <div className="flex-1 flex flex-col overflow-hidden">
                     <TopBar
                         title="Laporan Penjualan"
                         subtitle="Analisis data penjualan dan performa produk"
-                        onMenuClick={() =>
-                            setIsMobileMenuOpen(!isMobileMenuOpen)
-                        }
                     />
                     <div className="flex-1 flex items-center justify-center">
                         <div className="text-center">
@@ -111,17 +155,49 @@ function SalesReport() {
     if (error) {
         return (
             <div className="flex h-screen bg-gray-50">
-                <Sidebar
-                    isMobileMenuOpen={isMobileMenuOpen}
-                    setIsMobileMenuOpen={setIsMobileMenuOpen}
-                />
+                <button
+                    onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                    className="fixed top-4 left-4 z-50 md:hidden p-2 bg-white rounded-lg shadow-lg"
+                >
+                    <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        strokeWidth={2}
+                        stroke="currentColor"
+                        className="size-6"
+                    >
+                        <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"
+                        />
+                    </svg>
+                </button>
+
+                <div
+                    className={`fixed md:relative md:block z-40 transition-transform duration-300 h-full ${
+                        isMobileMenuOpen
+                            ? "translate-x-0"
+                            : "-translate-x-full md:translate-x-0"
+                    }`}
+                >
+                    <div className="h-full p-3 bg-gradient-to-br from-gray-50 to-gray-100 md:bg-transparent">
+                        <Sidebar />
+                    </div>
+                </div>
+
+                {isMobileMenuOpen && (
+                    <div
+                        className="fixed inset-0 bg-black/50 z-30 md:hidden"
+                        onClick={() => setIsMobileMenuOpen(false)}
+                    />
+                )}
+
                 <div className="flex-1 flex flex-col overflow-hidden">
                     <TopBar
                         title="Laporan Penjualan"
                         subtitle="Analisis data penjualan dan performa produk"
-                        onMenuClick={() =>
-                            setIsMobileMenuOpen(!isMobileMenuOpen)
-                        }
                     />
                     <div className="flex-1 flex items-center justify-center">
                         <div className="text-center">
@@ -147,17 +223,49 @@ function SalesReport() {
     if (!salesData) {
         return (
             <div className="flex h-screen bg-gray-50">
-                <Sidebar
-                    isMobileMenuOpen={isMobileMenuOpen}
-                    setIsMobileMenuOpen={setIsMobileMenuOpen}
-                />
+                <button
+                    onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                    className="fixed top-4 left-4 z-50 md:hidden p-2 bg-white rounded-lg shadow-lg"
+                >
+                    <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        strokeWidth={2}
+                        stroke="currentColor"
+                        className="size-6"
+                    >
+                        <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"
+                        />
+                    </svg>
+                </button>
+
+                <div
+                    className={`fixed md:relative md:block z-40 transition-transform duration-300 h-full ${
+                        isMobileMenuOpen
+                            ? "translate-x-0"
+                            : "-translate-x-full md:translate-x-0"
+                    }`}
+                >
+                    <div className="h-full p-3 bg-gradient-to-br from-gray-50 to-gray-100 md:bg-transparent">
+                        <Sidebar />
+                    </div>
+                </div>
+
+                {isMobileMenuOpen && (
+                    <div
+                        className="fixed inset-0 bg-black/50 z-30 md:hidden"
+                        onClick={() => setIsMobileMenuOpen(false)}
+                    />
+                )}
+
                 <div className="flex-1 flex flex-col overflow-hidden">
                     <TopBar
                         title="Laporan Penjualan"
                         subtitle="Analisis data penjualan dan performa produk"
-                        onMenuClick={() =>
-                            setIsMobileMenuOpen(!isMobileMenuOpen)
-                        }
                     />
                     <div className="flex-1 flex items-center justify-center">
                         <div className="text-center">
@@ -192,10 +300,47 @@ function SalesReport() {
 
     return (
         <div className="flex h-screen bg-gray-50">
-            <Sidebar
-                isMobileMenuOpen={isMobileMenuOpen}
-                setIsMobileMenuOpen={setIsMobileMenuOpen}
-            />
+            {/* Mobile Menu Toggle Button */}
+            <button
+                onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                className="fixed top-4 left-4 z-50 md:hidden p-2 bg-white rounded-lg shadow-lg"
+            >
+                <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    strokeWidth={2}
+                    stroke="currentColor"
+                    className="size-6"
+                >
+                    <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"
+                    />
+                </svg>
+            </button>
+
+            {/* Sidebar */}
+            <div
+                className={`fixed md:relative md:block z-40 transition-transform duration-300 h-full ${
+                    isMobileMenuOpen
+                        ? "translate-x-0"
+                        : "-translate-x-full md:translate-x-0"
+                }`}
+            >
+                <div className="h-full p-3 bg-gradient-to-br from-gray-50 to-gray-100 md:bg-transparent">
+                    <Sidebar />
+                </div>
+            </div>
+
+            {/* Mobile Menu Overlay */}
+            {isMobileMenuOpen && (
+                <div
+                    className="fixed inset-0 bg-black/50 z-30 md:hidden"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                />
+            )}
 
             {/* Main Content */}
             <div className="flex-1 flex flex-col overflow-hidden">
@@ -203,7 +348,6 @@ function SalesReport() {
                 <TopBar
                     title="Laporan Penjualan"
                     subtitle="Analisis data penjualan dan performa produk"
-                    onMenuClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
                 />
 
                 {/* Content */}
@@ -277,12 +421,12 @@ function SalesReport() {
                                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
                                 >
                                     <option value="">Semua Kategori</option>
-                                    {categories.map((category) => (
+                                    {Array.isArray(categories) && categories.map((category) => (
                                         <option
-                                            key={category.id}
-                                            value={category.id}
+                                            key={category.id || category.id_kategori}
+                                            value={category.id || category.id_kategori}
                                         >
-                                            {category.name}
+                                            {category.name || category.nama_kategori}
                                         </option>
                                     ))}
                                 </select>
@@ -328,10 +472,24 @@ function SalesReport() {
                         </div>
                         <div className="flex justify-end mt-4 space-x-3">
                             <button
-                                onClick={handleExportExcel}
-                                className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-colors"
+                                onClick={handleFilterChange}
+                                className="bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600 transition-colors flex items-center gap-2"
                             >
-                                Export Excel
+                                <svg
+                                    xmlns="http://www.w3.org/2000/svg"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    strokeWidth={2}
+                                    stroke="currentColor"
+                                    className="w-5 h-5"
+                                >
+                                    <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        d="M16.023 9.348h4.992v-.001M2.25 18.002h9.75v-1.337c0-.873-.464-1.697-1.228-2.15a2.916 2.916 0 01.778-4.414 2.92 2.92 0 01-.778-4.414c.764-.453 1.228-1.277 1.228-2.15V5.251c0-1.104-.896-2-2-2H3.75c-1.104 0-2 .896-2 2v.001a2.916 2.916 0 00.778 4.414 2.92 2.92 0 00-.778 4.414c.764.453 1.228 1.277 1.228 2.15v1.337c0 1.104.896 2 2 2h2.25z"
+                                    />
+                                </svg>
+                                Refresh
                             </button>
                             <button
                                 onClick={handleExportPDF}

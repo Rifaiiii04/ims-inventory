@@ -427,6 +427,7 @@ class CompositionController extends Controller
                 return [
                     'id' => $variant->id_varian,
                     'name' => $variant->nama_varian,
+                    'product_id' => $variant->id_produk,
                     'product_name' => $variant->produk->nama_produk ?? 'Produk Tidak Diketahui'
                 ];
             });

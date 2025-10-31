@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import SidebarHeader from "./sidebar/SidebarHeader";
@@ -27,33 +27,36 @@ function Sidebar() {
     const [isCollapsed, setIsCollapsed] = useState(false);
     const [activeRoute, setActiveRoute] = useState(location.pathname);
 
-    // Toggle specific menu
-    const toggleMenu = (menuId) => {
+    // Toggle specific menu with useCallback
+    const toggleMenu = useCallback((menuId) => {
         setOpenMenus((prev) => ({
             ...prev,
             [menuId]: !prev[menuId],
         }));
-    };
+    }, []);
 
-    // Toggle sidebar collapse
-    const toggleSidebar = () => {
-        setIsCollapsed(!isCollapsed);
-        // Tutup semua submenu saat collapse
-        if (!isCollapsed) {
-            setOpenMenus({});
-        }
-    };
+    // Toggle sidebar collapse with proper state management
+    const toggleSidebar = useCallback(() => {
+        setIsCollapsed((prev) => {
+            const newCollapsedState = !prev;
+            // Tutup semua submenu saat collapse
+            if (newCollapsedState) {
+                setOpenMenus({});
+            }
+            return newCollapsedState;
+        });
+    }, []);
 
     // Update active route when location changes
     useEffect(() => {
         setActiveRoute(location.pathname);
     }, [location.pathname]);
 
-    // Handle navigation
-    const handleNavigate = (path) => {
+    // Handle navigation with useCallback
+    const handleNavigate = useCallback((path) => {
         navigate(path);
         setActiveRoute(path);
-    };
+    }, [navigate]);
 
     // Handle logout
     const handleLogout = async () => {
@@ -61,18 +64,8 @@ function Sidebar() {
         navigate("/");
     };
 
-    // Check if route is active
-    const isRouteActive = (path) => {
-        return activeRoute === path;
-    };
-
-    // Check if any submenu item is active
-    const isSubmenuActive = (submenu) => {
-        return submenu.some((item) => isRouteActive(item.path));
-    };
-
-    // Icon mapping
-    const iconMap = {
+    // Icon mapping with memoization
+    const iconMap = useMemo(() => ({
         DashboardIcon: <DashboardIcon />,
         ProductIcon: <ProductIcon />,
         StockIcon: <StockIcon />,
@@ -82,78 +75,76 @@ function Sidebar() {
         CreditCardIcon: <CreditCardIcon />,
         ClockIcon: <ClockIcon />,
         ChartBarIcon: <ChartBarIcon />,
-    };
+    }), []);
 
-    // Render menu items based on config
-    const renderMenuItems = () => {
+    // Render menu items based on config with memoization
+    const menuItems = useMemo(() => {
+        if (!user) return [];
+
+        // Check if route is active
+        const isRouteActive = (path) => {
+            return activeRoute === path;
+        };
+
+        // Check if any submenu item is active
+        const isSubmenuActive = (submenu) => {
+            if (!Array.isArray(submenu)) return false;
+            return submenu.some((item) => isRouteActive(item.path));
+        };
+
         // Get filtered menu based on user level
         const filteredMenus = getFilteredMenu(user?.level || "admin");
-        return filteredMenus.map((menu, index) => {
-            const menuElement = (() => {
-                if (menu.type === "single") {
-                    return (
-                        <MenuItem
-                            key={menu.id}
-                            icon={iconMap[menu.icon]}
-                            label={menu.label}
-                            onClick={() => handleNavigate(menu.path)}
-                            isCollapsed={isCollapsed}
-                            isActive={isRouteActive(menu.path)}
-                        />
-                    );
-                }
+        if (!Array.isArray(filteredMenus) || filteredMenus.length === 0) {
+            return [];
+        }
 
-                if (menu.type === "submenu") {
-                    return (
-                        <MenuItemWithSubmenu
-                            key={menu.id}
-                            icon={iconMap[menu.icon]}
-                            label={menu.label}
-                            isOpen={openMenus[menu.id] || false}
-                            onToggle={() => toggleMenu(menu.id)}
-                            isCollapsed={isCollapsed}
-                            isActive={isSubmenuActive(menu.submenu)}
-                        >
-                            {menu.submenu.map((subItem) => (
+        const items = [];
+
+        filteredMenus.forEach((menu) => {
+            if (!menu || !menu.id) return;
+
+            // Render menu element
+            if (menu.type === "single" && menu.path) {
+                items.push(
+                    <MenuItem
+                        key={`menu-${menu.id}`}
+                        icon={iconMap[menu.icon]}
+                        label={menu.label}
+                        onClick={() => handleNavigate(menu.path)}
+                        isCollapsed={isCollapsed}
+                        isActive={isRouteActive(menu.path)}
+                    />
+                );
+            } else if (menu.type === "submenu" && Array.isArray(menu.submenu)) {
+                items.push(
+                    <MenuItemWithSubmenu
+                        key={`menu-${menu.id}`}
+                        icon={iconMap[menu.icon]}
+                        label={menu.label}
+                        isOpen={openMenus[menu.id] || false}
+                        onToggle={() => toggleMenu(menu.id)}
+                        isCollapsed={isCollapsed}
+                        isActive={isSubmenuActive(menu.submenu)}
+                    >
+                        {menu.submenu.map((subItem) => {
+                            if (!subItem || !subItem.id) return null;
+                            return (
                                 <SubMenuItem
-                                    key={subItem.id}
+                                    key={`submenu-${subItem.id}`}
                                     icon={iconMap[subItem.icon]}
                                     label={subItem.label}
                                     onClick={() => handleNavigate(subItem.path)}
                                     isActive={isRouteActive(subItem.path)}
                                 />
-                            ))}
-                        </MenuItemWithSubmenu>
-                    );
-                }
-
-                return null;
-            })();
-
-            // Add dividers between main menu sections
-            if (!isCollapsed) {
-                if (index === 0) {
-                    // After Dashboard
-                    return (
-                        <React.Fragment key={`${menu.id}-with-divider`}>
-                            {menuElement}
-                            <div className="w-full h-px bg-gradient-to-r from-transparent via-gray-200 to-transparent my-3"></div>
-                        </React.Fragment>
-                    );
-                } else if (index === 1) {
-                    // After Manajemen Product
-                    return (
-                        <React.Fragment key={`${menu.id}-with-divider`}>
-                            {menuElement}
-                            <div className="w-full h-px bg-gradient-to-r from-transparent via-gray-200 to-transparent my-3"></div>
-                        </React.Fragment>
-                    );
-                }
+                            );
+                        })}
+                    </MenuItemWithSubmenu>
+                );
             }
-
-            return menuElement;
         });
-    };
+
+        return items;
+    }, [user, isCollapsed, openMenus, activeRoute, handleNavigate, toggleMenu, iconMap]);
 
     return (
         <>
@@ -188,7 +179,7 @@ function Sidebar() {
                             isCollapsed ? "px-2" : "px-2 sm:px-3"
                         }`}
                     >
-                        {renderMenuItems()}
+                        {menuItems}
                     </ul>
 
                     {/* User Profile Section */}

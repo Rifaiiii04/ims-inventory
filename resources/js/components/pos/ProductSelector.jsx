@@ -17,8 +17,8 @@ function ProductSelector({ products, onAddToCart }) {
         // Jika produk tidak punya variant atau hanya punya 1 variant (produk langsung)
         if (!product.has_variants || product.variants.length === 1) {
             const variant = product.variants[0];
-            // Langsung tambah ke keranjang dengan quantity 1
-            onAddToCart(variant, 1);
+            // Langsung tambah ke keranjang dengan quantity 1, termasuk produk parent
+            onAddToCart(variant, 1, product);
 
             // Feedback visual
             const itemKey = `${product.id}_${variant.id_varian}`;
@@ -39,8 +39,8 @@ function ProductSelector({ products, onAddToCart }) {
     };
 
     const handleVariantSelect = (variant) => {
-        // Langsung tambah ke keranjang dengan quantity 1
-        onAddToCart(variant, 1);
+        // Langsung tambah ke keranjang dengan quantity 1, termasuk produk parent
+        onAddToCart(variant, 1, selectedProduct);
 
         // Feedback visual
         const itemKey = `${selectedProduct.id}_${variant.id_varian}`;
@@ -58,13 +58,17 @@ function ProductSelector({ products, onAddToCart }) {
         setSelectedVariant(null);
     };
 
-    const handleQuickAdd = (variant, qty = 1) => {
-        onAddToCart(variant, qty);
+    const handleQuickAdd = (variant, qty = 1, product = null) => {
+        // Find product from products array
+        const productParent = product || filteredProducts.find(p => 
+            p.variants.some(v => v.id_varian === variant.id_varian)
+        );
+        onAddToCart(variant, qty, productParent);
     };
 
     const handleAddToCart = () => {
         if (selectedVariant && quantity > 0) {
-            onAddToCart(selectedVariant, quantity);
+            onAddToCart(selectedVariant, quantity, selectedProduct);
             setQuantity(1);
         }
     };
@@ -158,7 +162,8 @@ function ProductSelector({ products, onAddToCart }) {
                                                             handleQuickAdd(
                                                                 product
                                                                     .variants[0],
-                                                                1
+                                                                1,
+                                                                product
                                                             );
                                                         }}
                                                         className="px-2 py-1 bg-green-500 text-white text-xs rounded hover:bg-green-600 transition-colors"
@@ -171,7 +176,8 @@ function ProductSelector({ products, onAddToCart }) {
                                                             handleQuickAdd(
                                                                 product
                                                                     .variants[0],
-                                                                2
+                                                                2,
+                                                                product
                                                             );
                                                         }}
                                                         className="px-2 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700 transition-colors"
@@ -184,7 +190,8 @@ function ProductSelector({ products, onAddToCart }) {
                                                             handleQuickAdd(
                                                                 product
                                                                     .variants[0],
-                                                                5
+                                                                5,
+                                                                product
                                                             );
                                                         }}
                                                         className="px-2 py-1 bg-green-700 text-white text-xs rounded hover:bg-green-800 transition-colors"

@@ -54,63 +54,28 @@ export const useInventoryReport = () => {
         }
     };
 
-    const exportExcel = async (filters = {}) => {
-        try {
-            const response = await axios.post(
-                "/api/reports/inventory/export/excel",
-                filters,
-                {
-                    responseType: "blob",
-                }
-            );
-
-            // Create download link
-            const url = window.URL.createObjectURL(new Blob([response.data]));
-            const link = document.createElement("a");
-            link.href = url;
-            link.setAttribute(
-                "download",
-                `inventory-report-${
-                    new Date().toISOString().split("T")[0]
-                }.xlsx`
-            );
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
-            window.URL.revokeObjectURL(url);
-
-            return { success: true };
-        } catch (err) {
-            console.error("Error exporting Excel:", err);
-            return {
-                success: false,
-                message: err.response?.data?.message || "Gagal export Excel",
-            };
-        }
-    };
-
     const exportPDF = async (filters = {}) => {
         try {
             const response = await axios.post(
                 "/api/reports/inventory/export/pdf",
                 filters,
                 {
-                    responseType: "blob",
+                    responseType: "text",
+                    headers: {
+                        'Accept': 'text/html'
+                    }
                 }
             );
 
-            // Create download link
-            const url = window.URL.createObjectURL(new Blob([response.data]));
-            const link = document.createElement("a");
-            link.href = url;
-            link.setAttribute(
-                "download",
-                `inventory-report-${new Date().toISOString().split("T")[0]}.pdf`
-            );
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
-            window.URL.revokeObjectURL(url);
+            // Open HTML in new window for printing
+            const printWindow = window.open('', '_blank');
+            printWindow.document.write(response.data);
+            printWindow.document.close();
+            
+            // Wait for content to load then trigger print
+            printWindow.onload = () => {
+                printWindow.print();
+            };
 
             return { success: true };
         } catch (err) {
@@ -126,6 +91,16 @@ export const useInventoryReport = () => {
         console.log("useInventoryReport: useEffect triggered");
         fetchInventoryReport();
         fetchCategories();
+
+        // Auto-refresh every 30 seconds for real-time data
+        const refreshInterval = setInterval(() => {
+            console.log("Auto-refreshing inventory report...");
+            fetchInventoryReport();
+        }, 30000); // Refresh every 30 seconds
+
+        return () => {
+            clearInterval(refreshInterval);
+        };
     }, []);
 
     return {
@@ -134,7 +109,6 @@ export const useInventoryReport = () => {
         loading,
         error,
         fetchInventoryReport,
-        exportExcel,
         exportPDF,
         refreshData: () => fetchInventoryReport(),
     };

@@ -11,15 +11,18 @@ export const useSalesReport = () => {
     const [error, setError] = useState(null);
 
     const fetchSalesReport = useCallback(
-        async (filters = {}) => {
+        async (filters = {}, silent = false) => {
             if (!isAuthenticated) {
                 setLoading(false);
                 return;
             }
 
             try {
-                setLoading(true);
-                setError(null);
+                // Only show loading if not silent refresh
+                if (!silent) {
+                    setLoading(true);
+                    setError(null);
+                }
 
                 const params = new URLSearchParams();
                 if (filters.product) params.append("product", filters.product);
@@ -29,28 +32,35 @@ export const useSalesReport = () => {
                 if (filters.payment) params.append("payment", filters.payment);
                 if (filters.period) params.append("period", filters.period);
 
-                console.log("Fetching sales report...");
                 const response = await axios.get(
                     `/api/reports/sales?${params.toString()}`
                 );
-                console.log("Sales report response:", response.data);
 
                 if (response.data.success) {
                     setReportData(response.data.data);
                 } else {
-                    setError(
-                        response.data.message ||
-                            "Gagal mengambil data laporan penjualan"
-                    );
+                    // Only set error if not silent refresh
+                    if (!silent) {
+                        setError(
+                            response.data.message ||
+                                "Gagal mengambil data laporan penjualan"
+                        );
+                    }
                 }
             } catch (err) {
-                console.error("Error fetching sales report:", err);
-                setError(
-                    err.response?.data?.message ||
-                        "Terjadi kesalahan saat mengambil data laporan penjualan"
-                );
+                // Only set error if not silent refresh
+                if (!silent) {
+                    console.error("Error fetching sales report:", err);
+                    setError(
+                        err.response?.data?.message ||
+                            "Terjadi kesalahan saat mengambil data laporan penjualan"
+                    );
+                }
             } finally {
-                setLoading(false);
+                // Only update loading if not silent refresh
+                if (!silent) {
+                    setLoading(false);
+                }
             }
         },
         [isAuthenticated]
@@ -80,46 +90,6 @@ export const useSalesReport = () => {
         }
     }, [isAuthenticated]);
 
-    const exportExcel = async (filters = {}) => {
-        try {
-            const params = new URLSearchParams();
-            if (filters.product) params.append("product", filters.product);
-            if (filters.category) params.append("category", filters.category);
-            if (filters.date) params.append("date", filters.date);
-            if (filters.payment) params.append("payment", filters.payment);
-            if (filters.period) params.append("period", filters.period);
-
-            const response = await axios.get(
-                `/api/reports/sales/export/excel?${params.toString()}`,
-                {
-                    responseType: "blob",
-                }
-            );
-
-            const url = window.URL.createObjectURL(new Blob([response.data]));
-            const link = document.createElement("a");
-            link.href = url;
-            link.setAttribute(
-                "download",
-                `laporan_penjualan_${
-                    new Date().toISOString().split("T")[0]
-                }.xlsx`
-            );
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
-
-            return { success: true, message: "Laporan berhasil diekspor" };
-        } catch (err) {
-            console.error("Error exporting Excel:", err);
-            return {
-                success: false,
-                message:
-                    err.response?.data?.message || "Gagal mengekspor laporan",
-            };
-        }
-    };
-
     const exportPDF = async (filters = {}) => {
         try {
             const params = new URLSearchParams();
@@ -129,25 +99,26 @@ export const useSalesReport = () => {
             if (filters.payment) params.append("payment", filters.payment);
             if (filters.period) params.append("period", filters.period);
 
+            // Get HTML response and open in new window for printing
             const response = await axios.get(
                 `/api/reports/sales/export/pdf?${params.toString()}`,
                 {
-                    responseType: "blob",
+                    responseType: "text",
                 }
             );
 
-            const url = window.URL.createObjectURL(new Blob([response.data]));
-            const link = document.createElement("a");
-            link.href = url;
-            link.setAttribute(
-                "download",
-                `laporan_penjualan_${
-                    new Date().toISOString().split("T")[0]
-                }.pdf`
-            );
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
+            // Open HTML in new window for printing
+            const printWindow = window.open("", "_blank");
+            if (printWindow) {
+                printWindow.document.write(response.data);
+                printWindow.document.close();
+                // Auto trigger print dialog
+                setTimeout(() => {
+                    printWindow.print();
+                }, 250);
+            } else {
+                throw new Error("Popup blocked. Please allow popups for this site.");
+            }
 
             return { success: true, message: "Laporan berhasil diekspor" };
         } catch (err) {
@@ -166,6 +137,8 @@ export const useSalesReport = () => {
         fetchCategories();
     }, [fetchSalesReport, fetchProducts, fetchCategories]);
 
+    // Note: Auto-refresh is handled at component level to use current filters
+
     return {
         reportData,
         products,
@@ -173,7 +146,6 @@ export const useSalesReport = () => {
         loading,
         error,
         fetchSalesReport,
-        exportExcel,
         exportPDF,
         refreshData: () => {
             fetchSalesReport();

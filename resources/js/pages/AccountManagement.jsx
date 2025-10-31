@@ -68,8 +68,6 @@ function AccountManagement() {
 
     // Data preferensi
     const [preferences, setPreferences] = useState({
-        theme: "light",
-        language: "id",
         whatsappNotification: true,
         emailNotification: true,
         lowStockAlert: true,
@@ -121,103 +119,104 @@ function AccountManagement() {
     };
 
     return (
-        <>
-            <div className="w-screen h-screen flex flex-col md:flex-row bg-gradient-to-br from-gray-50 to-gray-100">
-                {/* Mobile Menu Toggle */}
-                <button
-                    onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-                    className="md:hidden fixed top-4 left-4 z-50 bg-white p-3 rounded-lg shadow-lg border-2 border-gray-200 hover:border-green-500 transition-colors"
+        <div className="flex h-screen bg-gray-50">
+            {/* Mobile Menu Toggle Button */}
+            <button
+                onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                className="fixed top-4 left-4 z-50 md:hidden p-2 bg-white rounded-lg shadow-lg"
+            >
+                <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    strokeWidth={2}
+                    stroke="currentColor"
+                    className="size-6"
                 >
-                    <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        strokeWidth={2}
-                        stroke="currentColor"
-                        className="size-6 text-gray-700"
-                    >
-                        <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"
-                        />
-                    </svg>
-                </button>
-
-                {/* Sidebar - Desktop & Mobile Overlay */}
-                <div
-                    className={`${
-                        isMobileMenuOpen ? "block" : "hidden"
-                    } md:block fixed md:relative inset-0 z-40`}
-                >
-                    <div className="h-full w-80">
-                        <Sidebar />
-                    </div>
-                    {isMobileMenuOpen && (
-                        <div
-                            className="fixed inset-0 bg-black bg-opacity-50 z-30 md:hidden"
-                            onClick={() => setIsMobileMenuOpen(false)}
-                        />
-                    )}
-                </div>
-
-                {/* Main Content */}
-                <div className="flex-1 flex flex-col overflow-hidden">
-                    {/* Top Bar */}
-                    <TopBar
-                        title="Manajemen Akun"
-                        subtitle="Kelola profil, akun kasir, dan pengaturan sistem"
-                        showLiveIndicator={true}
+                    <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"
                     />
+                </svg>
+            </button>
 
-                    {/* Content */}
-                    <div className="flex-1 overflow-y-auto p-6">
-                        {/* Tab Navigation */}
-                        <div className="bg-white rounded-2xl shadow-lg border border-gray-200/50 mb-6 overflow-hidden">
-                            <div className="flex">
-                                {tabs.map((tab) => (
-                                    <button
-                                        key={tab.id}
-                                        onClick={() => setActiveTab(tab.id)}
-                                        className={`flex-1 px-6 py-4 text-sm font-semibold transition-all duration-200 ${
-                                            activeTab === tab.id
-                                                ? "bg-gradient-to-r from-green-500 to-green-600 text-white shadow-lg"
-                                                : "text-gray-600 hover:bg-gray-50 hover:text-green-600"
-                                        }`}
-                                    >
-                                        <div className="flex items-center justify-center gap-2">
-                                            <span className="text-lg">
-                                                {tab.icon}
-                                            </span>
-                                            <span>{tab.label}</span>
-                                        </div>
-                                    </button>
-                                ))}
-                            </div>
+            {/* Sidebar */}
+            <div
+                className={`fixed md:relative md:block z-40 transition-transform duration-300 h-full ${
+                    isMobileMenuOpen
+                        ? "translate-x-0"
+                        : "-translate-x-full md:translate-x-0"
+                }`}
+            >
+                <div className="h-full p-3 bg-gradient-to-br from-gray-50 to-gray-100 md:bg-transparent">
+                    <Sidebar />
+                </div>
+            </div>
+
+            {/* Mobile Menu Overlay */}
+            {isMobileMenuOpen && (
+                <div
+                    className="fixed inset-0 bg-black/50 z-30 md:hidden"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                />
+            )}
+
+            {/* Main Content */}
+            <div className="flex-1 flex flex-col overflow-hidden">
+                {/* Top Bar */}
+                <TopBar
+                    title="Manajemen Akun"
+                    subtitle="Kelola profil, akun kasir, dan pengaturan sistem"
+                />
+
+                {/* Content */}
+                <div className="flex-1 overflow-y-auto p-6">
+                    {/* Tab Navigation */}
+                    <div className="bg-white rounded-2xl shadow-lg border border-gray-200/50 mb-6 overflow-hidden">
+                        <div className="flex">
+                            {tabs.map((tab) => (
+                                <button
+                                    key={tab.id}
+                                    onClick={() => setActiveTab(tab.id)}
+                                    className={`flex-1 px-6 py-4 text-sm font-semibold transition-all duration-200 ${
+                                        activeTab === tab.id
+                                            ? "bg-gradient-to-r from-green-500 to-green-600 text-white shadow-lg"
+                                            : "text-gray-600 hover:bg-gray-50 hover:text-green-600"
+                                    }`}
+                                >
+                                    <div className="flex items-center justify-center gap-2">
+                                        <span className="text-lg">
+                                            {tab.icon}
+                                        </span>
+                                        <span>{tab.label}</span>
+                                    </div>
+                                </button>
+                            ))}
                         </div>
+                    </div>
 
-                        {/* Tab Content */}
-                        <div className="space-y-6">
-                            {activeTab === "profile" && (
-                                <ProfileDashboard
-                                    profile={profileData}
-                                    onUpdate={handleUpdateProfile}
-                                />
-                            )}
+                    {/* Tab Content */}
+                    <div className="space-y-6">
+                        {activeTab === "profile" && (
+                            <ProfileDashboard
+                                profile={profileData}
+                                onUpdate={handleUpdateProfile}
+                            />
+                        )}
 
-                            {activeTab === "cashier" && <CashierManagement />}
+                        {activeTab === "cashier" && <CashierManagement />}
 
-                            {activeTab === "preferences" && (
-                                <PreferenceSettings
-                                    preferences={preferences}
-                                    onUpdate={handleUpdatePreferences}
-                                />
-                            )}
-                        </div>
+                        {activeTab === "preferences" && (
+                            <PreferenceSettings
+                                preferences={preferences}
+                                onUpdate={handleUpdatePreferences}
+                            />
+                        )}
                     </div>
                 </div>
             </div>
-        </>
+        </div>
     );
 }
 

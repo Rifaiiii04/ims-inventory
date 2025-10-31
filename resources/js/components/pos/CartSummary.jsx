@@ -39,7 +39,10 @@ function CartSummary({ cart, total, onUpdateQuantity, onRemoveItem, onCheckout, 
                                 <div className="flex items-start justify-between mb-2">
                                     <div className="flex-1">
                                         <h5 className="font-semibold text-gray-800 text-sm">
-                                            {item.variant.nama_varian}
+                                            {item.product && item.product.name 
+                                                ? `${item.product.name} - ${item.variant.nama_varian}`
+                                                : item.variant.nama_varian
+                                            }
                                         </h5>
                                         <p className="text-xs text-gray-500">
                                             {formatPrice(item.price)} per item

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import { useState, useEffect } from "react";
 import Sidebar from "../components/Sidebar";
 import TopBar from "../components/TopBar";
 import { useInventoryReport } from "../hooks/useInventoryReport";
@@ -16,7 +16,6 @@ function InventoryReport() {
         loading,
         error,
         fetchInventoryReport,
-        exportExcel,
         exportPDF,
     } = useInventoryReport();
 
@@ -37,19 +36,23 @@ function InventoryReport() {
         });
     };
 
+    // Auto-refresh when filters change (with initial load)
+    useEffect(() => {
+        // Skip initial load as it's handled by hook's useEffect
+        const timeoutId = setTimeout(() => {
+            if (filterProduct || filterCategory || filterDate) {
+                fetchInventoryReport({
+                    product: filterProduct,
+                    category: filterCategory,
+                    date: filterDate,
+                });
+            }
+        }, 500); // Debounce 500ms
+
+        return () => clearTimeout(timeoutId);
+    }, [filterProduct, filterCategory, filterDate, fetchInventoryReport]);
+
     // Handle export functions
-    const handleExportExcel = async () => {
-        const result = await exportExcel({
-            product: filterProduct,
-            category: filterCategory,
-            date: filterDate,
-        });
-
-        if (!result.success) {
-            alert(result.message);
-        }
-    };
-
     const handleExportPDF = async () => {
         const result = await exportPDF({
             product: filterProduct,
@@ -309,8 +312,9 @@ function InventoryReport() {
                         </div>
                         <div className="flex gap-3">
                             <button
-                                onClick={handleExportExcel}
-                                className="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold text-sm hover:bg-green-700 flex items-center gap-2"
+                                onClick={handleFilterChange}
+                                className="px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold text-sm hover:bg-blue-700 flex items-center gap-2"
+                                title="Refresh data"
                             >
                                 <svg
                                     xmlns="http://www.w3.org/2000/svg"
@@ -323,10 +327,15 @@ function InventoryReport() {
                                     <path
                                         strokeLinecap="round"
                                         strokeLinejoin="round"
-                                        d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"
+                                        d="M16.023 9.348h4.992v-.001M2.25 18.75h4.5v-.001m-4.5 5.25h4.5v-.001m13.5-9h-4.5v.001M21.75 18.75h-4.5v-.001m-4.5 5.25h4.5v-.001m-4.5 5.25h-4.5m13.5-9h-4.5"
+                                    />
+                                    <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
                                     />
                                 </svg>
-                                Export Excel
+                                Refresh
                             </button>
                             <button
                                 onClick={handleExportPDF}

@@ -1,6 +1,8 @@
 import React from "react";
 
-function NotificationTable({ data, onEdit, onDelete, onToggleStatus }) {
+function NotificationTable({ data, notifications, onEdit, onDelete, onToggleStatus, onMarkAsRead }) {
+    // Support both 'data' and 'notifications' props for backward compatibility
+    const notificationList = Array.isArray(notifications) ? notifications : (Array.isArray(data) ? data : []);
     const getCategoryColor = (category) => {
         const colors = {
             "Bahan Utama":
@@ -73,7 +75,7 @@ function NotificationTable({ data, onEdit, onDelete, onToggleStatus }) {
                                 Daftar Notifikasi
                             </h3>
                             <p className="text-sm text-gray-500">
-                                {data.length} notifikasi dikonfigurasi
+                                {notificationList.length} notifikasi dikonfigurasi
                             </p>
                         </div>
                     </div>
@@ -136,7 +138,7 @@ function NotificationTable({ data, onEdit, onDelete, onToggleStatus }) {
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200/50">
-                        {data.map((item, index) => (
+                        {notificationList.map((item, index) => (
                             <tr
                                 key={item.id}
                                 className={`group hover:bg-gradient-to-r hover:from-gray-50 hover:to-blue-50/30 transition-all duration-200 ${
@@ -302,7 +304,7 @@ function NotificationTable({ data, onEdit, onDelete, onToggleStatus }) {
 
             {/* Mobile Cards */}
             <div className="lg:hidden divide-y divide-gray-200/50">
-                {data.map((item, index) => (
+                {notificationList.map((item, index) => (
                     <div
                         key={item.id}
                         className={`p-5 hover:bg-gradient-to-r hover:from-gray-50 hover:to-blue-50/30 transition-all duration-200 ${
@@ -415,7 +417,7 @@ function NotificationTable({ data, onEdit, onDelete, onToggleStatus }) {
             </div>
 
             {/* Empty State */}
-            {data.length === 0 && (
+            {notificationList.length === 0 && (
                 <div className="text-center py-16 px-6">
                     <div className="w-20 h-20 bg-gradient-to-br from-gray-100 to-gray-200 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg">
                         <svg

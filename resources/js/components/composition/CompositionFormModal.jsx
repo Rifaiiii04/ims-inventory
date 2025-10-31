@@ -30,20 +30,27 @@ function CompositionFormModal({
                 variant_id: composition.variant_id || "",
                 ingredients: composition.ingredients || [],
             });
+            // Set selected product for variant filtering
+            if (composition.product_id) {
+                const product = products.find(p => Number(p.id) === Number(composition.product_id));
+                setSelectedProduct(product || null);
+            }
+        } else {
+            setSelectedProduct(null);
         }
-    }, [composition]);
+    }, [composition, products]);
 
     // Filter variants berdasarkan produk yang dipilih
     const filteredVariants = selectedProduct 
-        ? variants.filter(variant => variant.product_id === selectedProduct.id)
+        ? variants.filter(variant => Number(variant.product_id) === Number(selectedProduct.id))
         : variants;
 
     const handleChange = (e) => {
         const { name, value } = e.target;
         
         if (name === 'product_id') {
-            const product = products.find(p => p.id == value);
-            setSelectedProduct(product);
+            const product = products.find(p => Number(p.id) === Number(value));
+            setSelectedProduct(product || null);
             setFormData((prev) => ({
                 ...prev,
                 [name]: value,

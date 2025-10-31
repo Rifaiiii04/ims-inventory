@@ -34,6 +34,8 @@ Route::middleware(['throttle:api'])->group(function () {
     Route::get('/products', [ProductController::class, 'index']);
     Route::get('/compositions', [CompositionController::class, 'index']);
     Route::post('/compositions', [CompositionController::class, 'store']);
+    Route::put('/compositions/{id}', [CompositionController::class, 'update']);
+    Route::delete('/compositions/{id}', [CompositionController::class, 'destroy']);
     Route::get('/compositions/variants/list', [CompositionController::class, 'variants']);
     Route::get('/compositions/ingredients/list', [CompositionController::class, 'ingredients']);
     Route::get('/categories', [CategoryController::class, 'index']);
@@ -45,6 +47,8 @@ Route::middleware(['throttle:api'])->group(function () {
     Route::get('/reports/inventory', [ReportController::class, 'getInventoryReport']);
     Route::get('/reports/sales', [ReportController::class, 'getSalesReport']);
     Route::get('/reports/categories', [ReportController::class, 'getCategories']);
+    Route::post('/reports/inventory/export/pdf', [ReportController::class, 'exportPDF']);
+    Route::get('/reports/sales/export/pdf', [ReportController::class, 'exportSalesPDF']);
 });
 
 // Protected routes

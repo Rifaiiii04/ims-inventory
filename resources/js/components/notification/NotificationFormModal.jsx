@@ -77,16 +77,14 @@ function NotificationFormModal({ notification, onClose, onSave }) {
 
     const handleSubmit = (e) => {
         e.preventDefault();
-        if (
-            formData.productName &&
-            formData.category &&
-            formData.minStockLimit &&
-            formData.notificationSchedule
-        ) {
-            onSave(formData);
-        } else {
+        
+        // Validasi field yang sebenarnya ada di form
+        if (!formData.id_bahan || !formData.jadwal) {
             alert("Mohon lengkapi semua field yang diperlukan");
+            return;
         }
+        
+        onSave(formData);
     };
 
     return (

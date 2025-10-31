@@ -130,16 +130,29 @@ export const useTransaction = () => {
     }, [fetchProducts, isAuthenticated]);
 
     // Add item to cart
-    const addToCart = (variant, quantity) => {
+    const addToCart = (variant, quantity, product = null) => {
         const existingItem = cart.find(
             (item) => item.variant.id_varian === variant.id_varian
         );
+
+        // Find product parent if not provided
+        let productParent = product;
+        if (!productParent) {
+            productParent = products.find(p => 
+                p.variants && p.variants.some(v => v.id_varian === variant.id_varian)
+            );
+        }
 
         if (existingItem) {
             setCart(
                 cart.map((item) =>
                     item.variant.id_varian === variant.id_varian
-                        ? { ...item, quantity: item.quantity + quantity }
+                        ? { 
+                            ...item, 
+                            quantity: item.quantity + quantity,
+                            subtotal: item.price * (item.quantity + quantity),
+                            product: productParent || item.product
+                        }
                         : item
                 )
             );
@@ -148,6 +161,7 @@ export const useTransaction = () => {
                 ...cart,
                 {
                     variant,
+                    product: productParent,
                     quantity,
                     price: variant.harga,
                     subtotal: variant.harga * quantity,

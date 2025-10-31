@@ -28,12 +28,13 @@ class ReportController extends Controller
             $paymentFilter = $request->get('payment', '');
             $period = $request->get('period', 'daily'); // daily, weekly, monthly
 
-            // Base query for transactions
-            $transactionsQuery = TblTransaksi::with([
-                'details' => function($query) {
-                    $query->with(['produk', 'varian']);
-                }
-            ]);
+            // Base query for transactions - fresh from database without cache
+            $transactionsQuery = TblTransaksi::withoutGlobalScopes()
+                ->with([
+                    'details' => function($query) {
+                        $query->with(['produk.kategori', 'varian']);
+                    }
+                ]);
 
             // Apply date filter
             if ($dateFilter) {
@@ -74,11 +75,28 @@ class ReportController extends Controller
 
             $transactions = $transactionsQuery->orderBy('tanggal_waktu', 'desc')->get();
 
-            // Calculate summary data
+            // Calculate summary data from fresh database queries
             $totalTransactions = $transactions->count();
-            $totalRevenue = $transactions->sum('total_harga');
+            
+            // Calculate total revenue from transaction total_harga
+            $totalRevenue = $transactions->sum(function($transaction) {
+                return (float)($transaction->total_harga ?? 0);
+            });
+            
+            // Alternative: calculate from details if total_harga is 0
+            if ($totalRevenue == 0) {
+                $totalRevenue = $transactions->sum(function($transaction) {
+                    return $transaction->details->sum(function($detail) {
+                        return (float)($detail->total_harga ?? ($detail->harga_satuan * $detail->jumlah));
+                    });
+                });
+            }
+            
+            // Calculate total products sold
             $totalProductsSold = $transactions->sum(function($transaction) {
-                return $transaction->details->sum('jumlah');
+                return $transaction->details->sum(function($detail) {
+                    return (int)($detail->jumlah ?? 0);
+                });
             });
 
             // Get top product
@@ -107,22 +125,31 @@ class ReportController extends Controller
             // Get payment method data
             $paymentMethods = $this->getPaymentMethodData($transactions);
 
-            // Get recent transactions
+            // Get recent transactions with correct total calculation
             $recentTransactions = $transactions->take(10)->map(function($transaction) {
+                // Calculate total from transaction or sum from details
+                $transactionTotal = (float)($transaction->total_harga ?? 0);
+                if ($transactionTotal == 0) {
+                    $transactionTotal = $transaction->details->sum(function($detail) {
+                        return (float)($detail->total_harga ?? ($detail->harga_satuan * $detail->jumlah));
+                    });
+                }
+                
                 return [
                     'id' => $transaction->id_transaksi,
                     'date' => $transaction->tanggal_waktu->format('Y-m-d'),
                     'time' => $transaction->tanggal_waktu->format('H:i'),
-                    'total' => $transaction->total_harga,
+                    'total' => $transactionTotal,
                     'payment_method' => $transaction->metode_pembayaran ?? 'Tunai',
                     'cashier' => 'Admin', // You can add cashier field later
                     'items' => $transaction->details->map(function($detail) {
+                        $detailTotal = (float)($detail->total_harga ?? ($detail->harga_satuan * $detail->jumlah));
                         return [
                             'product' => $detail->produk->nama_produk ?? 'Unknown',
                             'variant' => $detail->varian->nama_varian ?? 'Default',
-                            'quantity' => $detail->jumlah,
-                            'unit_price' => $detail->harga_satuan,
-                            'total_price' => $detail->total_harga
+                            'quantity' => (int)($detail->jumlah ?? 0),
+                            'unit_price' => (float)($detail->harga_satuan ?? 0),
+                            'total_price' => $detailTotal
                         ];
                     })
                 ];
@@ -296,12 +323,39 @@ class ReportController extends Controller
      */
     private function getStockHistoryForProduct($productId, $dateFilter = '')
     {
-        // Get stock history from tbl_stock_history for this product
-        $historyQuery = TblStockHistory::where('id_bahan', $productId);
+        // Untuk produk, kita perlu melihat history dari bahan-bahan yang digunakan dalam komposisi
+        // Ambil semua bahan yang digunakan dalam komposisi produk ini
+        $compositionBahanIds = DB::table('tbl_komposisi')
+            ->where(function($query) use ($productId) {
+                $query->where('id_produk', $productId)
+                      ->orWhereIn('id_varian', function($subQuery) use ($productId) {
+                          $subQuery->select('id_varian')
+                                   ->from('tbl_varian')
+                                   ->where('id_produk', $productId);
+                      });
+            })
+            ->pluck('id_bahan')
+            ->unique()
+            ->toArray();
+
+        if (empty($compositionBahanIds)) {
+            return [
+                'initial_stock' => 0,
+                'stock_in' => 0
+            ];
+        }
+
+        // Get stock history from tbl_stock_history for all related bahan
+        $historyQuery = TblStockHistory::whereIn('id_bahan', $compositionBahanIds);
 
         if ($dateFilter) {
-            $date = Carbon::createFromFormat('d/m/Y', $dateFilter);
-            $historyQuery->whereDate('created_at', $date);
+            try {
+                // Try different date formats
+                $date = Carbon::parse($dateFilter);
+                $historyQuery->whereDate('created_at', $date->format('Y-m-d'));
+            } catch (\Exception $e) {
+                // If date parsing fails, ignore date filter
+            }
         }
 
         $history = $historyQuery->orderBy('created_at', 'asc')->get();
@@ -309,17 +363,47 @@ class ReportController extends Controller
         $initialStock = 0;
         $stockIn = 0;
 
+        // Track first stock for each bahan to determine initial stock
+        $firstStockRecorded = [];
+
         foreach ($history as $record) {
-            if ($record->action === 'create') {
-                $initialStock += $record->quantity_change;
-            } elseif ($record->action === 'update' && $record->quantity_change > 0) {
-                $stockIn += $record->quantity_change;
+            $bahanId = $record->id_bahan;
+            
+            // Parse old_data and new_data to get stock values
+            $oldStock = 0;
+            $newStock = 0;
+            
+            if ($record->old_data && is_array($record->old_data)) {
+                $oldStock = $record->old_data['stok_bahan'] ?? 0;
+            }
+            
+            if ($record->new_data && is_array($record->new_data)) {
+                $newStock = $record->new_data['stok_bahan'] ?? 0;
+            }
+
+            // Calculate quantity change
+            $quantityChange = $newStock - $oldStock;
+
+            if ($record->action === 'stock_in') {
+                $stockIn += $quantityChange;
+            } elseif ($record->action === 'create') {
+                // First time this bahan is created
+                if (!isset($firstStockRecorded[$bahanId])) {
+                    $initialStock += $newStock;
+                    $firstStockRecorded[$bahanId] = true;
+                } else {
+                    // If already recorded, treat as stock_in
+                    $stockIn += $quantityChange;
+                }
+            } elseif ($record->action === 'update' && $quantityChange > 0) {
+                // Stock increase from update
+                $stockIn += $quantityChange;
             }
         }
 
         return [
-            'initial_stock' => $initialStock,
-            'stock_in' => $stockIn
+            'initial_stock' => max(0, $initialStock),
+            'stock_in' => max(0, $stockIn)
         ];
     }
 
@@ -379,11 +463,220 @@ class ReportController extends Controller
      */
     public function exportPDF(Request $request)
     {
-        // TODO: Implement PDF export
-        return response()->json([
-            'success' => false,
-            'message' => 'Fitur export PDF belum tersedia'
-        ], 501);
+        try {
+            // Get filter parameters
+            $productFilter = $request->get('product', '');
+            $categoryFilter = $request->get('category', '');
+            $dateFilter = $request->get('date', '');
+
+            // Get inventory report data
+            $reportRequest = new Request([
+                'product' => $productFilter,
+                'category' => $categoryFilter,
+                'date' => $dateFilter
+            ]);
+
+            $inventoryData = $this->getInventoryReport($reportRequest);
+            $data = json_decode($inventoryData->getContent(), true);
+
+            if (!$data['success']) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Gagal mengambil data untuk export'
+                ], 500);
+            }
+
+            // Generate HTML content for PDF
+            $html = $this->generatePDFHtml($data['data']);
+
+            // Return HTML that can be printed as PDF by browser
+            return response($html)
+                ->header('Content-Type', 'text/html; charset=utf-8')
+                ->header('Content-Disposition', 'inline; filename="laporan-inventory-' . date('Y-m-d') . '.html"');
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Terjadi kesalahan saat export PDF',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Generate HTML content for PDF export
+     */
+    private function generatePDFHtml($data)
+    {
+        $summary = $data['summary'];
+        $items = $data['items'];
+        $date = date('d F Y H:i:s');
+
+        $html = '<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Laporan Inventory</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            color: #333;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            border-bottom: 3px solid #333;
+            padding-bottom: 20px;
+        }
+        .header h1 {
+            margin: 0;
+            color: #2d3748;
+        }
+        .header p {
+            margin: 5px 0;
+            color: #666;
+        }
+        .summary {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        .summary-card {
+            background: #f7fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 15px;
+            text-align: center;
+        }
+        .summary-card h3 {
+            margin: 0 0 10px 0;
+            font-size: 12px;
+            color: #718096;
+            text-transform: uppercase;
+        }
+        .summary-card .value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #2d3748;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th {
+            background: #2d3748;
+            color: white;
+            padding: 12px;
+            text-align: left;
+            font-size: 12px;
+            text-transform: uppercase;
+        }
+        td {
+            padding: 10px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        tr:nth-child(even) {
+            background: #f7fafc;
+        }
+        .text-right {
+            text-align: right;
+        }
+        .text-center {
+            text-align: center;
+        }
+        .footer {
+            margin-top: 30px;
+            text-align: center;
+            color: #718096;
+            font-size: 12px;
+            border-top: 1px solid #e2e8f0;
+            padding-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Laporan Inventory</h1>
+        <p>Tanggal: ' . $date . '</p>
+    </div>
+
+    <div class="summary">
+        <div class="summary-card">
+            <h3>Total Produk</h3>
+            <div class="value">' . $summary['total_products'] . '</div>
+            <p style="margin: 5px 0 0 0; font-size: 11px; color: #718096;">Item</p>
+        </div>
+        <div class="summary-card">
+            <h3>Total Stok</h3>
+            <div class="value">' . number_format($summary['total_stock'], 0, ',', '.') . '</div>
+            <p style="margin: 5px 0 0 0; font-size: 11px; color: #718096;">Unit</p>
+        </div>
+        <div class="summary-card">
+            <h3>Nilai Beli</h3>
+            <div class="value">Rp ' . number_format($summary['total_buy_value'], 0, ',', '.') . '</div>
+            <p style="margin: 5px 0 0 0; font-size: 11px; color: #718096;">Total Beli</p>
+        </div>
+        <div class="summary-card">
+            <h3>Nilai Jual</h3>
+            <div class="value">Rp ' . number_format($summary['total_sell_value'], 0, ',', '.') . '</div>
+            <p style="margin: 5px 0 0 0; font-size: 11px; color: #718096;">Total Jual</p>
+        </div>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>No</th>
+                <th>Nama Produk</th>
+                <th>Kategori</th>
+                <th>Harga Beli</th>
+                <th>Harga Jual</th>
+                <th>Stok Awal</th>
+                <th>Stok Masuk</th>
+                <th>Stok Akhir</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody>';
+
+        $no = 1;
+        foreach ($items as $item) {
+            $html .= '
+            <tr>
+                <td class="text-center">' . $no++ . '</td>
+                <td>' . htmlspecialchars($item['name']) . '</td>
+                <td>' . htmlspecialchars($item['category']) . '</td>
+                <td class="text-right">Rp ' . number_format($item['buy_price'], 0, ',', '.') . '</td>
+                <td class="text-right">Rp ' . number_format($item['sell_price'], 0, ',', '.') . '</td>
+                <td class="text-right">' . number_format($item['initial_stock'], 0, ',', '.') . ' ' . htmlspecialchars($item['unit']) . '</td>
+                <td class="text-right">' . number_format($item['stock_in'], 0, ',', '.') . ' ' . htmlspecialchars($item['unit']) . '</td>
+                <td class="text-right">' . number_format($item['final_stock'], 0, ',', '.') . ' ' . htmlspecialchars($item['unit']) . '</td>
+                <td class="text-center">' . htmlspecialchars($item['status']) . '</td>
+            </tr>';
+        }
+
+        $html .= '
+        </tbody>
+    </table>
+
+    <div class="footer">
+        <p>Laporan ini dibuat secara otomatis oleh sistem IMS Angkringan</p>
+        <p>Dicetak pada: ' . $date . '</p>
+    </div>
+
+    <script>
+        window.onload = function() {
+            window.print();
+        };
+    </script>
+</body>
+</html>';
+
+        return $html;
     }
 
     /**
@@ -425,9 +718,19 @@ class ReportController extends Controller
                 ];
             }
             
-            $grouped[$key]['revenue'] += $transaction->total_harga;
+            // Calculate revenue from total_harga or sum from details
+            $transactionRevenue = (float)($transaction->total_harga ?? 0);
+            if ($transactionRevenue == 0) {
+                $transactionRevenue = $transaction->details->sum(function($detail) {
+                    return (float)($detail->total_harga ?? ($detail->harga_satuan * $detail->jumlah));
+                });
+            }
+            
+            $grouped[$key]['revenue'] += $transactionRevenue;
             $grouped[$key]['transactions'] += 1;
-            $grouped[$key]['products_sold'] += $transaction->details->sum('jumlah');
+            $grouped[$key]['products_sold'] += $transaction->details->sum(function($detail) {
+                return (int)($detail->jumlah ?? 0);
+            });
         }
         
         // Sort by period key
@@ -453,8 +756,15 @@ class ReportController extends Controller
                         'revenue' => 0
                     ];
                 }
-                $productSales[$productName]['quantity_sold'] += $detail->jumlah;
-                $productSales[$productName]['revenue'] += $detail->total_harga;
+                
+                // Calculate revenue from total_harga or calculate from unit price
+                $detailRevenue = (float)($detail->total_harga ?? 0);
+                if ($detailRevenue == 0) {
+                    $detailRevenue = (float)($detail->harga_satuan ?? 0) * (int)($detail->jumlah ?? 0);
+                }
+                
+                $productSales[$productName]['quantity_sold'] += (int)($detail->jumlah ?? 0);
+                $productSales[$productName]['revenue'] += $detailRevenue;
             }
         }
         
@@ -483,8 +793,15 @@ class ReportController extends Controller
                         'revenue' => 0
                     ];
                 }
-                $categorySales[$categoryName]['quantity_sold'] += $detail->jumlah;
-                $categorySales[$categoryName]['revenue'] += $detail->total_harga;
+                
+                // Calculate revenue from total_harga or calculate from unit price
+                $detailRevenue = (float)($detail->total_harga ?? 0);
+                if ($detailRevenue == 0) {
+                    $detailRevenue = (float)($detail->harga_satuan ?? 0) * (int)($detail->jumlah ?? 0);
+                }
+                
+                $categorySales[$categoryName]['quantity_sold'] += (int)($detail->jumlah ?? 0);
+                $categorySales[$categoryName]['revenue'] += $detailRevenue;
             }
         }
         
@@ -512,10 +829,295 @@ class ReportController extends Controller
                     'revenue' => 0
                 ];
             }
+            
+            // Calculate revenue from total_harga or sum from details
+            $transactionRevenue = (float)($transaction->total_harga ?? 0);
+            if ($transactionRevenue == 0) {
+                $transactionRevenue = $transaction->details->sum(function($detail) {
+                    return (float)($detail->total_harga ?? ($detail->harga_satuan * $detail->jumlah));
+                });
+            }
+            
             $paymentMethods[$method]['count'] += 1;
-            $paymentMethods[$method]['revenue'] += $transaction->total_harga;
+            $paymentMethods[$method]['revenue'] += $transactionRevenue;
         }
         
         return array_values($paymentMethods);
+    }
+
+    /**
+     * Export sales report to PDF
+     */
+    public function exportSalesPDF(Request $request)
+    {
+        try {
+            // Get filter parameters
+            $productFilter = $request->get('product', '');
+            $categoryFilter = $request->get('category', '');
+            $dateFilter = $request->get('date', '');
+            $paymentFilter = $request->get('payment', '');
+            $period = $request->get('period', 'daily');
+
+            // Get sales report data
+            $reportRequest = new Request([
+                'product' => $productFilter,
+                'category' => $categoryFilter,
+                'date' => $dateFilter,
+                'payment' => $paymentFilter,
+                'period' => $period
+            ]);
+
+            $salesData = $this->getSalesReport($reportRequest);
+            $data = json_decode($salesData->getContent(), true);
+
+            if (!$data['success']) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Gagal mengambil data untuk export'
+                ], 500);
+            }
+
+            // Generate HTML content for PDF
+            $html = $this->generateSalesPDFHtml($data['data'], $period);
+
+            // Return HTML that can be printed as PDF by browser
+            return response($html)
+                ->header('Content-Type', 'text/html; charset=utf-8')
+                ->header('Content-Disposition', 'inline; filename="laporan-penjualan-' . date('Y-m-d') . '.html"');
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Terjadi kesalahan saat export PDF',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Generate HTML content for sales PDF export
+     */
+    private function generateSalesPDFHtml($data, $period = 'daily')
+    {
+        $periodLabel = [
+            'daily' => 'Harian',
+            'weekly' => 'Mingguan',
+            'monthly' => 'Bulanan'
+        ][$period] ?? 'Harian';
+
+        $date = date('d/m/Y H:i:s');
+        $summary = $data['summary'] ?? [];
+        $recentTransactions = $data['recent_transactions'] ?? [];
+        $chartData = $data['chart_data'] ?? [];
+        $productPerformance = $data['product_performance'] ?? [];
+
+        $html = '<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Laporan Penjualan</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            color: #333;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            border-bottom: 3px solid #333;
+            padding-bottom: 20px;
+        }
+        .header h1 {
+            margin: 0;
+            color: #2d3748;
+        }
+        .header p {
+            margin: 5px 0;
+            color: #666;
+        }
+        .summary {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        .summary-card {
+            background: #f7fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 15px;
+            text-align: center;
+        }
+        .summary-card h3 {
+            margin: 0 0 10px 0;
+            font-size: 12px;
+            color: #718096;
+            text-transform: uppercase;
+        }
+        .summary-card .value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #2d3748;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th {
+            background: #2d3748;
+            color: white;
+            padding: 12px;
+            text-align: left;
+            font-size: 12px;
+            text-transform: uppercase;
+        }
+        td {
+            padding: 10px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        tr:nth-child(even) {
+            background: #f7fafc;
+        }
+        .text-right {
+            text-align: right;
+        }
+        .text-center {
+            text-align: center;
+        }
+        .footer {
+            margin-top: 30px;
+            text-align: center;
+            color: #718096;
+            font-size: 12px;
+            border-top: 1px solid #e2e8f0;
+            padding-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Laporan Penjualan</h1>
+        <p>Periode: ' . htmlspecialchars($periodLabel) . '</p>
+        <p>Tanggal: ' . htmlspecialchars($date) . '</p>
+    </div>
+
+    <div class="summary">
+        <div class="summary-card">
+            <h3>Total Transaksi</h3>
+            <div class="value">' . ($summary['total_transactions'] ?? 0) . '</div>
+            <p style="margin: 5px 0 0 0; font-size: 11px; color: #718096;">Transaksi</p>
+        </div>
+        <div class="summary-card">
+            <h3>Total Pendapatan</h3>
+            <div class="value">Rp ' . number_format($summary['total_revenue'] ?? 0, 0, ',', '.') . '</div>
+            <p style="margin: 5px 0 0 0; font-size: 11px; color: #718096;">Pendapatan</p>
+        </div>
+        <div class="summary-card">
+            <h3>Produk Terjual</h3>
+            <div class="value">' . ($summary['total_products_sold'] ?? 0) . '</div>
+            <p style="margin: 5px 0 0 0; font-size: 11px; color: #718096;">Unit</p>
+        </div>
+        <div class="summary-card">
+            <h3>Produk Terlaris</h3>
+            <div class="value">' . htmlspecialchars($summary['top_product'] ?? 'Tidak ada data') . '</div>
+            <p style="margin: 5px 0 0 0; font-size: 11px; color: #718096;">Produk</p>
+        </div>
+    </div>
+
+    <h2 style="margin-top: 30px; color: #2d3748;">Transaksi Terbaru</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>No</th>
+                <th>ID Transaksi</th>
+                <th>Tanggal</th>
+                <th>Waktu</th>
+                <th class="text-right">Total</th>
+                <th>Metode Pembayaran</th>
+                <th>Kasir</th>
+            </tr>
+        </thead>
+        <tbody>';
+
+        $no = 1;
+        foreach ($recentTransactions as $transaction) {
+            $html .= '
+            <tr>
+                <td class="text-center">' . $no++ . '</td>
+                <td>#' . htmlspecialchars($transaction['id'] ?? '') . '</td>
+                <td>' . htmlspecialchars($transaction['date'] ?? '') . '</td>
+                <td>' . htmlspecialchars($transaction['time'] ?? '') . '</td>
+                <td class="text-right">Rp ' . number_format($transaction['total'] ?? 0, 0, ',', '.') . '</td>
+                <td>' . htmlspecialchars($transaction['payment_method'] ?? 'Tunai') . '</td>
+                <td>' . htmlspecialchars($transaction['cashier'] ?? 'Admin') . '</td>
+            </tr>';
+        }
+
+        if (count($recentTransactions) === 0) {
+            $html .= '
+            <tr>
+                <td colspan="7" class="text-center" style="padding: 20px; color: #718096;">
+                    Tidak ada data transaksi
+                </td>
+            </tr>';
+        }
+
+        $html .= '
+        </tbody>
+    </table>
+
+    <h2 style="margin-top: 30px; color: #2d3748;">Performa Produk</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>No</th>
+                <th>Nama Produk</th>
+                <th class="text-right">Qty Terjual</th>
+                <th class="text-right">Pendapatan</th>
+            </tr>
+        </thead>
+        <tbody>';
+
+        $no = 1;
+        foreach ($productPerformance as $product) {
+            $html .= '
+            <tr>
+                <td class="text-center">' . $no++ . '</td>
+                <td>' . htmlspecialchars($product['name'] ?? '') . '</td>
+                <td class="text-right">' . number_format($product['quantity_sold'] ?? 0, 0, ',', '.') . '</td>
+                <td class="text-right">Rp ' . number_format($product['revenue'] ?? 0, 0, ',', '.') . '</td>
+            </tr>';
+        }
+
+        if (count($productPerformance) === 0) {
+            $html .= '
+            <tr>
+                <td colspan="4" class="text-center" style="padding: 20px; color: #718096;">
+                    Tidak ada data produk
+                </td>
+            </tr>';
+        }
+
+        $html .= '
+        </tbody>
+    </table>
+
+    <div class="footer">
+        <p>Laporan ini dibuat secara otomatis oleh sistem IMS Angkringan</p>
+        <p>Dicetak pada: ' . $date . '</p>
+    </div>
+
+    <script>
+        window.onload = function() {
+            window.print();
+        };
+    </script>
+</body>
+</html>';
+
+        return $html;
     }
 }
