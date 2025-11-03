@@ -47,8 +47,8 @@ function Sidebar() {
             }
             
             return {
-                ...prev,
-                [menuId]: !prev[menuId],
+            ...prev,
+            [menuId]: !prev[menuId],
             };
         });
     }, [user, activeRoute]);

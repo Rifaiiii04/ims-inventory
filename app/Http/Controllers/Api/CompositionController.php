@@ -66,10 +66,10 @@ class CompositionController extends Controller
                 if (!isset($groupedCompositions[$groupKey])) {
                     $groupedCompositions[$groupKey] = [
                         'id' => $composition->id_varian ? "variant_{$composition->id_varian}" : "product_{$composition->id_produk}",
-                        'variant_id' => $composition->id_varian,
-                        'variant_name' => $composition->nama_varian,
-                        'product_id' => $composition->id_produk,
-                        'product_name' => $composition->nama_produk,
+                    'variant_id' => $composition->id_varian,
+                    'variant_name' => $composition->nama_varian,
+                    'product_id' => $composition->id_produk,
+                    'product_name' => $composition->nama_produk,
                         'estimated_production' => 0, // Akan dihitung setelah semua ingredients ditambahkan
                         'ingredients' => [],
                         'created_at' => $composition->created_at,

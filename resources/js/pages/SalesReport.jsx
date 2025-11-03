@@ -3,6 +3,7 @@ import Sidebar from "../components/Sidebar";
 import TopBar from "../components/TopBar";
 import { useSalesReport } from "../hooks/useSalesReport";
 import { ReportPageSkeleton } from "../components/common/SkeletonLoader";
+import MobileSidebarToggle from "../components/sidebar/MobileSidebarToggle";
 import {
     LineChart,
     Line,
@@ -320,26 +321,10 @@ function SalesReport() {
 
     return (
         <div className="flex h-screen bg-gray-50">
-            {/* Mobile Menu Toggle Button */}
-            <button
-                onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-                className="fixed top-4 left-4 z-50 md:hidden p-2 bg-white rounded-lg shadow-lg"
-            >
-                <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    strokeWidth={2}
-                    stroke="currentColor"
-                    className="size-6"
-                >
-                    <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"
-                    />
-                </svg>
-            </button>
+            <MobileSidebarToggle
+                isMobileMenuOpen={isMobileMenuOpen}
+                setIsMobileMenuOpen={setIsMobileMenuOpen}
+            />
 
             {/* Sidebar */}
             <div

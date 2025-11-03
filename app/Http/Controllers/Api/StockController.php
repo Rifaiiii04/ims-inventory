@@ -266,55 +266,55 @@ class StockController extends Controller
                 }
                 
                 // Buat stok baru
-                $stock = TblBahan::create([
+            $stock = TblBahan::create([
                     'nama_bahan' => trim($request->name),
                     'id_kategori' => $categoryId,
-                    'harga_beli' => $request->buyPrice,
-                    'stok_bahan' => $request->quantity,
-                    'is_divisible' => $request->is_divisible ?? false,
-                    'max_divisions' => $request->max_divisions,
-                    'division_description' => $request->division_description,
-                    'satuan' => $request->unit,
-                    'min_stok' => $request->minStock,
-                    'updated_by' => $request->user()->id_user
-                ]);
+                'harga_beli' => $request->buyPrice,
+                'stok_bahan' => $request->quantity,
+                'is_divisible' => $request->is_divisible ?? false,
+                'max_divisions' => $request->max_divisions,
+                'division_description' => $request->division_description,
+                'satuan' => $request->unit,
+                'min_stok' => $request->minStock,
+                'updated_by' => $request->user()->id_user
+            ]);
 
                 // Reload untuk mendapatkan relasi kategori
                 $stock->load('kategori');
 
-                // Log history untuk create
-                try {
-                    $this->logStockHistory(
-                        $stock->id_bahan,
-                        'create',
-                        null,
-                        $stock->toArray(),
-                        "Menambahkan stok baru: {$stock->nama_bahan}",
-                        $request->user()->id_user
-                    );
-                } catch (\Exception $e) {
-                    Log::error('Failed to log stock history: ' . $e->getMessage());
-                }
+            // Log history untuk create
+            try {
+                $this->logStockHistory(
+                    $stock->id_bahan,
+                    'create',
+                    null,
+                    $stock->toArray(),
+                    "Menambahkan stok baru: {$stock->nama_bahan}",
+                    $request->user()->id_user
+                );
+            } catch (\Exception $e) {
+                Log::error('Failed to log stock history: ' . $e->getMessage());
+            }
 
                 DB::commit();
 
-                return response()->json([
-                    'success' => true,
-                    'message' => 'Stok berhasil ditambahkan',
-                    'data' => [
-                        'id' => $stock->id_bahan,
-                        'name' => $stock->nama_bahan,
-                        'category' => $stock->kategori->nama_kategori ?? 'Tidak ada kategori',
-                        'buyPrice' => (float)$stock->harga_beli,
-                        'quantity' => (float)$stock->stok_bahan,
-                        'unit' => $stock->satuan,
-                        'minStock' => (float)$stock->min_stok,
-                        'lastUpdated' => $stock->updated_at->format('Y-m-d'),
-                        'updatedBy' => 'User',
+            return response()->json([
+                'success' => true,
+                'message' => 'Stok berhasil ditambahkan',
+                'data' => [
+                    'id' => $stock->id_bahan,
+                    'name' => $stock->nama_bahan,
+                    'category' => $stock->kategori->nama_kategori ?? 'Tidak ada kategori',
+                    'buyPrice' => (float)$stock->harga_beli,
+                    'quantity' => (float)$stock->stok_bahan,
+                    'unit' => $stock->satuan,
+                    'minStock' => (float)$stock->min_stok,
+                    'lastUpdated' => $stock->updated_at->format('Y-m-d'),
+                    'updatedBy' => 'User',
                         'isLowStock' => $stock->stok_bahan < $stock->min_stok,
                         'isUpdated' => false
-                    ]
-                ], 201);
+                ]
+            ], 201);
             }
 
         } catch (\Exception $e) {

@@ -56,10 +56,10 @@ class OcrController extends Controller
             // Send request to OCR service with increased timeout (60 seconds for OCR processing)
             try {
                 $response = Http::timeout(60)->attach(
-                    'image', 
-                    file_get_contents($imageFile->getPathname()),
-                    $imageFile->getClientOriginalName()
-                )->post($this->ocrServiceUrl . '/process-photo');
+                'image', 
+                file_get_contents($imageFile->getPathname()),
+                $imageFile->getClientOriginalName()
+            )->post($this->ocrServiceUrl . '/process-photo');
             } catch (\Exception $e) {
                 // Handle HTTP client errors including timeout
                 Log::error('OCR service request error', [

@@ -102,7 +102,7 @@ function MenuItemWithSubmenu({
                             ease: [0.4, 0.0, 0.2, 1],
                         }}
                         className="overflow-hidden"
-                    >
+            >
                         <motion.ul
                             className="ml-6 space-y-1 mt-2"
                             initial={{ y: -10 }}
