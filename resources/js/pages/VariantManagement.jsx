@@ -4,6 +4,7 @@ import TopBar from "../components/TopBar";
 import VariantTable from "../components/variant/VariantTable";
 import VariantFormModal from "../components/variant/VariantFormModal";
 import { useVariant } from "../hooks/useVariant";
+import { ManagementPageSkeleton } from "../components/common/SkeletonLoader";
 
 function VariantManagement() {
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -242,14 +243,21 @@ function VariantManagement() {
                             </div>
                         )}
 
+                        {/* Loading State - Show skeleton if loading and no data */}
+                        {!variantData && (
+                            <ManagementPageSkeleton title="Pengelolaan Varian" />
+                        )}
+
                         {/* Variant Table */}
-                        <div className="overflow-x-auto">
-                            <VariantTable
-                                data={filteredVariants}
-                                onEdit={handleEditVariant}
-                                onDelete={handleDeleteVariant}
-                            />
-                        </div>
+                        {variantData && variantData.length > 0 && (
+                            <div className="overflow-x-auto">
+                                <VariantTable
+                                    data={filteredVariants}
+                                    onEdit={handleEditVariant}
+                                    onDelete={handleDeleteVariant}
+                                />
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>

@@ -4,6 +4,7 @@ import TopBar from "../components/TopBar";
 import CategoryTable from "../components/category/CategoryTable";
 import CategoryFormModal from "../components/category/CategoryFormModal";
 import { useCategory } from "../hooks/useCategory";
+import { ManagementPageSkeleton } from "../components/common/SkeletonLoader";
 
 function CategoryManagement() {
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -14,6 +15,7 @@ function CategoryManagement() {
     // Use category hook for real data
     const {
         categories: categoryData,
+        loading,
         error,
         createCategory,
         updateCategory,
@@ -249,14 +251,21 @@ function CategoryManagement() {
                             </div>
                         )}
 
+                        {/* Loading State - Show skeleton if loading */}
+                        {loading && !error && (
+                            <ManagementPageSkeleton title="Manajemen Kategori" />
+                        )}
+
                         {/* Category Table */}
-                        <div className="overflow-x-auto">
-                            <CategoryTable
-                                data={filteredCategories}
-                                onEdit={handleEditCategory}
-                                onDelete={handleDeleteCategory}
-                            />
-                        </div>
+                        {!loading && !error && (
+                            <div className="overflow-x-auto">
+                                <CategoryTable
+                                    data={filteredCategories}
+                                    onEdit={handleEditCategory}
+                                    onDelete={handleDeleteCategory}
+                                />
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>

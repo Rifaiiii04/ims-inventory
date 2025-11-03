@@ -12,18 +12,14 @@ function TransactionHistory() {
     const [showDetailModal, setShowDetailModal] = useState(false);
     const [selectedTransaction, setSelectedTransaction] = useState(null);
     const [filters, setFilters] = useState({
-        startDate: '',
-        endDate: '',
-        paymentMethod: '',
-        cashierId: ''
+        startDate: "",
+        endDate: "",
+        paymentMethod: "",
+        cashierId: "",
     });
 
-    const {
-        transactions,
-        loading,
-        error,
-        fetchHistory
-    } = useTransactionHistory();
+    const { transactions, loading, error, fetchHistory } =
+        useTransactionHistory();
 
     useEffect(() => {
         fetchHistory(filters);
@@ -36,92 +32,44 @@ function TransactionHistory() {
 
     const handlePrintReceipt = (transaction) => {
         // TODO: Implement print receipt
-        console.log('Print receipt for transaction:', transaction);
+        console.log("Print receipt for transaction:", transaction);
     };
 
     const handleExportPDF = async () => {
         try {
             const params = new URLSearchParams();
-            if (filters.startDate) params.append('start_date', filters.startDate);
-            if (filters.endDate) params.append('end_date', filters.endDate);
-            if (filters.paymentMethod) params.append('payment_method', filters.paymentMethod);
-            if (filters.cashierId) params.append('cashier_id', filters.cashierId);
-            if (filters.search) params.append('search', filters.search);
+            if (filters.startDate)
+                params.append("start_date", filters.startDate);
+            if (filters.endDate) params.append("end_date", filters.endDate);
+            if (filters.paymentMethod)
+                params.append("payment_method", filters.paymentMethod);
+            if (filters.cashierId)
+                params.append("cashier_id", filters.cashierId);
+            if (filters.search) params.append("search", filters.search);
 
-            // Try to download file directly (if backend supports file download)
-            try {
-                const response = await axios.get(`/api/transactions/export/pdf?${params.toString()}`, {
-                    responseType: 'blob',
-                });
-                
-                // Check if response is actually a blob or JSON error
-                if (response.data instanceof Blob && response.data.size > 0) {
-                    // Create blob URL and download
-                    const url = window.URL.createObjectURL(response.data);
-                    const link = document.createElement('a');
-                    link.href = url;
-                    link.setAttribute('download', `transaksi_${new Date().toISOString().split('T')[0]}.pdf`);
-                    document.body.appendChild(link);
-                    link.click();
-                    link.remove();
-                    window.URL.revokeObjectURL(url);
-                    return;
+            // Backend returns HTML that can be printed as PDF
+            const response = await axios.get(
+                `/api/transactions/export/pdf?${params.toString()}`,
+                {
+                    responseType: "text",
                 }
-            } catch (blobErr) {
-                // If blob fails, try JSON response
-                console.log('Blob download failed, trying JSON response...');
-            }
+            );
 
-            // Fallback to JSON response
-            const jsonResponse = await axios.get(`/api/transactions/export/pdf?${params.toString()}`);
-            if (jsonResponse.data.success) {
-                alert(`PDF Export: ${jsonResponse.data.message}\nData tersedia: ${jsonResponse.data.count} transaksi\n\nCatatan: Fitur download PDF sedang dalam pengembangan. Data dapat dilihat di console browser.`);
-                console.log('Export Data:', jsonResponse.data.data);
+            // Open HTML in new window for printing
+            const printWindow = window.open("", "_blank");
+            if (printWindow) {
+                printWindow.document.write(response.data);
+                printWindow.document.close();
+                // Auto trigger print dialog
+                setTimeout(() => {
+                    printWindow.print();
+                }, 250);
             } else {
-                alert('Gagal export PDF: ' + jsonResponse.data.message);
+                alert("Popup diblokir. Silakan izinkan popup untuk situs ini.");
             }
         } catch (err) {
-            console.error('Error exporting PDF:', err);
-            alert('Terjadi kesalahan saat export PDF. Silakan coba lagi.');
-        }
-    };
-
-    const handleExportExcel = async () => {
-        try {
-            const params = new URLSearchParams();
-            if (filters.startDate) params.append('start_date', filters.startDate);
-            if (filters.endDate) params.append('end_date', filters.endDate);
-            if (filters.paymentMethod) params.append('payment_method', filters.paymentMethod);
-            if (filters.cashierId) params.append('cashier_id', filters.cashierId);
-            if (filters.search) params.append('search', filters.search);
-
-            // Download file directly
-            const response = await axios.get(`/api/transactions/export/excel?${params.toString()}`, {
-                responseType: 'blob',
-            });
-            
-            // Create blob URL and download
-            const url = window.URL.createObjectURL(new Blob([response.data]));
-            const link = document.createElement('a');
-            link.href = url;
-            link.setAttribute('download', `transaksi_${new Date().toISOString().split('T')[0]}.xlsx`);
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
-            window.URL.revokeObjectURL(url);
-        } catch (err) {
-            console.error('Error exporting Excel:', err);
-            // If blob response fails, try JSON response
-            try {
-                const jsonResponse = await axios.get(`/api/transactions/export/excel?${params.toString()}`);
-                if (jsonResponse.data.success) {
-                    alert(`Excel Export: ${jsonResponse.data.message}\nData tersedia: ${jsonResponse.data.count} transaksi\n\nCatatan: Fitur download Excel sedang dalam pengembangan.`);
-                } else {
-                    alert('Gagal export Excel: ' + jsonResponse.data.message);
-                }
-            } catch (jsonErr) {
-                alert('Terjadi kesalahan saat export Excel. Silakan coba lagi.');
-            }
+            console.error("Error exporting PDF:", err);
+            alert("Terjadi kesalahan saat export PDF. Silakan coba lagi.");
         }
     };
 
@@ -144,8 +92,12 @@ function TransactionHistory() {
                         <div className="flex-1 flex items-center justify-center">
                             <div className="text-center">
                                 <div className="w-12 h-12 border-4 border-green-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-                                <p className="text-gray-600 font-medium">Memuat riwayat transaksi...</p>
-                                <p className="text-sm text-gray-500 mt-2">Mohon tunggu sebentar</p>
+                                <p className="text-gray-600 font-medium">
+                                    Memuat riwayat transaksi...
+                                </p>
+                                <p className="text-sm text-gray-500 mt-2">
+                                    Mohon tunggu sebentar
+                                </p>
                             </div>
                         </div>
                     </div>
@@ -161,11 +113,23 @@ function TransactionHistory() {
                     <div className="flex-1 flex items-center justify-center">
                         <div className="text-center">
                             <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                                <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                <svg
+                                    className="w-6 h-6 text-red-600"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    viewBox="0 0 24 24"
+                                >
+                                    <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        strokeWidth={2}
+                                        d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                                    />
                                 </svg>
                             </div>
-                            <h3 className="text-lg font-bold text-gray-800 mb-2">Terjadi Kesalahan</h3>
+                            <h3 className="text-lg font-bold text-gray-800 mb-2">
+                                Terjadi Kesalahan
+                            </h3>
                             <p className="text-gray-600 mb-4">{error}</p>
                             <button
                                 onClick={() => fetchHistory(filters)}
@@ -230,7 +194,11 @@ function TransactionHistory() {
                 )}
 
                 {/* Main Content - Always clickable, higher z-index */}
-                <div className={`flex-1 flex flex-col overflow-hidden ${!isMobileMenuOpen ? 'relative z-0' : 'relative z-[10]'}`}>
+                <div
+                    className={`flex-1 flex flex-col overflow-hidden ${
+                        !isMobileMenuOpen ? "relative z-0" : "relative z-[10]"
+                    }`}
+                >
                     {/* Top Bar */}
                     <TopBar
                         title="Riwayat Transaksi"
@@ -246,7 +214,6 @@ function TransactionHistory() {
                                 filters={filters}
                                 onFilterChange={handleFilterChange}
                                 onExportPDF={handleExportPDF}
-                                onExportExcel={handleExportExcel}
                             />
 
                             {/* Transaction Table */}

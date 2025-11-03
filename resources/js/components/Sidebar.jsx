@@ -131,15 +131,52 @@ function Sidebar() {
     const menuItems = useMemo(() => {
         if (!user) return [];
 
-        // Check if route is active (support sub-routes)
+        // Check if route is active (for single menu items - exact match only)
         const isRouteActive = (path) => {
-            return activeRoute === path || activeRoute.startsWith(path + "/");
+            if (!path) return false;
+            // For single menu items, only exact match
+            return activeRoute === path;
         };
 
-        // Check if any submenu item is active
+        // Check if a specific submenu item is active
+        // This prevents false positives when one path is a prefix of another
+        // Example: "/products" should NOT be active when on "/products/stock"
+        const isSubmenuItemActive = (itemPath, allSubmenuItems) => {
+            if (!itemPath) return false;
+            
+            // Exact match - always active
+            if (activeRoute === itemPath) return true;
+            
+            // Get all submenu paths for comparison
+            const allPaths = Array.isArray(allSubmenuItems) 
+                ? allSubmenuItems.map(item => item.path).filter(Boolean)
+                : [];
+            
+            // Find ALL paths that match the active route
+            const matchingPaths = allPaths.filter(path => {
+                // Exact match
+                if (path === activeRoute) return true;
+                // Sub-route match (e.g., "/products/stock" matches path "/products/stock")
+                if (activeRoute.startsWith(path + "/")) return true;
+                return false;
+            });
+            
+            if (matchingPaths.length === 0) return false;
+            
+            // Sort by length (longest first) to get most specific match
+            // Longer path = more specific (e.g., "/products/stock" > "/products")
+            matchingPaths.sort((a, b) => b.length - a.length);
+            const mostSpecificPath = matchingPaths[0];
+            
+            // Only active if this item path is the MOST SPECIFIC matching path
+            // This ensures "/products" is NOT active when we're on "/products/stock"
+            return itemPath === mostSpecificPath;
+        };
+
+        // Check if any submenu item is active (for parent menu highlighting)
         const isSubmenuActive = (submenu) => {
             if (!Array.isArray(submenu)) return false;
-            return submenu.some((item) => isRouteActive(item.path));
+            return submenu.some((item) => isSubmenuItemActive(item.path, submenu));
         };
 
         // Get filtered menu based on user level
@@ -181,13 +218,14 @@ function Sidebar() {
                     >
                         {menu.submenu.map((subItem) => {
                             if (!subItem || !subItem.id) return null;
+                            
                             return (
                                 <SubMenuItem
                                     key={`submenu-${subItem.id}`}
                                     icon={iconMap[subItem.icon]}
                                     label={subItem.label}
                                     onClick={() => handleNavigate(subItem.path)}
-                                    isActive={isRouteActive(subItem.path)}
+                                    isActive={isSubmenuItemActive(subItem.path, menu.submenu)}
                                 />
                             );
                         })}

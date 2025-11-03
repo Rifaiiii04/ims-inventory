@@ -49,6 +49,30 @@ export const SkeletonTableRow = ({ columns = 5 }) => (
     </tr>
 );
 
+// Skeleton for Table (Complete table with header and rows)
+export const SkeletonTable = ({ rows = 5, columns = 5 }) => (
+    <div className="bg-white rounded-2xl shadow-lg border border-gray-200 overflow-hidden animate-pulse">
+        <div className="overflow-x-auto">
+            <table className="w-full">
+                <thead className="bg-gray-50">
+                    <tr>
+                        {Array.from({ length: columns }).map((_, i) => (
+                            <th key={i} className="px-6 py-4">
+                                <div className="h-4 bg-gray-300 rounded w-24 mx-auto"></div>
+                            </th>
+                        ))}
+                    </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                    {Array.from({ length: rows }).map((_, rowIndex) => (
+                        <SkeletonTableRow key={rowIndex} columns={columns} />
+                    ))}
+                </tbody>
+            </table>
+        </div>
+    </div>
+);
+
 // Skeleton for Chart Container
 export const SkeletonChart = ({ height = 300 }) => (
     <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 animate-pulse">
@@ -152,6 +176,72 @@ export const PageLoader = ({ text = "Memuat data..." }) => (
                 Mohon tunggu sebentar...
             </p>
         </div>
+    </div>
+);
+
+// Skeleton for Form
+export const SkeletonForm = () => (
+    <div className="bg-white rounded-2xl shadow-lg border border-gray-200 p-6 animate-pulse">
+        <div className="space-y-6">
+            {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i}>
+                    <div className="h-4 bg-gray-200 rounded w-32 mb-2"></div>
+                    <div className="h-10 bg-gray-200 rounded-lg w-full"></div>
+                </div>
+            ))}
+            <div className="flex gap-3 pt-4">
+                <div className="h-10 bg-gray-200 rounded-lg w-24"></div>
+                <div className="h-10 bg-gray-200 rounded-lg w-24"></div>
+            </div>
+        </div>
+    </div>
+);
+
+// Skeleton for Management Page (Table + Actions)
+export const ManagementPageSkeleton = ({ title = "Loading..." }) => (
+    <div className="space-y-6">
+        {/* Header Skeleton */}
+        <div className="bg-white rounded-2xl shadow-lg border border-gray-200 p-6 animate-pulse">
+            <div className="flex items-center justify-between">
+                <div>
+                    <div className="h-7 bg-gray-200 rounded w-48 mb-2"></div>
+                    <div className="h-4 bg-gray-200 rounded w-64"></div>
+                </div>
+                <div className="h-10 bg-gray-200 rounded-lg w-32"></div>
+            </div>
+        </div>
+
+        {/* Search/Filter Skeleton */}
+        <div className="bg-white rounded-2xl shadow-lg border border-gray-200 p-6 animate-pulse">
+            <div className="flex gap-4">
+                <div className="flex-1 h-10 bg-gray-200 rounded-lg"></div>
+                <div className="h-10 bg-gray-200 rounded-lg w-24"></div>
+            </div>
+        </div>
+
+        {/* Table Skeleton */}
+        <SkeletonTable rows={8} columns={6} />
+    </div>
+);
+
+// Skeleton for Report Page
+export const ReportPageSkeleton = () => (
+    <div className="space-y-6 animate-pulse">
+        {/* Summary Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {Array.from({ length: 4 }).map((_, i) => (
+                <SkeletonCard key={i} />
+            ))}
+        </div>
+
+        {/* Charts */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <SkeletonChart height={300} />
+            <SkeletonChart height={300} />
+        </div>
+
+        {/* Table */}
+        <SkeletonTable rows={10} columns={5} />
     </div>
 );
 

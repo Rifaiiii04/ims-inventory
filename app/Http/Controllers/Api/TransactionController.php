@@ -721,7 +721,7 @@ class TransactionController extends Controller
     public function exportPDF(Request $request)
     {
         try {
-            $query = TblTransaksi::with(['user', 'details'])
+            $query = TblTransaksi::with(['user', 'details.produk', 'details.varian'])
                 ->orderBy('tanggal_waktu', 'desc');
 
             // Apply same filters as getHistory
@@ -751,13 +751,13 @@ class TransactionController extends Controller
 
             $transactions = $query->get();
 
-            // For now, return JSON data (PDF generation can be implemented later)
-            return response()->json([
-                'success' => true,
-                'message' => 'PDF export feature is under development. Data ready for export.',
-                'data' => $transactions,
-                'count' => $transactions->count()
-            ], 200);
+            // Generate HTML content for PDF (browser print-friendly)
+            $html = $this->generateTransactionPDFHtml($transactions, $request);
+
+            // Return HTML that can be printed as PDF by browser
+            return response($html)
+                ->header('Content-Type', 'text/html; charset=utf-8')
+                ->header('Content-Disposition', 'inline; filename="riwayat-transaksi-' . date('Y-m-d') . '.html"');
 
         } catch (\Exception $e) {
             return response()->json([
@@ -769,12 +769,161 @@ class TransactionController extends Controller
     }
 
     /**
-     * Export transactions to Excel
+     * Generate HTML content for transaction PDF export
+     */
+    private function generateTransactionPDFHtml($transactions, $request)
+    {
+        $dateRange = '';
+        if ($request->start_date && $request->end_date) {
+            $dateRange = date('d F Y', strtotime($request->start_date)) . ' - ' . date('d F Y', strtotime($request->end_date));
+        } else {
+            $dateRange = 'Semua Periode';
+        }
+
+        $totalRevenue = $transactions->sum('total_transaksi');
+        $totalTransactions = $transactions->count();
+
+        $html = '<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Riwayat Transaksi</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; padding: 20px; background: #f5f5f5; }
+        .container { max-width: 1000px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .header { text-align: center; border-bottom: 3px solid #10b981; padding-bottom: 20px; margin-bottom: 30px; }
+        .header h1 { color: #10b981; font-size: 28px; margin-bottom: 10px; }
+        .header p { color: #666; font-size: 14px; }
+        .info { display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-bottom: 25px; }
+        .info-item { background: #f9fafb; padding: 12px; border-radius: 6px; }
+        .info-label { font-size: 12px; color: #666; margin-bottom: 5px; }
+        .info-value { font-size: 16px; font-weight: bold; color: #111; }
+        .summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 25px; }
+        .summary-card { background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; padding: 20px; border-radius: 8px; text-align: center; }
+        .summary-label { font-size: 12px; opacity: 0.9; margin-bottom: 8px; }
+        .summary-value { font-size: 24px; font-weight: bold; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th { background: #10b981; color: white; padding: 12px; text-align: left; font-size: 12px; font-weight: bold; }
+        td { padding: 10px 12px; border-bottom: 1px solid #e5e7eb; font-size: 12px; }
+        tr:nth-child(even) { background: #f9fafb; }
+        .text-right { text-align: right; }
+        .text-center { text-align: center; }
+        .badge { padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; }
+        .badge-cash { background: #dcfce7; color: #166534; }
+        .badge-qris { background: #dbeafe; color: #1e40af; }
+        .badge-transfer { background: #f3e8ff; color: #6b21a8; }
+        @media print {
+            body { background: white; padding: 0; }
+            .container { box-shadow: none; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📋 RIWAYAT TRANSAKSI</h1>
+            <p>Laporan Transaksi POS System</p>
+        </div>
+
+        <div class="info">
+            <div class="info-item">
+                <div class="info-label">Periode</div>
+                <div class="info-value">' . htmlspecialchars($dateRange) . '</div>
+            </div>
+            <div class="info-item">
+                <div class="info-label">Tanggal Export</div>
+                <div class="info-value">' . date('d F Y H:i:s') . '</div>
+            </div>
+        </div>
+
+        <div class="summary">
+            <div class="summary-card">
+                <div class="summary-label">Total Transaksi</div>
+                <div class="summary-value">' . number_format($totalTransactions, 0, ',', '.') . '</div>
+            </div>
+            <div class="summary-card">
+                <div class="summary-label">Total Pendapatan</div>
+                <div class="summary-value">Rp ' . number_format($totalRevenue, 0, ',', '.') . '</div>
+            </div>
+            <div class="summary-card">
+                <div class="summary-label">Rata-rata per Transaksi</div>
+                <div class="summary-value">Rp ' . number_format($totalTransactions > 0 ? $totalRevenue / $totalTransactions : 0, 0, ',', '.') . '</div>
+            </div>
+        </div>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>No</th>
+                    <th>No. Transaksi</th>
+                    <th>Tanggal & Waktu</th>
+                    <th>Kasir</th>
+                    <th>Metode</th>
+                    <th class="text-right">Total</th>
+                    <th class="text-center">Items</th>
+                </tr>
+            </thead>
+            <tbody>';
+
+        $no = 1;
+        foreach ($transactions as $transaction) {
+            $paymentMethodClass = '';
+            $paymentMethodText = '';
+            switch($transaction->metode_bayar) {
+                case 'cash':
+                    $paymentMethodClass = 'badge-cash';
+                    $paymentMethodText = 'Tunai';
+                    break;
+                case 'qris':
+                    $paymentMethodClass = 'badge-qris';
+                    $paymentMethodText = 'QRIS';
+                    break;
+                case 'lainnya':
+                    $paymentMethodClass = 'badge-transfer';
+                    $paymentMethodText = 'Transfer';
+                    break;
+                default:
+                    $paymentMethodClass = 'badge-cash';
+                    $paymentMethodText = $transaction->metode_bayar;
+            }
+
+            $itemCount = $transaction->details->sum('jumlah');
+            $dateTime = date('d M Y H:i', strtotime($transaction->tanggal_waktu));
+
+            $html .= '<tr>
+                <td>' . $no++ . '</td>
+                <td><strong>TRX' . $transaction->id_transaksi . '</strong></td>
+                <td>' . $dateTime . '</td>
+                <td>' . htmlspecialchars($transaction->user->nama_user ?? 'Unknown') . '</td>
+                <td><span class="badge ' . $paymentMethodClass . '">' . $paymentMethodText . '</span></td>
+                <td class="text-right"><strong>Rp ' . number_format($transaction->total_transaksi, 0, ',', '.') . '</strong></td>
+                <td class="text-center">' . $itemCount . ' item</td>
+            </tr>';
+        }
+
+        $html .= '</tbody>
+        </table>
+
+        <div style="margin-top: 30px; padding-top: 20px; border-top: 2px solid #e5e7eb; text-align: center; color: #666; font-size: 12px;">
+            <p>Dicetak pada: ' . date('d F Y H:i:s') . '</p>
+            <p>Dokumen ini dihasilkan oleh POS System</p>
+        </div>
+    </div>
+</body>
+</html>';
+
+        return $html;
+    }
+
+    /**
+     * Export transactions to Excel (CSV format for simplicity)
      */
     public function exportExcel(Request $request)
     {
         try {
-            $query = TblTransaksi::with(['user', 'details'])
+            $query = TblTransaksi::with(['user', 'details.produk', 'details.varian'])
                 ->orderBy('tanggal_waktu', 'desc');
 
             // Apply same filters as getHistory
@@ -804,13 +953,18 @@ class TransactionController extends Controller
 
             $transactions = $query->get();
 
-            // For now, return JSON data (Excel generation can be implemented later)
-            return response()->json([
-                'success' => true,
-                'message' => 'Excel export feature is under development. Data ready for export.',
-                'data' => $transactions,
-                'count' => $transactions->count()
-            ], 200);
+            // Generate CSV content (using tab-delimited for better Excel compatibility)
+            $csv = $this->generateTransactionCSV($transactions);
+
+            // Return CSV file with proper encoding
+            // Using .txt extension so Excel will ask for delimiter on import (more reliable)
+            $filename = 'riwayat-transaksi-' . date('Y-m-d') . '.csv';
+            return response($csv, 200, [
+                'Content-Type' => 'text/csv; charset=utf-8',
+                'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+                'Cache-Control' => 'must-revalidate, post-check=0, pre-check=0',
+                'Pragma' => 'public',
+            ]);
 
         } catch (\Exception $e) {
             return response()->json([
@@ -819,5 +973,64 @@ class TransactionController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+    /**
+     * Generate CSV content for transaction export
+     * Using TAB delimiter - most compatible with Excel across all locales
+     */
+    private function generateTransactionCSV($transactions)
+    {
+        // Add BOM for UTF-8 to ensure Excel displays Indonesian characters correctly
+        $csv = "\xEF\xBB\xBF";
+        
+        // Use TAB as delimiter - Excel always recognizes TAB regardless of locale settings
+        $delimiter = "\t";
+        
+        // CSV Headers
+        $headers = ["No", "No. Transaksi", "Tanggal", "Waktu", "Kasir", "Metode Pembayaran", "Total", "Jumlah Item"];
+        $csv .= implode($delimiter, $headers) . "\n";
+
+        $no = 1;
+        foreach ($transactions as $transaction) {
+            $paymentMethod = '';
+            switch($transaction->metode_bayar) {
+                case 'cash':
+                    $paymentMethod = 'Tunai';
+                    break;
+                case 'qris':
+                    $paymentMethod = 'QRIS';
+                    break;
+                case 'lainnya':
+                    $paymentMethod = 'Transfer';
+                    break;
+                default:
+                    $paymentMethod = $transaction->metode_bayar;
+            }
+
+            $dateTime = \Carbon\Carbon::parse($transaction->tanggal_waktu);
+            $date = $dateTime->format('d/m/Y');
+            $time = $dateTime->format('H:i:s');
+            $itemCount = $transaction->details->sum('jumlah');
+            $cashierName = $transaction->user->nama_user ?? 'Unknown';
+            $transactionNo = 'TRX' . $transaction->id_transaksi;
+            $total = number_format($transaction->total_transaksi, 0, ',', '.');
+
+            // Build row - TAB delimiter rarely needs escaping
+            $row = [
+                $no++,
+                $transactionNo,
+                $date,
+                $time,
+                $cashierName,
+                $paymentMethod,
+                $total,
+                $itemCount
+            ];
+
+            $csv .= implode($delimiter, $row) . "\n";
+        }
+
+        return $csv;
     }
 }

@@ -6,6 +6,7 @@ import StockFormModal from "../components/stock/StockFormModal";
 import StockHistoryModal from "../components/stock/StockHistoryModal";
 import LowStockAlert from "../components/stock/LowStockAlert";
 import { useStock } from "../hooks/useStock";
+import { ManagementPageSkeleton } from "../components/common/SkeletonLoader";
 
 function StockManagement() {
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -262,35 +263,13 @@ function StockManagement() {
                             </div>
                         )}
 
-                        {/* Loading State */}
-                        {loading && (
-                            <div className="text-center py-12">
-                                <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                                    <svg
-                                        className="w-8 h-8 text-gray-400 animate-spin"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        viewBox="0 0 24 24"
-                                    >
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            strokeWidth={2}
-                                            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                                        />
-                                    </svg>
-                                </div>
-                                <h3 className="text-lg font-bold text-gray-700 mb-2">
-                                    Memuat data stok...
-                                </h3>
-                                <p className="text-gray-500 text-sm">
-                                    Mohon tunggu sebentar
-                                </p>
-                            </div>
+                        {/* Loading State - Show skeleton if loading and no data */}
+                        {loading && (!stockData || stockData.length === 0) && !error && (
+                            <ManagementPageSkeleton title="Pengelolaan Stok" />
                         )}
 
                         {/* Stock Table */}
-                        {!loading && (
+                        {!loading && stockData && stockData.length > 0 && (
                             <div className="overflow-x-auto">
                                 <StockTable
                                     data={filteredStocks}

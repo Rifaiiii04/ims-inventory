@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import Sidebar from "../components/Sidebar";
 import TopBar from "../components/TopBar";
 import { useInventoryReport } from "../hooks/useInventoryReport";
+import { ReportPageSkeleton } from "../components/common/SkeletonLoader";
 
 function InventoryReport() {
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -180,475 +181,517 @@ function InventoryReport() {
 
                 {/* Content */}
                 <div className="flex-1 overflow-y-auto p-6">
+                    {/* Loading State - Show skeleton if loading and no data */}
+                    {loading &&
+                        (!inventoryData ||
+                            !inventoryData.items ||
+                            inventoryData.items.length === 0) &&
+                        !error && <ReportPageSkeleton />}
+
                     {/* Summary Cards */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                        <div className="bg-white rounded-xl shadow-lg p-5 border border-gray-200">
-                            <p className="text-xs text-gray-500 mb-1 uppercase">
-                                Total Produk
-                            </p>
-                            <h3 className="text-2xl font-bold text-gray-800">
-                                {inventoryData?.summary?.total_products || 0}
-                            </h3>
-                            <p className="text-xs text-gray-500 mt-1">Item</p>
-                        </div>
-                        <div className="bg-white rounded-xl shadow-lg p-5 border border-gray-200">
-                            <p className="text-xs text-gray-500 mb-1 uppercase">
-                                Total Stok
-                            </p>
-                            <h3 className="text-2xl font-bold text-blue-600">
-                                {inventoryData?.summary?.total_stock || 0}
-                            </h3>
-                            <p className="text-xs text-gray-500 mt-1">Unit</p>
-                        </div>
-                        <div className="bg-white rounded-xl shadow-lg p-5 border border-gray-200">
-                            <p className="text-xs text-gray-500 mb-1 uppercase">
-                                Nilai Beli
-                            </p>
-                            <h3 className="text-xl font-bold text-orange-600">
-                                {formatCurrency(
-                                    inventoryData?.summary?.total_buy_value || 0
-                                )}
-                            </h3>
-                            <p className="text-xs text-gray-500 mt-1">
-                                Total Beli
-                            </p>
-                        </div>
-                        <div className="bg-white rounded-xl shadow-lg p-5 border border-gray-200">
-                            <p className="text-xs text-gray-500 mb-1 uppercase">
-                                Nilai Jual
-                            </p>
-                            <h3 className="text-xl font-bold text-green-600">
-                                {formatCurrency(
-                                    inventoryData?.summary?.total_sell_value ||
-                                        0
-                                )}
-                            </h3>
-                            <p className="text-xs text-gray-500 mt-1">
-                                Total Jual
-                            </p>
-                        </div>
-                    </div>
+                    {!loading && inventoryData && (
+                        <>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                                <div className="bg-white rounded-xl shadow-lg p-5 border border-gray-200">
+                                    <p className="text-xs text-gray-500 mb-1 uppercase">
+                                        Total Produk
+                                    </p>
+                                    <h3 className="text-2xl font-bold text-gray-800">
+                                        {inventoryData?.summary
+                                            ?.total_products || 0}
+                                    </h3>
+                                    <p className="text-xs text-gray-500 mt-1">
+                                        Item
+                                    </p>
+                                </div>
+                                <div className="bg-white rounded-xl shadow-lg p-5 border border-gray-200">
+                                    <p className="text-xs text-gray-500 mb-1 uppercase">
+                                        Total Stok
+                                    </p>
+                                    <h3 className="text-2xl font-bold text-blue-600">
+                                        {inventoryData?.summary?.total_stock ||
+                                            0}
+                                    </h3>
+                                    <p className="text-xs text-gray-500 mt-1">
+                                        Unit
+                                    </p>
+                                </div>
+                                <div className="bg-white rounded-xl shadow-lg p-5 border border-gray-200">
+                                    <p className="text-xs text-gray-500 mb-1 uppercase">
+                                        Nilai Beli
+                                    </p>
+                                    <h3 className="text-xl font-bold text-orange-600">
+                                        {formatCurrency(
+                                            inventoryData?.summary
+                                                ?.total_buy_value || 0
+                                        )}
+                                    </h3>
+                                    <p className="text-xs text-gray-500 mt-1">
+                                        Total Beli
+                                    </p>
+                                </div>
+                                <div className="bg-white rounded-xl shadow-lg p-5 border border-gray-200">
+                                    <p className="text-xs text-gray-500 mb-1 uppercase">
+                                        Nilai Jual
+                                    </p>
+                                    <h3 className="text-xl font-bold text-green-600">
+                                        {formatCurrency(
+                                            inventoryData?.summary
+                                                ?.total_sell_value || 0
+                                        )}
+                                    </h3>
+                                    <p className="text-xs text-gray-500 mt-1">
+                                        Total Jual
+                                    </p>
+                                </div>
+                            </div>
 
-                    {/* Filter & Action Buttons */}
-                    <div className="mb-6 bg-white rounded-xl p-4 shadow-lg border border-gray-200">
-                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
-                            <div>
-                                <label className="block text-xs font-semibold text-gray-700 mb-2">
-                                    Filter Produk
-                                </label>
-                                <input
-                                    type="text"
-                                    value={filterProduct}
-                                    onChange={(e) =>
-                                        setFilterProduct(e.target.value)
-                                    }
-                                    onKeyPress={(e) =>
-                                        e.key === "Enter" &&
-                                        handleFilterChange()
-                                    }
-                                    placeholder="Cari produk..."
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:border-green-500 focus:outline-none"
-                                />
-                            </div>
-                            <div>
-                                <label className="block text-xs font-semibold text-gray-700 mb-2">
-                                    Filter Kategori
-                                </label>
-                                <select
-                                    value={filterCategory}
-                                    onChange={(e) =>
-                                        setFilterCategory(e.target.value)
-                                    }
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:border-green-500 focus:outline-none"
-                                >
-                                    <option value="">Semua Kategori</option>
-                                    {categories.map((cat) => (
-                                        <option
-                                            key={cat.id_kategori}
-                                            value={cat.id_kategori}
-                                        >
-                                            {cat.nama_kategori}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-                            <div>
-                                <label className="block text-xs font-semibold text-gray-700 mb-2">
-                                    Filter Tanggal
-                                </label>
-                                <input
-                                    type="date"
-                                    value={filterDate}
-                                    onChange={(e) =>
-                                        setFilterDate(e.target.value)
-                                    }
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:border-green-500 focus:outline-none"
-                                />
-                            </div>
-                            <div className="flex items-end">
-                                <button
-                                    onClick={() =>
-                                        (window.location.href = "/products")
-                                    }
-                                    className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold text-sm hover:bg-blue-700 flex items-center justify-center gap-2"
-                                >
-                                    <svg
-                                        xmlns="http://www.w3.org/2000/svg"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        strokeWidth={2}
-                                        stroke="currentColor"
-                                        className="size-4"
-                                    >
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            d="M13.5 16.875h3.375m0 0h3.375m-3.375 0V13.5m0 3.375v3.375M6 10.5h2.25a2.25 2.25 0 012.25 2.25v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25v-2.25A2.25 2.25 0 016 10.5zm0 9h2.25a2.25 2.25 0 012.25 2.25v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25v-2.25A2.25 2.25 0 016 19.5z"
+                            {/* Filter & Action Buttons */}
+                            <div className="mb-6 bg-white rounded-xl p-4 shadow-lg border border-gray-200">
+                                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                                    <div>
+                                        <label className="block text-xs font-semibold text-gray-700 mb-2">
+                                            Filter Produk
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={filterProduct}
+                                            onChange={(e) =>
+                                                setFilterProduct(e.target.value)
+                                            }
+                                            onKeyPress={(e) =>
+                                                e.key === "Enter" &&
+                                                handleFilterChange()
+                                            }
+                                            placeholder="Cari produk..."
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:border-green-500 focus:outline-none"
                                         />
-                                    </svg>
-                                    Kelola Produk
-                                </button>
-                            </div>
-                        </div>
-                        <div className="flex gap-3">
-                            <button
-                                onClick={handleFilterChange}
-                                className="px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold text-sm hover:bg-blue-700 flex items-center gap-2"
-                                title="Refresh data"
-                            >
-                                <svg
-                                    xmlns="http://www.w3.org/2000/svg"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                    strokeWidth={2}
-                                    stroke="currentColor"
-                                    className="size-4"
-                                >
-                                    <path
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        d="M16.023 9.348h4.992v-.001M2.25 18.75h4.5v-.001m-4.5 5.25h4.5v-.001m13.5-9h-4.5v.001M21.75 18.75h-4.5v-.001m-4.5 5.25h4.5v-.001m-4.5 5.25h-4.5m13.5-9h-4.5"
-                                    />
-                                    <path
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                                    />
-                                </svg>
-                                Refresh
-                            </button>
-                            <button
-                                onClick={handleExportPDF}
-                                className="px-4 py-2 bg-red-600 text-white rounded-lg font-semibold text-sm hover:bg-red-700 flex items-center gap-2"
-                            >
-                                <svg
-                                    xmlns="http://www.w3.org/2000/svg"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                    strokeWidth={2}
-                                    stroke="currentColor"
-                                    className="size-4"
-                                >
-                                    <path
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"
-                                    />
-                                </svg>
-                                Export PDF
-                            </button>
-                        </div>
-                    </div>
-
-                    {/* Inventory Table */}
-                    <div className="bg-white rounded-2xl shadow-xl border border-gray-200/50 overflow-hidden mb-6 backdrop-blur-sm">
-                        <div className="bg-gradient-to-r from-purple-50 via-white to-pink-50 px-6 py-5 border-b border-gray-200/50">
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-500 rounded-xl flex items-center justify-center shadow-lg">
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-semibold text-gray-700 mb-2">
+                                            Filter Kategori
+                                        </label>
+                                        <select
+                                            value={filterCategory}
+                                            onChange={(e) =>
+                                                setFilterCategory(
+                                                    e.target.value
+                                                )
+                                            }
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:border-green-500 focus:outline-none"
+                                        >
+                                            <option value="">
+                                                Semua Kategori
+                                            </option>
+                                            {categories.map((cat) => (
+                                                <option
+                                                    key={cat.id_kategori}
+                                                    value={cat.id_kategori}
+                                                >
+                                                    {cat.nama_kategori}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-semibold text-gray-700 mb-2">
+                                            Filter Tanggal
+                                        </label>
+                                        <input
+                                            type="date"
+                                            value={filterDate}
+                                            onChange={(e) =>
+                                                setFilterDate(e.target.value)
+                                            }
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:border-green-500 focus:outline-none"
+                                        />
+                                    </div>
+                                    <div className="flex items-end">
+                                        <button
+                                            onClick={() =>
+                                                (window.location.href =
+                                                    "/products")
+                                            }
+                                            className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold text-sm hover:bg-blue-700 flex items-center justify-center gap-2"
+                                        >
+                                            <svg
+                                                xmlns="http://www.w3.org/2000/svg"
+                                                fill="none"
+                                                viewBox="0 0 24 24"
+                                                strokeWidth={2}
+                                                stroke="currentColor"
+                                                className="size-4"
+                                            >
+                                                <path
+                                                    strokeLinecap="round"
+                                                    strokeLinejoin="round"
+                                                    d="M13.5 16.875h3.375m0 0h3.375m-3.375 0V13.5m0 3.375v3.375M6 10.5h2.25a2.25 2.25 0 012.25 2.25v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25v-2.25A2.25 2.25 0 016 10.5zm0 9h2.25a2.25 2.25 0 012.25 2.25v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25v-2.25A2.25 2.25 0 016 19.5z"
+                                                />
+                                            </svg>
+                                            Kelola Produk
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="flex gap-3">
+                                    <button
+                                        onClick={handleFilterChange}
+                                        className="px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold text-sm hover:bg-blue-700 flex items-center gap-2"
+                                        title="Refresh data"
+                                    >
                                         <svg
                                             xmlns="http://www.w3.org/2000/svg"
                                             fill="none"
                                             viewBox="0 0 24 24"
                                             strokeWidth={2}
                                             stroke="currentColor"
-                                            className="w-5 h-5 text-white"
+                                            className="size-4"
                                         >
                                             <path
                                                 strokeLinecap="round"
                                                 strokeLinejoin="round"
-                                                d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z"
+                                                d="M16.023 9.348h4.992v-.001M2.25 18.75h4.5v-.001m-4.5 5.25h4.5v-.001m13.5-9h-4.5v.001M21.75 18.75h-4.5v-.001m-4.5 5.25h4.5v-.001m-4.5 5.25h-4.5m13.5-9h-4.5"
+                                            />
+                                            <path
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
                                             />
                                         </svg>
-                                    </div>
-                                    <div>
-                                        <h3 className="text-lg font-bold text-gray-800">
-                                            Tabel Laporan Inventory
-                                        </h3>
-                                        <p className="text-sm text-gray-500">
-                                            {inventoryData?.items?.length || 0}{" "}
-                                            item tersedia
-                                        </p>
-                                    </div>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                                    <span className="text-xs text-gray-500 font-medium">
-                                        Live
-                                    </span>
+                                        Refresh
+                                    </button>
+                                    <button
+                                        onClick={handleExportPDF}
+                                        className="px-4 py-2 bg-red-600 text-white rounded-lg font-semibold text-sm hover:bg-red-700 flex items-center gap-2"
+                                    >
+                                        <svg
+                                            xmlns="http://www.w3.org/2000/svg"
+                                            fill="none"
+                                            viewBox="0 0 24 24"
+                                            strokeWidth={2}
+                                            stroke="currentColor"
+                                            className="size-4"
+                                        >
+                                            <path
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                                d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"
+                                            />
+                                        </svg>
+                                        Export PDF
+                                    </button>
                                 </div>
                             </div>
-                        </div>
-                        <div className="overflow-x-auto">
-                            <table className="w-full">
-                                <thead className="bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200/50">
-                                    <tr>
-                                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
-                                            <div className="flex items-center gap-2">
-                                                <span>Nama Produk</span>
-                                                <div className="w-1 h-1 bg-gray-400 rounded-full"></div>
-                                            </div>
-                                        </th>
-                                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
-                                            <div className="flex items-center gap-2">
-                                                <span>Kategori</span>
-                                                <div className="w-1 h-1 bg-gray-400 rounded-full"></div>
-                                            </div>
-                                        </th>
-                                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
-                                            <div className="flex items-center gap-2">
-                                                <span>Harga Beli</span>
-                                                <div className="w-1 h-1 bg-gray-400 rounded-full"></div>
-                                            </div>
-                                        </th>
-                                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
-                                            <div className="flex items-center gap-2">
-                                                <span>Harga Jual</span>
-                                                <div className="w-1 h-1 bg-gray-400 rounded-full"></div>
-                                            </div>
-                                        </th>
-                                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
-                                            <div className="flex items-center gap-2">
-                                                <span>Stok Awal</span>
-                                                <div className="w-1 h-1 bg-gray-400 rounded-full"></div>
-                                            </div>
-                                        </th>
-                                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
-                                            <div className="flex items-center gap-2">
-                                                <span>Stok Masuk</span>
-                                                <div className="w-1 h-1 bg-gray-400 rounded-full"></div>
-                                            </div>
-                                        </th>
-                                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
-                                            <div className="flex items-center gap-2">
-                                                <span>Stok Akhir</span>
-                                                <div className="w-1 h-1 bg-gray-400 rounded-full"></div>
-                                            </div>
-                                        </th>
-                                        <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
-                                            <div className="flex items-center gap-2">
-                                                <span>Status</span>
-                                                <div className="w-1 h-1 bg-gray-400 rounded-full"></div>
-                                            </div>
-                                        </th>
-                                        <th className="px-6 py-4 text-center text-xs font-bold text-gray-700 uppercase tracking-wider">
-                                            <div className="flex items-center justify-center gap-2">
-                                                <span>Aksi</span>
-                                                <div className="w-1 h-1 bg-gray-400 rounded-full"></div>
-                                            </div>
-                                        </th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-gray-200/50">
-                                    {loading ? (
-                                        <tr>
-                                            <td
-                                                colSpan="9"
-                                                className="px-6 py-12 text-center"
-                                            >
-                                                <div className="flex items-center justify-center gap-3">
-                                                    <div className="w-6 h-6 border-2 border-green-600 border-t-transparent rounded-full animate-spin"></div>
-                                                    <span className="text-gray-600">
-                                                        Memuat data...
-                                                    </span>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    ) : error ? (
-                                        <tr>
-                                            <td
-                                                colSpan="9"
-                                                className="px-6 py-12 text-center"
-                                            >
-                                                <div className="text-red-600">
-                                                    <p className="font-semibold">
-                                                        Terjadi kesalahan
-                                                    </p>
-                                                    <p className="text-sm">
-                                                        {error}
-                                                    </p>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    ) : !inventoryData?.items ||
-                                      inventoryData.items.length === 0 ? (
-                                        <tr>
-                                            <td
-                                                colSpan="9"
-                                                className="px-6 py-12 text-center"
-                                            >
-                                                <div className="text-gray-500">
-                                                    <p className="font-semibold">
-                                                        Tidak ada data
-                                                    </p>
-                                                    <p className="text-sm">
-                                                        Belum ada produk yang
-                                                        tersedia
-                                                    </p>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    ) : (
-                                        inventoryData?.items?.map(
-                                            (item, index) => (
-                                                <tr
-                                                    key={item.id}
-                                                    className={`group hover:bg-gradient-to-r hover:from-gray-50 hover:to-purple-50/30 transition-all duration-200 ${
-                                                        index % 2 === 0
-                                                            ? "bg-white"
-                                                            : "bg-gray-50/30"
-                                                    }`}
+
+                            {/* Inventory Table */}
+                            <div className="bg-white rounded-2xl shadow-xl border border-gray-200/50 overflow-hidden mb-6 backdrop-blur-sm">
+                                <div className="bg-gradient-to-r from-purple-50 via-white to-pink-50 px-6 py-5 border-b border-gray-200/50">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-500 rounded-xl flex items-center justify-center shadow-lg">
+                                                <svg
+                                                    xmlns="http://www.w3.org/2000/svg"
+                                                    fill="none"
+                                                    viewBox="0 0 24 24"
+                                                    strokeWidth={2}
+                                                    stroke="currentColor"
+                                                    className="w-5 h-5 text-white"
                                                 >
-                                                    <td className="px-6 py-5">
-                                                        <div className="flex items-center gap-3">
-                                                            <div className="w-8 h-8 bg-gradient-to-br from-purple-100 to-pink-200 rounded-lg flex items-center justify-center text-purple-600 font-bold text-sm">
-                                                                {item.name
-                                                                    .charAt(0)
-                                                                    .toUpperCase()}
-                                                            </div>
-                                                            <div>
-                                                                <div className="font-bold text-gray-800 text-sm">
-                                                                    {item.name}
-                                                                </div>
-                                                                <div className="text-xs text-gray-500">
-                                                                    ID:{" "}
-                                                                    {item.id}
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    </td>
-                                                    <td className="px-6 py-5">
-                                                        <span className="px-3 py-1.5 bg-gradient-to-r from-gray-100 to-gray-200 text-gray-700 rounded-full text-xs font-semibold border border-gray-200 shadow-sm">
-                                                            {item.category}
-                                                        </span>
-                                                    </td>
-                                                    <td className="px-6 py-5">
-                                                        <div className="text-sm font-bold text-gray-800">
-                                                            {formatCurrency(
-                                                                item.buy_price
-                                                            )}
-                                                        </div>
-                                                        <div className="text-xs text-gray-500">
-                                                            per {item.unit}
-                                                        </div>
-                                                    </td>
-                                                    <td className="px-6 py-5">
-                                                        <div className="text-sm font-bold text-green-600">
-                                                            {formatCurrency(
-                                                                item.sell_price
-                                                            )}
-                                                        </div>
-                                                        <div className="text-xs text-gray-500">
-                                                            per {item.unit}
-                                                        </div>
-                                                    </td>
-                                                    <td className="px-6 py-5">
-                                                        <div className="text-sm font-bold text-gray-800 bg-gray-100 px-3 py-1 rounded-lg text-center">
-                                                            {item.initial_stock}{" "}
-                                                            {item.unit}
-                                                        </div>
-                                                    </td>
-                                                    <td className="px-6 py-5">
-                                                        <div className="text-sm font-bold text-blue-600 bg-blue-100 px-3 py-1 rounded-lg text-center">
-                                                            {item.stock_in}{" "}
-                                                            {item.unit}
-                                                        </div>
-                                                    </td>
-                                                    <td className="px-6 py-5">
-                                                        <div className="text-sm font-bold text-green-600 bg-green-100 px-3 py-1 rounded-lg text-center">
-                                                            {item.final_stock}{" "}
-                                                            {item.unit}
-                                                        </div>
-                                                    </td>
-                                                    <td className="px-6 py-5">
-                                                        {getStatusBadge(
-                                                            item.status
-                                                        )}
-                                                    </td>
-                                                    <td className="px-6 py-5">
-                                                        <div className="flex items-center justify-center gap-1">
-                                                            <button
-                                                                onClick={() =>
-                                                                    handleEditItem(
-                                                                        item
-                                                                    )
-                                                                }
-                                                                className="p-2.5 text-green-600 hover:bg-green-50 rounded-xl transition-all duration-200 hover:scale-105 shadow-sm hover:shadow-md group/btn"
-                                                                title="Edit"
-                                                            >
-                                                                <svg
-                                                                    xmlns="http://www.w3.org/2000/svg"
-                                                                    fill="none"
-                                                                    viewBox="0 0 24 24"
-                                                                    strokeWidth={
-                                                                        2
-                                                                    }
-                                                                    stroke="currentColor"
-                                                                    className="size-4 group-hover/btn:scale-110 transition-transform"
-                                                                >
-                                                                    <path
-                                                                        strokeLinecap="round"
-                                                                        strokeLinejoin="round"
-                                                                        d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10"
-                                                                    />
-                                                                </svg>
-                                                            </button>
-                                                            <button
-                                                                onClick={() =>
-                                                                    handleDeleteItem(
-                                                                        item.id
-                                                                    )
-                                                                }
-                                                                className="p-2.5 text-red-600 hover:bg-red-50 rounded-xl transition-all duration-200 hover:scale-105 shadow-sm hover:shadow-md group/btn"
-                                                                title="Hapus"
-                                                            >
-                                                                <svg
-                                                                    xmlns="http://www.w3.org/2000/svg"
-                                                                    fill="none"
-                                                                    viewBox="0 0 24 24"
-                                                                    strokeWidth={
-                                                                        2
-                                                                    }
-                                                                    stroke="currentColor"
-                                                                    className="size-4 group-hover/btn:scale-110 transition-transform"
-                                                                >
-                                                                    <path
-                                                                        strokeLinecap="round"
-                                                                        strokeLinejoin="round"
-                                                                        d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"
-                                                                    />
-                                                                </svg>
-                                                            </button>
+                                                    <path
+                                                        strokeLinecap="round"
+                                                        strokeLinejoin="round"
+                                                        d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z"
+                                                    />
+                                                </svg>
+                                            </div>
+                                            <div>
+                                                <h3 className="text-lg font-bold text-gray-800">
+                                                    Tabel Laporan Inventory
+                                                </h3>
+                                                <p className="text-sm text-gray-500">
+                                                    {inventoryData?.items
+                                                        ?.length || 0}{" "}
+                                                    item tersedia
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                                            <span className="text-xs text-gray-500 font-medium">
+                                                Live
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="overflow-x-auto">
+                                    <table className="w-full">
+                                        <thead className="bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200/50">
+                                            <tr>
+                                                <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
+                                                    <div className="flex items-center gap-2">
+                                                        <span>Nama Produk</span>
+                                                        <div className="w-1 h-1 bg-gray-400 rounded-full"></div>
+                                                    </div>
+                                                </th>
+                                                <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
+                                                    <div className="flex items-center gap-2">
+                                                        <span>Kategori</span>
+                                                        <div className="w-1 h-1 bg-gray-400 rounded-full"></div>
+                                                    </div>
+                                                </th>
+                                                <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
+                                                    <div className="flex items-center gap-2">
+                                                        <span>Harga Beli</span>
+                                                        <div className="w-1 h-1 bg-gray-400 rounded-full"></div>
+                                                    </div>
+                                                </th>
+                                                <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
+                                                    <div className="flex items-center gap-2">
+                                                        <span>Harga Jual</span>
+                                                        <div className="w-1 h-1 bg-gray-400 rounded-full"></div>
+                                                    </div>
+                                                </th>
+                                                <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
+                                                    <div className="flex items-center gap-2">
+                                                        <span>Stok Awal</span>
+                                                        <div className="w-1 h-1 bg-gray-400 rounded-full"></div>
+                                                    </div>
+                                                </th>
+                                                <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
+                                                    <div className="flex items-center gap-2">
+                                                        <span>Stok Masuk</span>
+                                                        <div className="w-1 h-1 bg-gray-400 rounded-full"></div>
+                                                    </div>
+                                                </th>
+                                                <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
+                                                    <div className="flex items-center gap-2">
+                                                        <span>Stok Akhir</span>
+                                                        <div className="w-1 h-1 bg-gray-400 rounded-full"></div>
+                                                    </div>
+                                                </th>
+                                                <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
+                                                    <div className="flex items-center gap-2">
+                                                        <span>Status</span>
+                                                        <div className="w-1 h-1 bg-gray-400 rounded-full"></div>
+                                                    </div>
+                                                </th>
+                                                <th className="px-6 py-4 text-center text-xs font-bold text-gray-700 uppercase tracking-wider">
+                                                    <div className="flex items-center justify-center gap-2">
+                                                        <span>Aksi</span>
+                                                        <div className="w-1 h-1 bg-gray-400 rounded-full"></div>
+                                                    </div>
+                                                </th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-200/50">
+                                            {loading ? (
+                                                <tr>
+                                                    <td
+                                                        colSpan="9"
+                                                        className="px-6 py-12 text-center"
+                                                    >
+                                                        <div className="flex items-center justify-center gap-3">
+                                                            <div className="w-6 h-6 border-2 border-green-600 border-t-transparent rounded-full animate-spin"></div>
+                                                            <span className="text-gray-600">
+                                                                Memuat data...
+                                                            </span>
                                                         </div>
                                                     </td>
                                                 </tr>
-                                            )
-                                        )
-                                    )}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
+                                            ) : error ? (
+                                                <tr>
+                                                    <td
+                                                        colSpan="9"
+                                                        className="px-6 py-12 text-center"
+                                                    >
+                                                        <div className="text-red-600">
+                                                            <p className="font-semibold">
+                                                                Terjadi
+                                                                kesalahan
+                                                            </p>
+                                                            <p className="text-sm">
+                                                                {error}
+                                                            </p>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            ) : !inventoryData?.items ||
+                                              inventoryData.items.length ===
+                                                  0 ? (
+                                                <tr>
+                                                    <td
+                                                        colSpan="9"
+                                                        className="px-6 py-12 text-center"
+                                                    >
+                                                        <div className="text-gray-500">
+                                                            <p className="font-semibold">
+                                                                Tidak ada data
+                                                            </p>
+                                                            <p className="text-sm">
+                                                                Belum ada produk
+                                                                yang tersedia
+                                                            </p>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            ) : (
+                                                inventoryData?.items?.map(
+                                                    (item, index) => (
+                                                        <tr
+                                                            key={item.id}
+                                                            className={`group hover:bg-gradient-to-r hover:from-gray-50 hover:to-purple-50/30 transition-all duration-200 ${
+                                                                index % 2 === 0
+                                                                    ? "bg-white"
+                                                                    : "bg-gray-50/30"
+                                                            }`}
+                                                        >
+                                                            <td className="px-6 py-5">
+                                                                <div className="flex items-center gap-3">
+                                                                    <div className="w-8 h-8 bg-gradient-to-br from-purple-100 to-pink-200 rounded-lg flex items-center justify-center text-purple-600 font-bold text-sm">
+                                                                        {item.name
+                                                                            .charAt(
+                                                                                0
+                                                                            )
+                                                                            .toUpperCase()}
+                                                                    </div>
+                                                                    <div>
+                                                                        <div className="font-bold text-gray-800 text-sm">
+                                                                            {
+                                                                                item.name
+                                                                            }
+                                                                        </div>
+                                                                        <div className="text-xs text-gray-500">
+                                                                            ID:{" "}
+                                                                            {
+                                                                                item.id
+                                                                            }
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            </td>
+                                                            <td className="px-6 py-5">
+                                                                <span className="px-3 py-1.5 bg-gradient-to-r from-gray-100 to-gray-200 text-gray-700 rounded-full text-xs font-semibold border border-gray-200 shadow-sm">
+                                                                    {
+                                                                        item.category
+                                                                    }
+                                                                </span>
+                                                            </td>
+                                                            <td className="px-6 py-5">
+                                                                <div className="text-sm font-bold text-gray-800">
+                                                                    {formatCurrency(
+                                                                        item.buy_price
+                                                                    )}
+                                                                </div>
+                                                                <div className="text-xs text-gray-500">
+                                                                    per{" "}
+                                                                    {item.unit}
+                                                                </div>
+                                                            </td>
+                                                            <td className="px-6 py-5">
+                                                                <div className="text-sm font-bold text-green-600">
+                                                                    {formatCurrency(
+                                                                        item.sell_price
+                                                                    )}
+                                                                </div>
+                                                                <div className="text-xs text-gray-500">
+                                                                    per{" "}
+                                                                    {item.unit}
+                                                                </div>
+                                                            </td>
+                                                            <td className="px-6 py-5">
+                                                                <div className="text-sm font-bold text-gray-800 bg-gray-100 px-3 py-1 rounded-lg text-center">
+                                                                    {
+                                                                        item.initial_stock
+                                                                    }{" "}
+                                                                    {item.unit}
+                                                                </div>
+                                                            </td>
+                                                            <td className="px-6 py-5">
+                                                                <div className="text-sm font-bold text-blue-600 bg-blue-100 px-3 py-1 rounded-lg text-center">
+                                                                    {
+                                                                        item.stock_in
+                                                                    }{" "}
+                                                                    {item.unit}
+                                                                </div>
+                                                            </td>
+                                                            <td className="px-6 py-5">
+                                                                <div className="text-sm font-bold text-green-600 bg-green-100 px-3 py-1 rounded-lg text-center">
+                                                                    {
+                                                                        item.final_stock
+                                                                    }{" "}
+                                                                    {item.unit}
+                                                                </div>
+                                                            </td>
+                                                            <td className="px-6 py-5">
+                                                                {getStatusBadge(
+                                                                    item.status
+                                                                )}
+                                                            </td>
+                                                            <td className="px-6 py-5">
+                                                                <div className="flex items-center justify-center gap-1">
+                                                                    <button
+                                                                        onClick={() =>
+                                                                            handleEditItem(
+                                                                                item
+                                                                            )
+                                                                        }
+                                                                        className="p-2.5 text-green-600 hover:bg-green-50 rounded-xl transition-all duration-200 hover:scale-105 shadow-sm hover:shadow-md group/btn"
+                                                                        title="Edit"
+                                                                    >
+                                                                        <svg
+                                                                            xmlns="http://www.w3.org/2000/svg"
+                                                                            fill="none"
+                                                                            viewBox="0 0 24 24"
+                                                                            strokeWidth={
+                                                                                2
+                                                                            }
+                                                                            stroke="currentColor"
+                                                                            className="size-4 group-hover/btn:scale-110 transition-transform"
+                                                                        >
+                                                                            <path
+                                                                                strokeLinecap="round"
+                                                                                strokeLinejoin="round"
+                                                                                d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10"
+                                                                            />
+                                                                        </svg>
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() =>
+                                                                            handleDeleteItem(
+                                                                                item.id
+                                                                            )
+                                                                        }
+                                                                        className="p-2.5 text-red-600 hover:bg-red-50 rounded-xl transition-all duration-200 hover:scale-105 shadow-sm hover:shadow-md group/btn"
+                                                                        title="Hapus"
+                                                                    >
+                                                                        <svg
+                                                                            xmlns="http://www.w3.org/2000/svg"
+                                                                            fill="none"
+                                                                            viewBox="0 0 24 24"
+                                                                            strokeWidth={
+                                                                                2
+                                                                            }
+                                                                            stroke="currentColor"
+                                                                            className="size-4 group-hover/btn:scale-110 transition-transform"
+                                                                        >
+                                                                            <path
+                                                                                strokeLinecap="round"
+                                                                                strokeLinejoin="round"
+                                                                                d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"
+                                                                            />
+                                                                        </svg>
+                                                                    </button>
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                    )
+                                                )
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </>
+                    )}
                 </div>
             </div>
         </div>
