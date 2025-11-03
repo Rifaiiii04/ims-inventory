@@ -152,6 +152,7 @@ function TransactionDetailModal({ transaction, onClose }) {
                                     <div className="flex-1">
                                         <p className="font-medium text-gray-800 text-sm">
                                             {detail.variant?.nama_varian ||
+                                                detail.produk?.nama_produk ||
                                                 "Unknown Item"}
                                         </p>
                                         <p className="text-xs text-gray-500">

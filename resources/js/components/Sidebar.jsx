@@ -28,12 +28,30 @@ function Sidebar() {
     const [activeRoute, setActiveRoute] = useState(location.pathname);
 
     // Toggle specific menu with useCallback
+    // Prevent closing if submenu has active item
     const toggleMenu = useCallback((menuId) => {
-        setOpenMenus((prev) => ({
-            ...prev,
-            [menuId]: !prev[menuId],
-        }));
-    }, []);
+        setOpenMenus((prev) => {
+            // Check if this menu has active submenu item
+            const filteredMenus = getFilteredMenu(user?.level || "admin");
+            const menu = filteredMenus.find((m) => m.id === menuId);
+            
+            if (menu && menu.type === "submenu" && Array.isArray(menu.submenu)) {
+                const hasActiveItem = menu.submenu.some((item) => {
+                    return activeRoute === item.path || activeRoute.startsWith(item.path + "/");
+                });
+                
+                // Don't allow closing if has active item
+                if (hasActiveItem && prev[menuId]) {
+                    return prev; // Keep it open
+                }
+            }
+            
+            return {
+                ...prev,
+                [menuId]: !prev[menuId],
+            };
+        });
+    }, [user, activeRoute]);
 
     // Toggle sidebar collapse with proper state management
     const toggleSidebar = useCallback(() => {
@@ -77,13 +95,45 @@ function Sidebar() {
         ChartBarIcon: <ChartBarIcon />,
     }), []);
 
+    // Auto-open submenu if it contains active route
+    useEffect(() => {
+        if (!user) return;
+        
+        const filteredMenus = getFilteredMenu(user?.level || "admin");
+        const shouldBeOpen = {};
+        
+        filteredMenus.forEach((menu) => {
+            if (menu.type === "submenu" && Array.isArray(menu.submenu)) {
+                // Check if any submenu item is active
+                const hasActiveItem = menu.submenu.some((item) => {
+                    return activeRoute === item.path || activeRoute.startsWith(item.path + "/");
+                });
+                
+                if (hasActiveItem) {
+                    shouldBeOpen[menu.id] = true;
+                }
+            }
+        });
+        
+        // Merge dengan state existing, jangan tutup yang sudah terbuka kecuali tidak ada item aktif
+        setOpenMenus((prev) => {
+            const newState = { ...prev };
+            Object.keys(shouldBeOpen).forEach((menuId) => {
+                if (shouldBeOpen[menuId]) {
+                    newState[menuId] = true;
+                }
+            });
+            return newState;
+        });
+    }, [activeRoute, user]);
+
     // Render menu items based on config with memoization
     const menuItems = useMemo(() => {
         if (!user) return [];
 
-        // Check if route is active
+        // Check if route is active (support sub-routes)
         const isRouteActive = (path) => {
-            return activeRoute === path;
+            return activeRoute === path || activeRoute.startsWith(path + "/");
         };
 
         // Check if any submenu item is active
@@ -116,12 +166,15 @@ function Sidebar() {
                     />
                 );
             } else if (menu.type === "submenu" && Array.isArray(menu.submenu)) {
+                // Auto-open if has active item, or keep current state
+                const shouldBeOpen = openMenus[menu.id] || isSubmenuActive(menu.submenu);
+                
                 items.push(
                     <MenuItemWithSubmenu
                         key={`menu-${menu.id}`}
                         icon={iconMap[menu.icon]}
                         label={menu.label}
-                        isOpen={openMenus[menu.id] || false}
+                        isOpen={shouldBeOpen}
                         onToggle={() => toggleMenu(menu.id)}
                         isCollapsed={isCollapsed}
                         isActive={isSubmenuActive(menu.submenu)}

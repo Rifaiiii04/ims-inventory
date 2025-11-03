@@ -550,7 +550,17 @@ class TransactionController extends Controller
     public function show($id)
     {
         try {
-            $transaction = TblTransaksi::with(['user', 'details.variant.produk'])
+            $transaction = TblTransaksi::with([
+                'user',
+                'details' => function($query) {
+                    $query->with([
+                        'produk.kategori',
+                        'varian' => function($q) {
+                            $q->with('produk.kategori');
+                        }
+                    ]);
+                }
+            ])
                 ->find($id);
 
             if (!$transaction) {
@@ -566,6 +576,12 @@ class TransactionController extends Controller
             ], 200);
 
         } catch (\Exception $e) {
+            Log::error('Error fetching transaction detail:', [
+                'transaction_id' => $id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
             return response()->json([
                 'success' => false,
                 'message' => 'Terjadi kesalahan saat mengambil data transaksi',

@@ -12,14 +12,32 @@ function PaymentModal({ total, onProcess, onClose }) {
         }).format(price);
     };
 
-    const change = cashAmount ? parseFloat(cashAmount) - total : 0;
+    // Format cash amount for display with Rp prefix
+    const formatCashAmount = (value) => {
+        if (!value) return "";
+        // Remove all non-digit characters
+        const numericValue = value.replace(/\D/g, "");
+        if (!numericValue) return "";
+        // Format with thousand separators
+        return "Rp " + numericValue.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+    };
+
+    // Parse cash amount from formatted string
+    const parseCashAmount = (value) => {
+        if (!value) return "";
+        // Remove Rp and all non-digit characters
+        return value.replace(/Rp\s?/g, "").replace(/\D/g, "");
+    };
+
+    const numericCashAmount = cashAmount ? parseFloat(parseCashAmount(cashAmount)) : 0;
+    const change = numericCashAmount ? numericCashAmount - total : 0;
 
     const handleSubmit = (e) => {
         e.preventDefault();
 
         if (
             paymentMethod === "tunai" &&
-            (!cashAmount || parseFloat(cashAmount) < total)
+            (!cashAmount || numericCashAmount < total)
         ) {
             alert("Jumlah tunai tidak mencukupi");
             return;
@@ -33,9 +51,18 @@ function PaymentModal({ total, onProcess, onClose }) {
         onProcess({
             method: paymentMethod,
             cashAmount:
-                paymentMethod === "tunai" ? parseFloat(cashAmount) : null,
+                paymentMethod === "tunai" ? numericCashAmount : null,
             transferProof: paymentMethod === "transfer" ? transferProof : null,
         });
+    };
+
+    const handleCashAmountChange = (e) => {
+        const inputValue = e.target.value;
+        // Remove existing formatting to get raw input
+        const rawValue = parseCashAmount(inputValue);
+        // Format with Rp prefix
+        const formatted = rawValue ? formatCashAmount(rawValue) : "";
+        setCashAmount(formatted);
     };
 
     return (
@@ -197,10 +224,10 @@ function PaymentModal({ total, onProcess, onClose }) {
                                 Jumlah Tunai
                             </label>
                             <input
-                                type="number"
+                                type="text"
                                 value={cashAmount}
-                                onChange={(e) => setCashAmount(e.target.value)}
-                                placeholder="Masukkan jumlah tunai"
+                                onChange={handleCashAmountChange}
+                                placeholder="Rp 0"
                                 className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
                                 required
                             />

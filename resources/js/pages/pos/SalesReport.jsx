@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import Sidebar from "../../components/Sidebar";
 import TopBar from "../../components/TopBar";
+import TransactionDetailModal from "../../components/pos/TransactionDetailModal";
 import { useSalesReport } from "../../hooks/useSalesReport";
 import {
     LineChart,
@@ -25,6 +26,9 @@ function SalesReport() {
     const [filterCategory, setFilterCategory] = useState("");
     const [filterDate, setFilterDate] = useState("");
     const [filterPayment, setFilterPayment] = useState("");
+    const [selectedTransaction, setSelectedTransaction] = useState(null);
+    const [showDetailModal, setShowDetailModal] = useState(false);
+    const [loadingDetail, setLoadingDetail] = useState(false);
 
     // Use sales report hook to fetch data from database
     const {
@@ -71,10 +75,41 @@ function SalesReport() {
         });
     };
 
+    const handleViewDetail = async (transactionId) => {
+        setLoadingDetail(true);
+        try {
+            const token = localStorage.getItem("token");
+            const response = await fetch(
+                `${import.meta.env.VITE_API_URL || "http://127.0.0.1:8000/api"}/transactions/${transactionId}`,
+                {
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                        "Content-Type": "application/json",
+                    },
+                }
+            );
+
+            if (!response.ok) {
+                throw new Error("Failed to fetch transaction detail");
+            }
+
+            const result = await response.json();
+            if (result.success && result.data) {
+                setSelectedTransaction(result.data);
+                setShowDetailModal(true);
+            }
+        } catch (error) {
+            console.error("Error fetching transaction detail:", error);
+            alert("Gagal mengambil detail transaksi");
+        } finally {
+            setLoadingDetail(false);
+        }
+    };
+
     // Get filtered transactions from database
     const filteredTransactions = salesData?.recent_transactions?.filter((transaction) => {
         const transactionProduct = transaction.items?.[0]?.product || "";
-        const transactionCategory = ""; // Category will be from transaction details
+        const transactionCategory = transaction.items?.[0]?.category || "";
         const transactionDate = transaction.date || "";
         const transactionPayment = transaction.payment_method || "";
 
@@ -748,9 +783,13 @@ function SalesReport() {
                                                                 </div>
                                                             </td>
                                                             <td className="px-6 py-4 whitespace-nowrap">
-                                                                <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
-                                                                    -
-                                                                </span>
+                                                                {firstItem?.category && firstItem.category !== '-' ? (
+                                                                    <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
+                                                                        {firstItem.category}
+                                                                    </span>
+                                                                ) : (
+                                                                    <span className="text-sm text-gray-400">-</span>
+                                                                )}
                                                             </td>
                                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                                                                 {transaction.items?.reduce((sum, item) => sum + (item.quantity || 0), 0) || 0}
@@ -787,7 +826,13 @@ function SalesReport() {
                                                                 {transaction.cashier || "Admin"}
                                                             </td>
                                                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                                                -
+                                                                <button
+                                                                    onClick={() => handleViewDetail(transaction.id)}
+                                                                    disabled={loadingDetail}
+                                                                    className="px-3 py-1.5 text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                                                >
+                                                                    {loadingDetail ? "Loading..." : "Lihat Detail"}
+                                                                </button>
                                                             </td>
                                                         </tr>
                                                     );
@@ -801,6 +846,17 @@ function SalesReport() {
                     </div>
                 </div>
             </div>
+
+            {/* Transaction Detail Modal */}
+            {showDetailModal && selectedTransaction && (
+                <TransactionDetailModal
+                    transaction={selectedTransaction}
+                    onClose={() => {
+                        setShowDetailModal(false);
+                        setSelectedTransaction(null);
+                    }}
+                />
+            )}
         </>
     );
 }

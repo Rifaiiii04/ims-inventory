@@ -1,4 +1,5 @@
 import React from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { ChevronDownIcon } from "./Icons";
 
 function MenuItemWithSubmenu({
@@ -89,14 +90,30 @@ function MenuItemWithSubmenu({
                 )}
             </div>
 
-            {/* Submenu */}
-            <div
-                className={`overflow-hidden transition-all duration-300 ease-in-out ${
-                    isOpen ? "max-h-96 opacity-100 mt-2" : "max-h-0 opacity-0"
-                }`}
-            >
-                <ul className="ml-6 space-y-1">{children}</ul>
-            </div>
+            {/* Submenu with Framer Motion Animation */}
+            <AnimatePresence initial={false}>
+                {isOpen && (
+                    <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: "auto", opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{
+                            duration: 0.3,
+                            ease: [0.4, 0.0, 0.2, 1],
+                        }}
+                        className="overflow-hidden"
+                    >
+                        <motion.ul
+                            className="ml-6 space-y-1 mt-2"
+                            initial={{ y: -10 }}
+                            animate={{ y: 0 }}
+                            transition={{ duration: 0.2, delay: 0.1 }}
+                        >
+                            {children}
+                        </motion.ul>
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </li>
     );
 }

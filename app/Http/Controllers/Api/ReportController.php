@@ -16,6 +16,22 @@ use Carbon\Carbon;
 class ReportController extends Controller
 {
     /**
+     * Map payment method from database value to display name
+     */
+    private function mapPaymentMethod($method)
+    {
+        $methodMap = [
+            'cash' => 'Tunai',
+            'qris' => 'QRIS',
+            'lainnya' => 'Transfer',
+            'tunai' => 'Tunai',
+            'transfer' => 'Transfer'
+        ];
+        
+        return $methodMap[strtolower($method ?? 'cash')] ?? 'Tunai';
+    }
+
+    /**
      * Get sales report data
      */
     public function getSalesReport(Request $request)
@@ -70,7 +86,17 @@ class ReportController extends Controller
 
             // Apply payment method filter
             if ($paymentFilter) {
-                $transactionsQuery->where('metode_pembayaran', $paymentFilter);
+                // Map filter value to database value
+                $paymentFilterMap = [
+                    'Tunai' => 'cash',
+                    'QRIS' => 'qris',
+                    'Transfer' => 'lainnya',
+                    'tunai' => 'cash',
+                    'qris' => 'qris',
+                    'transfer' => 'lainnya'
+                ];
+                $dbPaymentMethod = $paymentFilterMap[$paymentFilter] ?? $paymentFilter;
+                $transactionsQuery->where('metode_bayar', $dbPaymentMethod);
             }
 
             $transactions = $transactionsQuery->orderBy('tanggal_waktu', 'desc')->get();
@@ -78,12 +104,12 @@ class ReportController extends Controller
             // Calculate summary data from fresh database queries
             $totalTransactions = $transactions->count();
             
-            // Calculate total revenue from transaction total_harga
+            // Calculate total revenue from transaction total_transaksi
             $totalRevenue = $transactions->sum(function($transaction) {
-                return (float)($transaction->total_harga ?? 0);
+                return (float)($transaction->total_transaksi ?? 0);
             });
             
-            // Alternative: calculate from details if total_harga is 0
+            // Alternative: calculate from details if total_transaksi is 0
             if ($totalRevenue == 0) {
                 $totalRevenue = $transactions->sum(function($transaction) {
                     return $transaction->details->sum(function($detail) {
@@ -128,7 +154,7 @@ class ReportController extends Controller
             // Get recent transactions with correct total calculation
             $recentTransactions = $transactions->take(10)->map(function($transaction) {
                 // Calculate total from transaction or sum from details
-                $transactionTotal = (float)($transaction->total_harga ?? 0);
+                $transactionTotal = (float)($transaction->total_transaksi ?? 0);
                 if ($transactionTotal == 0) {
                     $transactionTotal = $transaction->details->sum(function($detail) {
                         return (float)($detail->total_harga ?? ($detail->harga_satuan * $detail->jumlah));
@@ -140,13 +166,15 @@ class ReportController extends Controller
                     'date' => $transaction->tanggal_waktu->format('Y-m-d'),
                     'time' => $transaction->tanggal_waktu->format('H:i'),
                     'total' => $transactionTotal,
-                    'payment_method' => $transaction->metode_pembayaran ?? 'Tunai',
+                    'payment_method' => $this->mapPaymentMethod($transaction->metode_bayar ?? 'cash'),
                     'cashier' => 'Admin', // You can add cashier field later
                     'items' => $transaction->details->map(function($detail) {
                         $detailTotal = (float)($detail->total_harga ?? ($detail->harga_satuan * $detail->jumlah));
                         return [
                             'product' => $detail->produk->nama_produk ?? 'Unknown',
                             'variant' => $detail->varian->nama_varian ?? 'Default',
+                            'category' => $detail->produk->kategori->nama_kategori ?? '-',
+                            'category_id' => $detail->produk->kategori->id_kategori ?? null,
                             'quantity' => (int)($detail->jumlah ?? 0),
                             'unit_price' => (float)($detail->harga_satuan ?? 0),
                             'total_price' => $detailTotal
@@ -821,7 +849,11 @@ class ReportController extends Controller
         $paymentMethods = [];
         
         foreach ($transactions as $transaction) {
-            $method = $transaction->metode_pembayaran ?? 'Tunai';
+            // Get payment method from database field metode_bayar
+            $dbMethod = $transaction->metode_bayar ?? 'cash';
+            // Map to display name
+            $method = $this->mapPaymentMethod($dbMethod);
+            
             if (!isset($paymentMethods[$method])) {
                 $paymentMethods[$method] = [
                     'name' => $method,
@@ -830,8 +862,8 @@ class ReportController extends Controller
                 ];
             }
             
-            // Calculate revenue from total_harga or sum from details
-            $transactionRevenue = (float)($transaction->total_harga ?? 0);
+            // Calculate revenue from total_transaksi or sum from details
+            $transactionRevenue = (float)($transaction->total_transaksi ?? 0);
             if ($transactionRevenue == 0) {
                 $transactionRevenue = $transaction->details->sum(function($detail) {
                     return (float)($detail->total_harga ?? ($detail->harga_satuan * $detail->jumlah));
