@@ -2,6 +2,7 @@
 import json
 import traceback
 import os
+import re
 from flask import Flask, request, jsonify, send_file
 import easyocr
 import numpy as np
@@ -137,10 +138,21 @@ def classify_with_gemini(text_list, image_file=None):
                 result_json = json.loads(cleaned_text)
                 items = []
                 for item in result_json:
+                    # Handle harga null/None - convert to 0 or keep as null
+                    harga_value = item.get('harga', None)
+                    if harga_value is None or harga_value == 'null' or harga_value == '':
+                        harga_value = 0
+                    elif isinstance(harga_value, str):
+                        # Remove non-numeric characters and convert to int
+                        harga_clean = re.sub(r'[^0-9]', '', str(harga_value))
+                        harga_value = int(harga_clean) if harga_clean else 0
+                    else:
+                        harga_value = int(harga_value) if harga_value else 0
+                    
                     items.append({
                         'nama_barang': item.get('nama_barang', ''),
                         'jumlah': item.get('jumlah', '1'),
-                        'harga': item.get('harga', '0'),
+                        'harga': harga_value,
                         'unit': 'pcs',
                         'category_id': 1,
                         'minStock': 10
@@ -160,10 +172,21 @@ def classify_with_gemini(text_list, image_file=None):
                         result_json = json.loads(json_str)
                         items = []
                         for item in result_json:
+                            # Handle harga null/None - convert to 0 or keep as null
+                            harga_value = item.get('harga', None)
+                            if harga_value is None or harga_value == 'null' or harga_value == '':
+                                harga_value = 0
+                            elif isinstance(harga_value, str):
+                                # Remove non-numeric characters and convert to int
+                                harga_clean = re.sub(r'[^0-9]', '', str(harga_value))
+                                harga_value = int(harga_clean) if harga_clean else 0
+                            else:
+                                harga_value = int(harga_value) if harga_value else 0
+                            
                             items.append({
                                 'nama_barang': item.get('nama_barang', ''),
                                 'jumlah': item.get('jumlah', '1'),
-                                'harga': item.get('harga', '0'),
+                                'harga': harga_value,
                                 'unit': 'pcs',
                                 'category_id': 1,
                                 'minStock': 10

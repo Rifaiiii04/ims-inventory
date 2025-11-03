@@ -53,12 +53,51 @@ class OcrController extends Controller
             // Prepare image file for OCR service
             $imageFile = $request->file('image');
             
-            // Send request to OCR service
-            $response = Http::timeout(30)->attach(
-                'image', 
-                file_get_contents($imageFile->getPathname()),
-                $imageFile->getClientOriginalName()
-            )->post($this->ocrServiceUrl . '/process-photo');
+            // Send request to OCR service with increased timeout (60 seconds for OCR processing)
+            try {
+                $response = Http::timeout(60)->attach(
+                    'image', 
+                    file_get_contents($imageFile->getPathname()),
+                    $imageFile->getClientOriginalName()
+                )->post($this->ocrServiceUrl . '/process-photo');
+            } catch (\Exception $e) {
+                // Handle HTTP client errors including timeout
+                Log::error('OCR service request error', [
+                    'error' => $e->getMessage(),
+                    'exception_type' => get_class($e)
+                ]);
+                
+                $errorMessage = $e->getMessage();
+                
+                // Check for timeout errors
+                if (str_contains($errorMessage, 'timed out') || 
+                    str_contains($errorMessage, 'timeout') ||
+                    str_contains($errorMessage, 'Operation timed out') ||
+                    str_contains($errorMessage, 'cURL error 28')) {
+                    return response()->json([
+                        'success' => false,
+                        'error' => 'OCR processing timeout',
+                        'message' => 'Proses OCR memakan waktu terlalu lama (lebih dari 60 detik). Pastikan Python OCR service berjalan di port 5000. Silakan coba lagi dengan foto yang lebih kecil atau jelas, atau tunggu beberapa saat.'
+                    ], 504);
+                }
+                
+                // Check for connection errors
+                if (str_contains($errorMessage, 'Connection refused') ||
+                    str_contains($errorMessage, 'Failed to connect') ||
+                    str_contains($errorMessage, 'could not resolve host')) {
+                    return response()->json([
+                        'success' => false,
+                        'error' => 'OCR service not available',
+                        'message' => 'Tidak dapat menghubungi OCR service. Pastikan Python OCR service berjalan di port 5000.'
+                    ], 503);
+                }
+                
+                return response()->json([
+                    'success' => false,
+                    'error' => 'OCR service error',
+                    'message' => 'Gagal menghubungi OCR service: ' . $errorMessage
+                ], 503);
+            }
             
             if (!$response->successful()) {
                 Log::error('OCR service error', [
@@ -75,10 +114,23 @@ class OcrController extends Controller
             
             $ocrData = $response->json();
             
+            if (!$ocrData || !isset($ocrData['success'])) {
+                Log::error('OCR service invalid response', [
+                    'response' => $ocrData
+                ]);
+                
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Invalid OCR response',
+                    'message' => 'OCR service mengembalikan respons yang tidak valid'
+                ], 500);
+            }
+            
             if (!$ocrData['success']) {
                 return response()->json([
                     'success' => false,
-                    'error' => $ocrData['error'] ?? 'OCR processing failed'
+                    'error' => $ocrData['error'] ?? 'OCR processing failed',
+                    'message' => $ocrData['message'] ?? 'OCR processing failed'
                 ], 500);
             }
             
@@ -98,6 +150,15 @@ class OcrController extends Controller
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
             ]);
+            
+            // Check if it's a timeout error
+            if (str_contains($e->getMessage(), 'timed out') || str_contains($e->getMessage(), 'timeout')) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'OCR processing timeout',
+                    'message' => 'Proses OCR memakan waktu terlalu lama. Silakan coba lagi dengan foto yang lebih kecil atau jelas.'
+                ], 504);
+            }
             
             return response()->json([
                 'success' => false,
@@ -146,8 +207,8 @@ class OcrController extends Controller
         $validatedItems = [];
         
         foreach ($items as $item) {
-            // Validate required fields
-            if (empty($item['nama_barang']) || empty($item['harga'])) {
+            // Only skip if nama_barang is empty (harga can be null/empty, user can fill it later)
+            if (empty($item['nama_barang'])) {
                 continue;
             }
             
@@ -155,14 +216,16 @@ class OcrController extends Controller
             $validatedItem = [
                 'nama_barang' => trim($item['nama_barang']),
                 'jumlah' => $this->validateQuantity($item['jumlah'] ?? '1'),
-                'harga' => $this->validatePrice($item['harga']),
+                'harga' => !empty($item['harga']) && $item['harga'] !== 'null' 
+                    ? $this->validatePrice($item['harga']) 
+                    : 0, // Default to 0 if harga is null/empty
                 'unit' => $this->validateUnit($item['unit'] ?? 'pcs'),
                 'category_id' => $this->validateCategoryId($item['category_id'] ?? 1),
                 'minStock' => $this->validateMinStock($item['minStock'] ?? 10)
             ];
             
-            // Only add if valid
-            if ($validatedItem['nama_barang'] && $validatedItem['harga'] > 0) {
+            // Only add if nama_barang is not empty (harga can be 0, user can fill it later)
+            if (!empty($validatedItem['nama_barang'])) {
                 $validatedItems[] = $validatedItem;
             }
         }
@@ -184,8 +247,21 @@ class OcrController extends Controller
      */
     private function validatePrice($price): int
     {
+        // Handle null, empty, or string 'null'
+        if (empty($price) || $price === 'null' || $price === null) {
+            return 0;
+        }
+        
+        // Convert to string for processing
+        $priceStr = (string) $price;
+        
         // Remove non-numeric characters except dots and commas
-        $cleanPrice = preg_replace('/[^0-9.,]/', '', $price);
+        $cleanPrice = preg_replace('/[^0-9.,]/', '', $priceStr);
+        
+        // If empty after cleaning, return 0
+        if (empty($cleanPrice)) {
+            return 0;
+        }
         
         // Handle Indonesian number format (1.500.000 or 1,500,000)
         if (strpos($cleanPrice, '.') !== false && strpos($cleanPrice, ',') !== false) {
