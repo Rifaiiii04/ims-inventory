@@ -138,8 +138,10 @@ export const useTransaction = () => {
         // Find product parent if not provided
         let productParent = product;
         if (!productParent) {
-            productParent = products.find(p => 
-                p.variants && p.variants.some(v => v.id_varian === variant.id_varian)
+            productParent = products.find(
+                (p) =>
+                    p.variants &&
+                    p.variants.some((v) => v.id_varian === variant.id_varian)
             );
         }
 
@@ -147,12 +149,12 @@ export const useTransaction = () => {
             setCart(
                 cart.map((item) =>
                     item.variant.id_varian === variant.id_varian
-                        ? { 
-                            ...item, 
-                            quantity: item.quantity + quantity,
-                            subtotal: item.price * (item.quantity + quantity),
-                            product: productParent || item.product
-                        }
+                        ? {
+                              ...item,
+                              quantity: item.quantity + quantity,
+                              subtotal: item.price * (item.quantity + quantity),
+                              product: productParent || item.product,
+                          }
                         : item
                 )
             );
@@ -207,24 +209,30 @@ export const useTransaction = () => {
             const items = cart.map((item) => {
                 // Ensure variant_id is sent correctly - can be integer or string (product_*)
                 let variantId = item.variant.id_varian;
-                
+
                 // If it's a string that doesn't start with 'product_', keep it as is (might be converted)
                 // If it's numeric string, convert to number, otherwise keep as string
-                if (typeof variantId === 'string' && !variantId.startsWith('product_')) {
+                if (
+                    typeof variantId === "string" &&
+                    !variantId.startsWith("product_")
+                ) {
                     // If it's a numeric string, convert to number for normal variants
                     const numericId = parseInt(variantId, 10);
-                    if (!isNaN(numericId) && numericId.toString() === variantId) {
+                    if (
+                        !isNaN(numericId) &&
+                        numericId.toString() === variantId
+                    ) {
                         variantId = numericId;
                     }
                 }
-                
+
                 return {
                     variant_id: variantId,
                     quantity: parseFloat(item.quantity) || 1,
                 };
             });
 
-            console.log('Sending transaction data:', {
+            console.log("Sending transaction data:", {
                 items,
                 payment_method: paymentData.method,
                 cash_amount: paymentData.cashAmount,
@@ -304,6 +312,9 @@ export const useTransactionHistory = () => {
                         params.append("end_date", filters.endDate);
                     if (filters.cashierId)
                         params.append("cashier_id", filters.cashierId);
+                    if (filters.paymentMethod)
+                        params.append("payment_method", filters.paymentMethod);
+                    if (filters.search) params.append("search", filters.search);
 
                     const response = await axios.get(
                         `/api/transactions/history?${params}`
@@ -326,6 +337,9 @@ export const useTransactionHistory = () => {
                 if (filters.endDate) params.append("end_date", filters.endDate);
                 if (filters.cashierId)
                     params.append("cashier_id", filters.cashierId);
+                if (filters.paymentMethod)
+                    params.append("payment_method", filters.paymentMethod);
+                if (filters.search) params.append("search", filters.search);
 
                 const response = await axios.get(
                     `/api/transactions/history?${params}`

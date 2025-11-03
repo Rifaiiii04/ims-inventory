@@ -10,6 +10,7 @@ function TransactionFilters({ filters, onFilterChange, onExportPDF, onExportExce
 
     const handleDateChange = (field, value) => {
         onFilterChange({ [field]: value });
+        // Auto-trigger filter when date is changed (optional - can be removed if too aggressive)
     };
 
     const handleMethodChange = (method) => {

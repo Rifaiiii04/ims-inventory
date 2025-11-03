@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import Sidebar from "../../components/Sidebar";
 import TopBar from "../../components/TopBar";
 import TransactionDetailModal from "../../components/pos/TransactionDetailModal";
+import { DashboardSkeleton, SkeletonCard, SkeletonChart } from "../../components/common/SkeletonLoader";
 import { useSalesReport } from "../../hooks/useSalesReport";
 import {
     LineChart,
@@ -187,15 +188,102 @@ function SalesReport() {
         }
     };
 
-    // Show loading state
-    if (loading) {
+    // Show loading state with skeleton (only if no cached data)
+    if (loading && !salesData) {
         return (
             <>
                 <div className="w-screen h-screen flex flex-col lg:flex-row bg-gradient-to-br from-gray-50 to-gray-100">
-                    <div className="flex-1 flex items-center justify-center">
-                        <div className="text-center">
-                            <div className="w-8 h-8 border-4 border-green-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-                            <p className="text-gray-600">Memuat data laporan penjualan...</p>
+                    {/* Mobile Menu Toggle */}
+                    <button
+                        onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                        className="lg:hidden fixed top-4 left-4 z-50 bg-white p-3 rounded-lg shadow-lg border-2 border-gray-200 hover:border-green-500 transition-colors"
+                    >
+                        <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            strokeWidth={2}
+                            stroke="currentColor"
+                            className="size-6 text-gray-700"
+                        >
+                            <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"
+                            />
+                        </svg>
+                    </button>
+
+                    {/* Sidebar */}
+                    <div
+                        className={`fixed lg:relative lg:block z-40 transition-transform duration-300 h-full ${
+                            isMobileMenuOpen
+                                ? "translate-x-0"
+                                : "-translate-x-full lg:translate-x-0"
+                        }`}
+                    >
+                        <div className="h-full p-3 bg-gradient-to-br from-gray-50 to-gray-100 lg:bg-transparent">
+                            <Sidebar />
+                        </div>
+                    </div>
+
+                    {/* Mobile Overlay */}
+                    {isMobileMenuOpen && (
+                        <div
+                            className="fixed inset-0 bg-black/50 z-30 lg:hidden"
+                            onClick={() => setIsMobileMenuOpen(false)}
+                        />
+                    )}
+
+                    {/* Main Content */}
+                    <div className="flex-1 flex flex-col overflow-hidden">
+                        <TopBar
+                            title="Laporan Penjualan"
+                            subtitle="Analisis dan laporan penjualan lengkap"
+                            showLiveIndicator={true}
+                        />
+
+                        {/* Content with Skeleton */}
+                        <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+                            <div className="space-y-6">
+                                {/* Charts Skeleton */}
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                    <SkeletonChart height={300} />
+                                    <SkeletonChart height={300} />
+                                </div>
+
+                                {/* Payment Method Skeleton */}
+                                <SkeletonChart height={250} />
+
+                                {/* Products Skeleton */}
+                                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+                                    <div className="h-6 bg-gray-200 rounded w-48 mb-4 animate-pulse"></div>
+                                    <div className="space-y-4">
+                                        {[...Array(3)].map((_, i) => (
+                                            <div key={i} className="h-20 bg-gray-200 rounded-xl animate-pulse"></div>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Table Skeleton */}
+                                <div className="bg-white rounded-2xl shadow-lg border border-gray-200 overflow-hidden">
+                                    <div className="p-6 border-b border-gray-200">
+                                        <div className="h-6 bg-gray-200 rounded w-40 mb-4 animate-pulse"></div>
+                                        <div className="flex gap-2">
+                                            {[...Array(4)].map((_, i) => (
+                                                <div key={i} className="h-10 bg-gray-200 rounded-lg w-32 animate-pulse"></div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <div className="p-6">
+                                        <div className="space-y-3">
+                                            {[...Array(5)].map((_, i) => (
+                                                <div key={i} className="h-16 bg-gray-200 rounded animate-pulse"></div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>

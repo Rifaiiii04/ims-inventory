@@ -48,15 +48,41 @@ function TransactionHistory() {
             if (filters.cashierId) params.append('cashier_id', filters.cashierId);
             if (filters.search) params.append('search', filters.search);
 
-            const response = await axios.get(`/api/transactions/export/pdf?${params.toString()}`);
-            if (response.data.success) {
-                alert(`PDF Export: ${response.data.message}\nData tersedia: ${response.data.count} transaksi`);
+            // Try to download file directly (if backend supports file download)
+            try {
+                const response = await axios.get(`/api/transactions/export/pdf?${params.toString()}`, {
+                    responseType: 'blob',
+                });
+                
+                // Check if response is actually a blob or JSON error
+                if (response.data instanceof Blob && response.data.size > 0) {
+                    // Create blob URL and download
+                    const url = window.URL.createObjectURL(response.data);
+                    const link = document.createElement('a');
+                    link.href = url;
+                    link.setAttribute('download', `transaksi_${new Date().toISOString().split('T')[0]}.pdf`);
+                    document.body.appendChild(link);
+                    link.click();
+                    link.remove();
+                    window.URL.revokeObjectURL(url);
+                    return;
+                }
+            } catch (blobErr) {
+                // If blob fails, try JSON response
+                console.log('Blob download failed, trying JSON response...');
+            }
+
+            // Fallback to JSON response
+            const jsonResponse = await axios.get(`/api/transactions/export/pdf?${params.toString()}`);
+            if (jsonResponse.data.success) {
+                alert(`PDF Export: ${jsonResponse.data.message}\nData tersedia: ${jsonResponse.data.count} transaksi\n\nCatatan: Fitur download PDF sedang dalam pengembangan. Data dapat dilihat di console browser.`);
+                console.log('Export Data:', jsonResponse.data.data);
             } else {
-                alert('Gagal export PDF: ' + response.data.message);
+                alert('Gagal export PDF: ' + jsonResponse.data.message);
             }
         } catch (err) {
             console.error('Error exporting PDF:', err);
-            alert('Terjadi kesalahan saat export PDF');
+            alert('Terjadi kesalahan saat export PDF. Silakan coba lagi.');
         }
     };
 
@@ -69,15 +95,33 @@ function TransactionHistory() {
             if (filters.cashierId) params.append('cashier_id', filters.cashierId);
             if (filters.search) params.append('search', filters.search);
 
-            const response = await axios.get(`/api/transactions/export/excel?${params.toString()}`);
-            if (response.data.success) {
-                alert(`Excel Export: ${response.data.message}\nData tersedia: ${response.data.count} transaksi`);
-            } else {
-                alert('Gagal export Excel: ' + response.data.message);
-            }
+            // Download file directly
+            const response = await axios.get(`/api/transactions/export/excel?${params.toString()}`, {
+                responseType: 'blob',
+            });
+            
+            // Create blob URL and download
+            const url = window.URL.createObjectURL(new Blob([response.data]));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', `transaksi_${new Date().toISOString().split('T')[0]}.xlsx`);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(url);
         } catch (err) {
             console.error('Error exporting Excel:', err);
-            alert('Terjadi kesalahan saat export Excel');
+            // If blob response fails, try JSON response
+            try {
+                const jsonResponse = await axios.get(`/api/transactions/export/excel?${params.toString()}`);
+                if (jsonResponse.data.success) {
+                    alert(`Excel Export: ${jsonResponse.data.message}\nData tersedia: ${jsonResponse.data.count} transaksi\n\nCatatan: Fitur download Excel sedang dalam pengembangan.`);
+                } else {
+                    alert('Gagal export Excel: ' + jsonResponse.data.message);
+                }
+            } catch (jsonErr) {
+                alert('Terjadi kesalahan saat export Excel. Silakan coba lagi.');
+            }
         }
     };
 
@@ -85,14 +129,24 @@ function TransactionHistory() {
         setFilters({ ...filters, ...newFilters });
     };
 
-    if (loading) {
+    // Show loading only if no transactions loaded (initial load)
+    if (loading && (!transactions || transactions.data?.length === 0)) {
         return (
             <>
                 <div className="w-screen h-screen flex flex-col lg:flex-row bg-gradient-to-br from-gray-50 to-gray-100">
-                    <div className="flex-1 flex items-center justify-center">
-                        <div className="text-center">
-                            <div className="w-8 h-8 border-4 border-green-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-                            <p className="text-gray-600">Memuat riwayat transaksi...</p>
+                    <Sidebar />
+                    <div className="flex-1 flex flex-col">
+                        <TopBar
+                            title="Riwayat Transaksi"
+                            subtitle="Lihat dan kelola riwayat transaksi"
+                            showLiveIndicator={true}
+                        />
+                        <div className="flex-1 flex items-center justify-center">
+                            <div className="text-center">
+                                <div className="w-12 h-12 border-4 border-green-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                                <p className="text-gray-600 font-medium">Memuat riwayat transaksi...</p>
+                                <p className="text-sm text-gray-500 mt-2">Mohon tunggu sebentar</p>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -163,16 +217,20 @@ function TransactionHistory() {
                     </div>
                 </div>
 
-                {/* Mobile Overlay */}
+                {/* Mobile Overlay - Only show when menu is open AND on mobile */}
                 {isMobileMenuOpen && (
                     <div
-                        className="fixed inset-0 bg-black/50 z-30 lg:hidden"
+                        className="fixed inset-0 bg-black/50 z-[30] lg:hidden transition-opacity duration-300"
                         onClick={() => setIsMobileMenuOpen(false)}
+                        onTouchStart={(e) => {
+                            e.preventDefault();
+                            setIsMobileMenuOpen(false);
+                        }}
                     />
                 )}
 
-                {/* Main Content */}
-                <div className="flex-1 flex flex-col overflow-hidden">
+                {/* Main Content - Always clickable, higher z-index */}
+                <div className={`flex-1 flex flex-col overflow-hidden ${!isMobileMenuOpen ? 'relative z-0' : 'relative z-[10]'}`}>
                     {/* Top Bar */}
                     <TopBar
                         title="Riwayat Transaksi"

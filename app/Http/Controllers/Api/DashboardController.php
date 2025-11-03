@@ -10,6 +10,7 @@ use App\Models\TblTransaksiDetail;
 use App\Models\TblVarian;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Carbon\Carbon;
 
 class DashboardController extends Controller
@@ -30,6 +31,9 @@ class DashboardController extends Controller
             $todaySales = TblTransaksi::whereDate('tanggal_waktu', Carbon::today())
                 ->sum('total_transaksi') ?? 0;
 
+            // Get top products from last 30 days
+            $topProducts = $this->getTopProducts(30);
+
             return response()->json([
                 'success' => true,
                 'data' => [
@@ -37,7 +41,7 @@ class DashboardController extends Controller
                         'total_products' => $totalProducts,
                         'low_stock' => $lowStockProducts,
                         'today_sales' => (float)$todaySales,
-                        'top_products' => []
+                        'top_products' => $topProducts
                     ],
                     'recent_transactions' => [],
                     'chart_data' => []
@@ -50,6 +54,69 @@ class DashboardController extends Controller
                 'message' => 'Terjadi kesalahan saat mengambil data dashboard',
                 'error' => $e->getMessage()
             ], 500);
+        }
+    }
+
+    /**
+     * Get top selling products
+     */
+    private function getTopProducts($days = 30)
+    {
+        try {
+            $startDate = Carbon::now()->subDays($days);
+
+            // Get transactions from last N days with details
+            $transactions = TblTransaksi::where('tanggal_waktu', '>=', $startDate)
+                ->with(['details' => function($query) {
+                    $query->with(['produk']);
+                }])
+                ->get();
+
+            $productSales = [];
+
+            foreach ($transactions as $transaction) {
+                foreach ($transaction->details as $detail) {
+                    $productId = $detail->id_produk ?? null;
+                    $productName = $detail->produk->nama_produk ?? 'Unknown';
+                    
+                    if (!$productId) continue;
+
+                    if (!isset($productSales[$productId])) {
+                        $productSales[$productId] = [
+                            'id' => $productId,
+                            'name' => $productName,
+                            'sold' => 0,
+                            'revenue' => 0
+                        ];
+                    }
+
+                    // Add quantity sold
+                    $productSales[$productId]['sold'] += (float)($detail->jumlah ?? 0);
+                    
+                    // Add revenue
+                    $detailRevenue = (float)($detail->total_harga ?? 0);
+                    if ($detailRevenue == 0) {
+                        $detailRevenue = (float)($detail->harga_satuan ?? 0) * (float)($detail->jumlah ?? 0);
+                    }
+                    $productSales[$productId]['revenue'] += $detailRevenue;
+                }
+            }
+
+            // Sort by quantity sold (or revenue) descending
+            usort($productSales, function($a, $b) {
+                // Sort by quantity sold first, then by revenue
+                if ($b['sold'] != $a['sold']) {
+                    return $b['sold'] <=> $a['sold'];
+                }
+                return $b['revenue'] <=> $a['revenue'];
+            });
+
+            // Return top 5 products
+            return array_slice($productSales, 0, 5);
+
+        } catch (\Exception $e) {
+            Log::error('Error getting top products: ' . $e->getMessage());
+            return [];
         }
     }
 

@@ -43,14 +43,24 @@ function Transaction() {
         clearCart();
     };
 
-    if (loading) {
+    // Show loading only if no products loaded (initial load)
+    if (loading && products.length === 0) {
         return (
             <>
                 <div className="w-screen h-screen flex flex-col lg:flex-row bg-gradient-to-br from-gray-50 to-gray-100">
-                    <div className="flex-1 flex items-center justify-center">
-                        <div className="text-center">
-                            <div className="w-8 h-8 border-4 border-green-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-                            <p className="text-gray-600">Memuat data produk...</p>
+                    <Sidebar />
+                    <div className="flex-1 flex flex-col">
+                        <TopBar
+                            title="Transaksi POS"
+                            subtitle="Sistem Point of Sale untuk kasir"
+                            showLiveIndicator={true}
+                        />
+                        <div className="flex-1 flex items-center justify-center">
+                            <div className="text-center">
+                                <div className="w-12 h-12 border-4 border-green-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                                <p className="text-gray-600 font-medium">Memuat data produk...</p>
+                                <p className="text-sm text-gray-500 mt-2">Mohon tunggu sebentar</p>
+                            </div>
                         </div>
                     </div>
                 </div>
