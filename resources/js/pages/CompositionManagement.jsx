@@ -82,11 +82,15 @@ function CompositionManagement() {
         if (!searchTerm) return true;
 
         const searchLower = searchTerm.toLowerCase();
-        return (
-            composition.variant_name?.toLowerCase().includes(searchLower) ||
-            composition.product_name?.toLowerCase().includes(searchLower) ||
-            composition.ingredient_name?.toLowerCase().includes(searchLower)
-        );
+        const matchesProduct = composition.product_name?.toLowerCase().includes(searchLower);
+        const matchesVariant = composition.variant_name?.toLowerCase().includes(searchLower);
+        
+        // Cek apakah ada bahan yang cocok
+        const matchesIngredient = composition.ingredients?.some(ingredient => 
+            ingredient.ingredient_name?.toLowerCase().includes(searchLower)
+        ) || false;
+        
+        return matchesProduct || matchesVariant || matchesIngredient;
     });
 
     return (

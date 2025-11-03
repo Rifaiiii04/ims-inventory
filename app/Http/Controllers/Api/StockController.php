@@ -101,12 +101,27 @@ class StockController extends Controller
     }
 
     /**
-     * Create new stock item
+     * Create new stock item or update existing one if duplicate name found
      */
     public function store(Request $request)
     {
+        DB::beginTransaction();
+        
         try {
-            $validator = Validator::make($request->all(), [
+            // Default category_id jika kosong (gunakan category pertama yang ada)
+            $categoryId = $request->category_id;
+            if (empty($categoryId) || !is_numeric($categoryId)) {
+                $defaultCategory = TblKategori::first();
+                if (!$defaultCategory) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Kategori belum tersedia. Silakan buat kategori terlebih dahulu.'
+                    ], 422);
+                }
+                $categoryId = $defaultCategory->id_kategori;
+            }
+
+            $validator = Validator::make(array_merge($request->all(), ['category_id' => $categoryId]), [
                 'name' => 'required|string|max:100',
                 'category_id' => 'required|exists:tbl_kategori,id_kategori',
                 'buyPrice' => 'required|numeric|min:0',
@@ -126,52 +141,188 @@ class StockController extends Controller
                 ], 422);
             }
 
-            $stock = TblBahan::create([
-                'nama_bahan' => $request->name,
-                'id_kategori' => $request->category_id,
-                'harga_beli' => $request->buyPrice,
-                'stok_bahan' => $request->quantity,
-                'is_divisible' => $request->is_divisible ?? false,
-                'max_divisions' => $request->max_divisions,
-                'division_description' => $request->division_description,
-                'satuan' => $request->unit,
-                'min_stok' => $request->minStock,
-                'updated_by' => $request->user()->id_user
-            ]);
+            // Cek apakah stok dengan nama yang sama sudah ada (case-insensitive)
+            // Gunakan lock untuk mencegah race condition
+            $existingStock = TblBahan::whereRaw('LOWER(TRIM(nama_bahan)) = ?', [strtolower(trim($request->name))])
+                ->lockForUpdate()
+                ->first();
 
-            // Log history untuk create
-            try {
-                $this->logStockHistory(
-                    $stock->id_bahan,
-                    'create',
-                    null,
-                    $stock->toArray(),
-                    "Menambahkan stok baru: {$stock->nama_bahan}",
-                    $request->user()->id_user
-                );
-            } catch (\Exception $e) {
-                // Log error but don't fail the create
-                Log::error('Failed to log stock history: ' . $e->getMessage());
+            if ($existingStock) {
+                // Update stok yang sudah ada - tambahkan quantity baru
+                $oldData = $existingStock->toArray();
+                $oldQuantity = (float)$existingStock->stok_bahan;
+                $newQuantity = $oldQuantity + (float)$request->quantity;
+                
+                // Lock row untuk update (dalam transaction)
+                $existingStock = TblBahan::lockForUpdate()->find($existingStock->id_bahan);
+                
+                $existingStock->update([
+                    'nama_bahan' => trim($request->name), // Update nama jika ada perubahan (misal case berbeda)
+                    'id_kategori' => $categoryId,
+                    'harga_beli' => $request->buyPrice, // Update harga beli terbaru
+                    'stok_bahan' => $newQuantity, // Tambahkan quantity baru
+                    'satuan' => $request->unit,
+                    'min_stok' => $request->minStock, // Update min stock
+                    'is_divisible' => $request->is_divisible ?? $existingStock->is_divisible,
+                    'max_divisions' => $request->max_divisions ?? $existingStock->max_divisions,
+                    'division_description' => $request->division_description ?? $existingStock->division_description,
+                    'updated_by' => $request->user()->id_user
+                ]);
+
+                // Reload untuk mendapatkan relasi kategori
+                $existingStock->refresh();
+                $existingStock->load('kategori');
+
+                // Log history untuk stock addition
+                try {
+                    $this->logStockHistory(
+                        $existingStock->id_bahan,
+                        'stock_in',
+                        $oldData,
+                        $existingStock->toArray(),
+                        "Menambahkan stok: +{$request->quantity} {$request->unit}. Total stok: {$oldQuantity} → {$newQuantity}",
+                        $request->user()->id_user
+                    );
+                } catch (\Exception $e) {
+                    Log::error('Failed to log stock history: ' . $e->getMessage());
+                }
+
+                DB::commit();
+
+                return response()->json([
+                    'success' => true,
+                    'message' => "Stok '{$existingStock->nama_bahan}' sudah ada. Quantity ditambahkan: +{$request->quantity} {$request->unit}. Total stok sekarang: {$newQuantity} {$request->unit}",
+                    'data' => [
+                        'id' => $existingStock->id_bahan,
+                        'name' => $existingStock->nama_bahan,
+                        'category' => $existingStock->kategori->nama_kategori ?? 'Tidak ada kategori',
+                        'buyPrice' => (float)$existingStock->harga_beli,
+                        'quantity' => (float)$existingStock->stok_bahan,
+                        'unit' => $existingStock->satuan,
+                        'minStock' => (float)$existingStock->min_stok,
+                        'lastUpdated' => $existingStock->updated_at->format('Y-m-d'),
+                        'updatedBy' => 'User',
+                        'isLowStock' => $existingStock->stok_bahan < $existingStock->min_stok,
+                        'isUpdated' => true // Flag untuk frontend bahwa ini update, bukan create
+                    ]
+                ], 200);
+            } else {
+                // Cek sekali lagi sebelum create untuk mencegah race condition
+                $doubleCheck = TblBahan::whereRaw('LOWER(TRIM(nama_bahan)) = ?', [strtolower(trim($request->name))])
+                    ->lockForUpdate()
+                    ->first();
+                
+                if ($doubleCheck) {
+                    // Jika ternyata sudah ada (race condition), gunakan yang sudah ada
+                    $oldData = $doubleCheck->toArray();
+                    $oldQuantity = (float)$doubleCheck->stok_bahan;
+                    $newQuantity = $oldQuantity + (float)$request->quantity;
+                    
+                    $doubleCheck->update([
+                        'nama_bahan' => trim($request->name),
+                        'id_kategori' => $categoryId,
+                        'harga_beli' => $request->buyPrice,
+                        'stok_bahan' => $newQuantity,
+                        'satuan' => $request->unit,
+                        'min_stok' => $request->minStock,
+                        'updated_by' => $request->user()->id_user
+                    ]);
+                    
+                    $doubleCheck->refresh();
+                    $doubleCheck->load('kategori');
+                    
+                    try {
+                        $this->logStockHistory(
+                            $doubleCheck->id_bahan,
+                            'stock_in',
+                            $oldData,
+                            $doubleCheck->toArray(),
+                            "Menambahkan stok: +{$request->quantity} {$request->unit}. Total stok: {$oldQuantity} → {$newQuantity}",
+                            $request->user()->id_user
+                        );
+                    } catch (\Exception $e) {
+                        Log::error('Failed to log stock history: ' . $e->getMessage());
+                    }
+                    
+                    DB::commit();
+                    
+                    return response()->json([
+                        'success' => true,
+                        'message' => "Stok '{$doubleCheck->nama_bahan}' sudah ada. Quantity ditambahkan: +{$request->quantity} {$request->unit}. Total stok sekarang: {$newQuantity} {$request->unit}",
+                        'data' => [
+                            'id' => $doubleCheck->id_bahan,
+                            'name' => $doubleCheck->nama_bahan,
+                            'category' => $doubleCheck->kategori->nama_kategori ?? 'Tidak ada kategori',
+                            'buyPrice' => (float)$doubleCheck->harga_beli,
+                            'quantity' => (float)$doubleCheck->stok_bahan,
+                            'unit' => $doubleCheck->satuan,
+                            'minStock' => (float)$doubleCheck->min_stok,
+                            'lastUpdated' => $doubleCheck->updated_at->format('Y-m-d'),
+                            'updatedBy' => 'User',
+                            'isLowStock' => $doubleCheck->stok_bahan < $doubleCheck->min_stok,
+                            'isUpdated' => true
+                        ]
+                    ], 200);
+                }
+                
+                // Buat stok baru
+                $stock = TblBahan::create([
+                    'nama_bahan' => trim($request->name),
+                    'id_kategori' => $categoryId,
+                    'harga_beli' => $request->buyPrice,
+                    'stok_bahan' => $request->quantity,
+                    'is_divisible' => $request->is_divisible ?? false,
+                    'max_divisions' => $request->max_divisions,
+                    'division_description' => $request->division_description,
+                    'satuan' => $request->unit,
+                    'min_stok' => $request->minStock,
+                    'updated_by' => $request->user()->id_user
+                ]);
+
+                // Reload untuk mendapatkan relasi kategori
+                $stock->load('kategori');
+
+                // Log history untuk create
+                try {
+                    $this->logStockHistory(
+                        $stock->id_bahan,
+                        'create',
+                        null,
+                        $stock->toArray(),
+                        "Menambahkan stok baru: {$stock->nama_bahan}",
+                        $request->user()->id_user
+                    );
+                } catch (\Exception $e) {
+                    Log::error('Failed to log stock history: ' . $e->getMessage());
+                }
+
+                DB::commit();
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Stok berhasil ditambahkan',
+                    'data' => [
+                        'id' => $stock->id_bahan,
+                        'name' => $stock->nama_bahan,
+                        'category' => $stock->kategori->nama_kategori ?? 'Tidak ada kategori',
+                        'buyPrice' => (float)$stock->harga_beli,
+                        'quantity' => (float)$stock->stok_bahan,
+                        'unit' => $stock->satuan,
+                        'minStock' => (float)$stock->min_stok,
+                        'lastUpdated' => $stock->updated_at->format('Y-m-d'),
+                        'updatedBy' => 'User',
+                        'isLowStock' => $stock->stok_bahan < $stock->min_stok,
+                        'isUpdated' => false
+                    ]
+                ], 201);
             }
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Stok berhasil ditambahkan',
-                'data' => [
-                    'id' => $stock->id_bahan,
-                    'name' => $stock->nama_bahan,
-                    'category' => $stock->kategori->nama_kategori ?? 'Tidak ada kategori',
-                    'buyPrice' => (float)$stock->harga_beli,
-                    'quantity' => (float)$stock->stok_bahan,
-                    'unit' => $stock->satuan,
-                    'minStock' => (float)$stock->min_stok,
-                    'lastUpdated' => $stock->updated_at->format('Y-m-d'),
-                    'updatedBy' => 'User',
-                    'isLowStock' => $stock->stok_bahan < $stock->min_stok
-                ]
-            ], 201);
-
         } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Stock creation/update error: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString()
+            ]);
+            
             return response()->json([
                 'success' => false,
                 'message' => 'Terjadi kesalahan saat menambahkan stok',

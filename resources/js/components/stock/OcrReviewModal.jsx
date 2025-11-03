@@ -46,8 +46,25 @@ function OcrReviewModal({
     };
 
     const handleConfirm = () => {
-        const itemsToAdd = selectedItems.map((index) => itemDetails[index]);
-        onConfirmAdd(itemsToAdd);
+        // Validasi: pastikan semua item yang dipilih punya category_id
+        const itemsToAdd = selectedItems.map((index) => {
+            const item = itemDetails[index];
+            // Jika category_id kosong, gunakan category pertama
+            if (!item.category_id && categories.length > 0) {
+                item.category_id = categories[0].id_kategori;
+            }
+            return item;
+        });
+        
+        // Filter item yang tidak valid (nama_barang kosong)
+        const validItems = itemsToAdd.filter(item => item.nama_barang && item.nama_barang.trim() !== '');
+        
+        if (validItems.length === 0) {
+            alert('Tidak ada item yang valid untuk ditambahkan. Pastikan nama barang tidak kosong.');
+            return;
+        }
+        
+        onConfirmAdd(validItems);
         onClose();
     };
 

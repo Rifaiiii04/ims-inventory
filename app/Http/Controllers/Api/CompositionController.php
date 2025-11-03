@@ -56,30 +56,58 @@ class CompositionController extends Controller
                 ->sortByDesc('id_produk')
                 ->values(); // Reset keys to make it a proper indexed array
 
-            // Format each composition individually
-            $formattedCompositions = $compositions->map(function($composition) {
-                // Hitung estimasi hasil produksi berdasarkan stok bahan
-                $estimatedProduction = 0;
-                if ($composition->jumlah_per_porsi > 0) {
-                    $estimatedProduction = floor($composition->stok_bahan / $composition->jumlah_per_porsi);
+            // Group komposisi berdasarkan produk/varian
+            $groupedCompositions = [];
+            
+            foreach ($compositions as $composition) {
+                // Key untuk grouping: variant_id jika ada, atau product_id jika tidak ada variant
+                $groupKey = $composition->id_varian ? "variant_{$composition->id_varian}" : "product_{$composition->id_produk}";
+                
+                if (!isset($groupedCompositions[$groupKey])) {
+                    $groupedCompositions[$groupKey] = [
+                        'id' => $composition->id_varian ? "variant_{$composition->id_varian}" : "product_{$composition->id_produk}",
+                        'variant_id' => $composition->id_varian,
+                        'variant_name' => $composition->nama_varian,
+                        'product_id' => $composition->id_produk,
+                        'product_name' => $composition->nama_produk,
+                        'estimated_production' => 0, // Akan dihitung setelah semua ingredients ditambahkan
+                        'ingredients' => [],
+                        'created_at' => $composition->created_at,
+                        'updated_at' => $composition->updated_at,
+                    ];
                 }
-
-                return [
-                    'id' => $composition->id_komposisi,
-                    'variant_id' => $composition->id_varian,
-                    'variant_name' => $composition->nama_varian,
-                    'product_id' => $composition->id_produk,
-                    'product_name' => $composition->nama_produk,
+                
+                // Hitung estimasi produksi untuk bahan ini
+                $ingredientEstimation = 0;
+                if ($composition->jumlah_per_porsi > 0) {
+                    $ingredientEstimation = floor($composition->stok_bahan / $composition->jumlah_per_porsi);
+                }
+                
+                // Tambahkan bahan ke array ingredients
+                $groupedCompositions[$groupKey]['ingredients'][] = [
+                    'composition_id' => $composition->id_komposisi,
                     'ingredient_id' => $composition->id_bahan,
                     'ingredient_name' => $composition->nama_bahan,
                     'ingredient_unit' => $composition->bahan_satuan,
                     'quantity' => (float)$composition->jumlah_per_porsi,
-                    'estimated_production' => $estimatedProduction,
                     'ingredient_stock' => (float)$composition->stok_bahan,
-                    'created_at' => $composition->created_at,
-                    'updated_at' => $composition->updated_at,
+                    'estimated_production' => $ingredientEstimation,
                 ];
-            });
+            }
+            
+            // Hitung estimasi produksi minimum untuk setiap grup
+            foreach ($groupedCompositions as &$group) {
+                $minEstimation = PHP_INT_MAX;
+                foreach ($group['ingredients'] as $ingredient) {
+                    if ($ingredient['estimated_production'] > 0) {
+                        $minEstimation = min($minEstimation, $ingredient['estimated_production']);
+                    }
+                }
+                $group['estimated_production'] = $minEstimation === PHP_INT_MAX ? 0 : $minEstimation;
+            }
+            
+            // Convert to indexed array
+            $formattedCompositions = array_values($groupedCompositions);
 
             return response()->json([
                 'success' => true,
