@@ -11,6 +11,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Http;
 
 class StockController extends Controller
 {
@@ -189,6 +190,9 @@ class StockController extends Controller
 
                 DB::commit();
 
+                // Kirim notifikasi jika stok menipis
+                $this->sendStockNotification($existingStock);
+
                 return response()->json([
                     'success' => true,
                     'message' => "Stok '{$existingStock->nama_bahan}' sudah ada. Quantity ditambahkan: +{$request->quantity} {$request->unit}. Total stok sekarang: {$newQuantity} {$request->unit}",
@@ -245,6 +249,9 @@ class StockController extends Controller
                     }
                     
                     DB::commit();
+
+                    // Kirim notifikasi jika stok menipis
+                    $this->sendStockNotification($doubleCheck);
                     
                     return response()->json([
                         'success' => true,
@@ -297,6 +304,9 @@ class StockController extends Controller
             }
 
                 DB::commit();
+
+            // Kirim notifikasi jika stok menipis
+            $this->sendStockNotification($stock);
 
             return response()->json([
                 'success' => true,
@@ -400,6 +410,9 @@ class StockController extends Controller
                 // Log error but don't fail the update
                 Log::error('Failed to log stock history: ' . $e->getMessage());
             }
+
+            // Kirim notifikasi jika stok menipis
+            $this->sendStockNotification($stock);
 
             return response()->json([
                 'success' => true,
@@ -581,6 +594,54 @@ class StockController extends Controller
                 'message' => 'Terjadi kesalahan saat mengambil riwayat stok',
                 'error' => $e->getMessage()
             ], 500);
+        }
+    }
+
+    /**
+     * Send stock notification to n8n webhook
+     */
+    private function sendStockNotification($stock)
+    {
+        // Cek apakah notifikasi diaktifkan
+        if (!config('services.n8n.enabled', true)) {
+            return;
+        }
+
+        // Hanya kirim notifikasi jika stok di bawah 5
+        if ($stock->stok_bahan >= 5) {
+            return;
+        }
+
+        try {
+            $webhookUrl = config('services.n8n.webhook_url');
+            $timeout = config('services.n8n.timeout', 5);
+
+            if (empty($webhookUrl)) {
+                Log::warning('N8N webhook URL tidak dikonfigurasi');
+                return;
+            }
+
+            // Kirim data ke n8n webhook
+            Http::timeout($timeout)->post($webhookUrl, [
+                'nama_bahan' => $stock->nama_bahan,
+                'stok_bahan' => $stock->stok_bahan,
+                'id_bahan' => $stock->id_bahan,
+                'satuan' => $stock->satuan,
+                'min_stok' => $stock->min_stok,
+            ]);
+
+            Log::info('Stock notification sent to n8n', [
+                'bahan_id' => $stock->id_bahan,
+                'nama_bahan' => $stock->nama_bahan,
+                'stok' => $stock->stok_bahan
+            ]);
+
+        } catch (\Exception $e) {
+            // Log error tapi jangan gagalkan proses update stok
+            Log::error('Failed to send stock notification to n8n: ' . $e->getMessage(), [
+                'bahan_id' => $stock->id_bahan,
+                'error' => $e->getMessage()
+            ]);
         }
     }
 

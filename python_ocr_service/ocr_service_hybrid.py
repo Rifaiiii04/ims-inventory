@@ -116,7 +116,7 @@ def classify_with_gemini(text_list, image_file=None):
         nama barang yang relevan dengan text yang berantakan tersebut. untuk harga itu formatnya Rp / Rupiah dan hanya angka saja tanpa simbol apapun.
         """
 
-        if GEMINI_API_KEY != 'YOUR_GEMINI_API_KEY_HERE':
+        if GEMINI_API_KEY != 'API_GEMINI_KEY':
             response = model.generate_content(prompt)
             result_text = response.text.strip()
             

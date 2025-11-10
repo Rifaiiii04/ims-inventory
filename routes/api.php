@@ -115,6 +115,64 @@ Route::middleware('auth:sanctum')->group(function () {
 // Public WhatsApp Agent routes (for webhook)
 Route::post('/whatsapp/webhook', [WhatsAppAgentController::class, 'processStockMessage']);
 
+// Test route for n8n stock notification
+Route::post('/test/stock-notification', function (Request $request) {
+    try {
+        $webhookUrl = config('services.n8n.webhook_url');
+        $timeout = config('services.n8n.timeout', 5);
+        
+        // Data test dari request atau default
+        $testData = $request->all() ?: [
+            'nama_bahan' => 'Beras Test',
+            'stok_bahan' => 3,
+            'id_bahan' => 999,
+            'satuan' => 'kg',
+            'min_stok' => 5
+        ];
+        
+        if (empty($webhookUrl)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'N8N webhook URL tidak dikonfigurasi',
+                'config' => [
+                    'webhook_url' => $webhookUrl,
+                    'enabled' => config('services.n8n.enabled', true),
+                    'timeout' => $timeout
+                ]
+            ], 400);
+        }
+        
+        // Kirim test request ke n8n
+        $response = \Illuminate\Support\Facades\Http::timeout($timeout)
+            ->post($webhookUrl, $testData);
+        
+        return response()->json([
+            'success' => true,
+            'message' => 'Test notification sent to n8n',
+            'test_data' => $testData,
+            'n8n_response' => $response->json(),
+            'n8n_status' => $response->status(),
+            'config' => [
+                'webhook_url' => $webhookUrl,
+                'enabled' => config('services.n8n.enabled', true),
+                'timeout' => $timeout
+            ]
+        ], 200);
+        
+    } catch (\Exception $e) {
+        return response()->json([
+            'success' => false,
+            'message' => 'Error sending test notification',
+            'error' => $e->getMessage(),
+            'config' => [
+                'webhook_url' => config('services.n8n.webhook_url'),
+                'enabled' => config('services.n8n.enabled', true),
+                'timeout' => config('services.n8n.timeout', 5)
+            ]
+        ], 500);
+    }
+});
+
 // OCR routes
 use App\Http\Controllers\Api\OcrController;
 Route::post('/ocr/process-receipt', [OcrController::class, 'processReceipt']);

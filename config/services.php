@@ -31,4 +31,10 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
 
+    'n8n' => [
+        'webhook_url' => env('N8N_WEBHOOK_URL', 'http://localhost:5678/webhook-test/stock-notification'),
+        'enabled' => env('N8N_NOTIFICATION_ENABLED', true),
+        'timeout' => env('N8N_TIMEOUT', 5),
+    ],
+
 ];

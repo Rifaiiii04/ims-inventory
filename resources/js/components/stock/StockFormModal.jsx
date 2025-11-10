@@ -109,13 +109,22 @@ function StockFormModal({ stock, onClose, onSubmit, categories = [] }) {
 
             let errorMessage = "Failed to process photo. Please try again.";
 
-            if (error.response?.status === 500) {
-                errorMessage = "Photo processing service is not running.";
+            if (error.response?.status === 503) {
+                // OCR service is not available
+                errorMessage = error.response.data?.message || 
+                    "OCR service tidak tersedia. Pastikan Python OCR service berjalan di port 5000. Jalankan: cd python_ocr_service && python ocr_service_hybrid.py";
+            } else if (error.response?.status === 500) {
+                errorMessage = "Photo processing service error. Check server logs.";
             } else if (error.response?.status === 400) {
                 errorMessage =
                     error.response.data?.message || "Invalid image format.";
+            } else if (error.response?.status === 504) {
+                errorMessage = error.response.data?.message || 
+                    "OCR processing timeout. Coba lagi dengan foto yang lebih kecil atau jelas.";
             } else if (error.code === "ERR_NETWORK") {
-                errorMessage = "Cannot connect to photo processing service.";
+                errorMessage = "Cannot connect to photo processing service. Pastikan OCR service berjalan.";
+            } else if (error.response?.data?.message) {
+                errorMessage = error.response.data.message;
             }
 
             setOcrData({

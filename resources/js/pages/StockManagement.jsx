@@ -32,7 +32,8 @@ function StockManagement() {
 
     // Handle tambah stok baru
     const handleAddStock = async (newStock) => {
-        const result = await createStock(newStock);
+        const result =
+         await createStock(newStock);
         if (result.success) {
             setShowFormModal(false);
         } else {
