@@ -632,7 +632,7 @@ function SalesReport() {
                                     </div>
                                 </div>
 
-                                <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-2xl shadow-lg border-2 border-purple-200 p-6 hover:shadow-xl transition-all duration-300">
+                                <div className="bg-gradient-to-tr from-purple-50 to-purple-100 rounded-2xl shadow-lg border-2 border-purple-200 p-6 hover:shadow-xl transition-all duration-300">
                                     <div className="flex items-center justify-between">
                                         <div className="flex-1">
                                             <p className="text-xs font-semibold text-purple-700 uppercase tracking-wide mb-2">

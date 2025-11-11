@@ -67,6 +67,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/stocks/categories/list', [StockController::class, 'categories']);
     Route::get('/stocks/history', [StockController::class, 'history']);
     Route::get('/stocks/{id}/history', [StockController::class, 'history']);
+    Route::post('/stocks/send-batch-notification', [StockController::class, 'sendBatchStockNotification']);
     
     // Variant routes
     Route::apiResource('variants', VariantController::class);

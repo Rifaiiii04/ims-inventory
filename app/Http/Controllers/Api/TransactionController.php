@@ -13,6 +13,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Http;
 
 class TransactionController extends Controller
 {
@@ -455,6 +456,9 @@ class TransactionController extends Controller
                 }
 
                 DB::commit();
+
+                // Kirim notifikasi stok menipis setelah transaksi (jika ada)
+                $this->sendStockNotificationAfterTransaction();
 
                 return response()->json([
                     'success' => true,
@@ -1032,5 +1036,66 @@ class TransactionController extends Controller
         }
 
         return $csv;
+    }
+
+    /**
+     * Send stock notification after transaction
+     * Mengirim notifikasi batch untuk semua stok yang menipis setelah transaksi
+     */
+    private function sendStockNotificationAfterTransaction()
+    {
+        // Cek apakah notifikasi diaktifkan
+        if (!config('services.n8n.enabled', true)) {
+            return;
+        }
+
+        try {
+            // Ambil semua stok yang menipis (stok < 5)
+            $lowStockItems = TblBahan::with(['kategori:id_kategori,nama_kategori'])
+                ->where('stok_bahan', '<', 5)
+                ->orderBy('stok_bahan', 'asc')
+                ->get();
+
+            if ($lowStockItems->isEmpty()) {
+                return; // Tidak ada stok menipis
+            }
+
+            // Format data untuk n8n
+            $items = $lowStockItems->map(function($item) {
+                return [
+                    'nama_bahan' => $item->nama_bahan,
+                    'stok_bahan' => (float)$item->stok_bahan,
+                    'id_bahan' => $item->id_bahan,
+                    'satuan' => $item->satuan,
+                    'min_stok' => (float)$item->min_stok,
+                    'kategori' => $item->kategori->nama_kategori ?? 'Tidak ada kategori',
+                ];
+            })->toArray();
+
+            $webhookUrl = config('services.n8n.webhook_url');
+            $timeout = config('services.n8n.timeout', 5);
+
+            if (empty($webhookUrl)) {
+                Log::warning('N8N webhook URL tidak dikonfigurasi');
+                return;
+            }
+
+            // Kirim batch data ke n8n webhook
+            Http::timeout($timeout)->post($webhookUrl, [
+                'items' => $items,
+                'batch' => true,
+                'total_items' => count($items)
+            ]);
+
+            Log::info('Stock notification sent to n8n after transaction', [
+                'total_items' => count($items)
+            ]);
+
+        } catch (\Exception $e) {
+            // Log error tapi jangan gagalkan transaksi
+            Log::error('Failed to send stock notification after transaction: ' . $e->getMessage(), [
+                'error' => $e->getMessage()
+            ]);
+        }
     }
 }

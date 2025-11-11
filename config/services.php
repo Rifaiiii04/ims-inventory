@@ -35,6 +35,7 @@ return [
         'webhook_url' => env('N8N_WEBHOOK_URL', 'http://localhost:5678/webhook-test/stock-notification'),
         'enabled' => env('N8N_NOTIFICATION_ENABLED', true),
         'timeout' => env('N8N_TIMEOUT', 5),
+        'batch_notification' => env('N8N_BATCH_NOTIFICATION', true), // Kirim semua stok menipis dalam satu pesan
     ],
 
 ];

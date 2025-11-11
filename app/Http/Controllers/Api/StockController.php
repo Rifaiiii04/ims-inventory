@@ -598,7 +598,7 @@ class StockController extends Controller
     }
 
     /**
-     * Send stock notification to n8n webhook
+     * Send stock notification to n8n webhook (single item)
      */
     private function sendStockNotification($stock)
     {
@@ -609,6 +609,13 @@ class StockController extends Controller
 
         // Hanya kirim notifikasi jika stok di bawah 5
         if ($stock->stok_bahan >= 5) {
+            return;
+        }
+
+        // Gunakan batch notification jika diaktifkan
+        // Langsung kirim semua stok menipis dalam satu request
+        if (config('services.n8n.batch_notification', true)) {
+            $this->sendBatchStockNotification();
             return;
         }
 
@@ -642,6 +649,90 @@ class StockController extends Controller
                 'bahan_id' => $stock->id_bahan,
                 'error' => $e->getMessage()
             ]);
+        }
+    }
+
+    /**
+     * Send batch stock notification to n8n webhook
+     * Mengirim semua stok menipis dalam satu request
+     */
+    public function sendBatchStockNotification()
+    {
+        // Cek apakah notifikasi diaktifkan
+        if (!config('services.n8n.enabled', true)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Notifikasi n8n tidak diaktifkan'
+            ], 400);
+        }
+
+        try {
+            // Ambil semua stok yang menipis (stok < 5)
+            $lowStockItems = TblBahan::with(['kategori:id_kategori,nama_kategori'])
+                ->where('stok_bahan', '<', 5)
+                ->orderBy('stok_bahan', 'asc')
+                ->get();
+
+            if ($lowStockItems->isEmpty()) {
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Tidak ada stok yang menipis',
+                    'data' => []
+                ], 200);
+            }
+
+            // Format data untuk n8n
+            $items = $lowStockItems->map(function($item) {
+                return [
+                    'nama_bahan' => $item->nama_bahan,
+                    'stok_bahan' => (float)$item->stok_bahan,
+                    'id_bahan' => $item->id_bahan,
+                    'satuan' => $item->satuan,
+                    'min_stok' => (float)$item->min_stok,
+                    'kategori' => $item->kategori->nama_kategori ?? 'Tidak ada kategori',
+                ];
+            })->toArray();
+
+            $webhookUrl = config('services.n8n.webhook_url');
+            $timeout = config('services.n8n.timeout', 5);
+
+            if (empty($webhookUrl)) {
+                Log::warning('N8N webhook URL tidak dikonfigurasi');
+                return response()->json([
+                    'success' => false,
+                    'message' => 'N8N webhook URL tidak dikonfigurasi'
+                ], 400);
+            }
+
+            // Kirim batch data ke n8n webhook
+            Http::timeout($timeout)->post($webhookUrl, [
+                'items' => $items,
+                'batch' => true,
+                'total_items' => count($items)
+            ]);
+
+            Log::info('Batch stock notification sent to n8n', [
+                'total_items' => count($items),
+                'items' => $items
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Batch notification berhasil dikirim',
+                'total_items' => count($items),
+                'data' => $items
+            ], 200);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to send batch stock notification to n8n: ' . $e->getMessage(), [
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal mengirim batch notification',
+                'error' => $e->getMessage()
+            ], 500);
         }
     }
 
