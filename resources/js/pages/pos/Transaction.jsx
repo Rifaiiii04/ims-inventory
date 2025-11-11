@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Sidebar from "../../components/Sidebar";
 import TopBar from "../../components/TopBar";
 import { useTransaction } from "../../hooks/useTransaction";
@@ -13,6 +13,24 @@ function Transaction() {
     const [showPaymentModal, setShowPaymentModal] = useState(false);
     const [showReceiptModal, setShowReceiptModal] = useState(false);
     const [transactionData, setTransactionData] = useState(null);
+    const [isDesktop, setIsDesktop] = useState(false);
+
+    // Auto-close mobile menu saat resize ke desktop dan pastikan tidak stuck
+    useEffect(() => {
+        const checkDesktop = () => {
+            const desktop = window.innerWidth >= 1024; // lg breakpoint
+            setIsDesktop(desktop);
+            if (desktop) {
+                setIsMobileMenuOpen(false);
+            }
+        };
+
+        // Check on mount
+        checkDesktop();
+
+        window.addEventListener('resize', checkDesktop);
+        return () => window.removeEventListener('resize', checkDesktop);
+    }, []);
     
     const {
         products,
@@ -116,11 +134,14 @@ function Transaction() {
                     </div>
                 </div>
 
-                {/* Mobile Overlay */}
-                {isMobileMenuOpen && (
+                {/* Mobile Overlay - hanya muncul di mobile dan saat menu terbuka */}
+                {isMobileMenuOpen && !isDesktop && (
                     <div
                         className="fixed inset-0 bg-black/50 z-30 lg:hidden"
                         onClick={() => setIsMobileMenuOpen(false)}
+                        onTouchStart={() => setIsMobileMenuOpen(false)}
+                        style={{ pointerEvents: 'auto' }}
+                        aria-hidden="true"
                     />
                 )}
 
