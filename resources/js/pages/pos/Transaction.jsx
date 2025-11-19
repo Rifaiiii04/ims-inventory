@@ -14,6 +14,7 @@ function Transaction() {
     const [showReceiptModal, setShowReceiptModal] = useState(false);
     const [transactionData, setTransactionData] = useState(null);
     const [isDesktop, setIsDesktop] = useState(false);
+    const [isProcessingPayment, setIsProcessingPayment] = useState(false);
 
     // Auto-close mobile menu saat resize ke desktop dan pastikan tidak stuck
     useEffect(() => {
@@ -46,13 +47,26 @@ function Transaction() {
     } = useTransaction();
 
     const handleProcessTransaction = async (paymentData) => {
-        const result = await processTransaction(paymentData);
-        if (result.success) {
-            setTransactionData(result.data);
-            setShowPaymentModal(false);
-            setShowReceiptModal(true);
-        } else {
-            alert(result.message);
+        // Prevent double click
+        if (isProcessingPayment) {
+            return;
+        }
+
+        setIsProcessingPayment(true);
+        try {
+            const result = await processTransaction(paymentData);
+            if (result.success) {
+                setTransactionData(result.data);
+                setShowPaymentModal(false);
+                setShowReceiptModal(true);
+            } else {
+                alert(result.message);
+            }
+        } catch (error) {
+            console.error("Error processing transaction:", error);
+            alert("Terjadi kesalahan saat memproses transaksi. Silakan coba lagi.");
+        } finally {
+            setIsProcessingPayment(false);
         }
     };
 
@@ -186,7 +200,12 @@ function Transaction() {
                 <PaymentModal
                     total={getTotal()}
                     onProcess={handleProcessTransaction}
-                    onClose={() => setShowPaymentModal(false)}
+                    onClose={() => {
+                        if (!isProcessingPayment) {
+                            setShowPaymentModal(false);
+                        }
+                    }}
+                    isProcessing={isProcessingPayment}
                 />
             )}
 

@@ -1,0 +1,111 @@
+### Test Chatbot Workflow dengan HTTP File
+### Bisa digunakan di VS Code dengan extension REST Client
+
+@baseUrl = http://localhost:5678
+@webhookPath = /webhook/whatsapp-chatbot
+@chatId = 6281380630988@c.us
+
+### Test 1: Help Intent
+POST {{baseUrl}}{{webhookPath}}
+Content-Type: application/json
+
+{
+  "message": {
+    "text": "help",
+    "from": "{{chatId}}"
+  },
+  "from": "{{chatId}}",
+  "chatId": "{{chatId}}"
+}
+
+### Test 2: Lihat Stok Intent
+POST {{baseUrl}}{{webhookPath}}
+Content-Type: application/json
+
+{
+  "message": {
+    "text": "lihat stok",
+    "from": "{{chatId}}"
+  },
+  "from": "{{chatId}}",
+  "chatId": "{{chatId}}"
+}
+
+### Test 3: Laporan Penjualan Intent
+POST {{baseUrl}}{{webhookPath}}
+Content-Type: application/json
+
+{
+  "message": {
+    "text": "laporan penjualan",
+    "from": "{{chatId}}"
+  },
+  "from": "{{chatId}}",
+  "chatId": "{{chatId}}"
+}
+
+### Test 4: Laporan Inventory Intent
+POST {{baseUrl}}{{webhookPath}}
+Content-Type: application/json
+
+{
+  "message": {
+    "text": "laporan inventory",
+    "from": "{{chatId}}"
+  },
+  "from": "{{chatId}}",
+  "chatId": "{{chatId}}"
+}
+
+### Test 5: Chat AI Intent
+POST {{baseUrl}}{{webhookPath}}
+Content-Type: application/json
+
+{
+  "message": {
+    "text": "bagaimana penjualan hari ini?",
+    "from": "{{chatId}}"
+  },
+  "from": "{{chatId}}",
+  "chatId": "{{chatId}}"
+}
+
+### Test 6: Tambah Stok Intent
+POST {{baseUrl}}{{webhookPath}}
+Content-Type: application/json
+
+{
+  "message": {
+    "text": "tambah stok beras 10",
+    "from": "{{chatId}}"
+  },
+  "from": "{{chatId}}",
+  "chatId": "{{chatId}}"
+}
+
+### Test 7: Tambah Produk Intent
+POST {{baseUrl}}{{webhookPath}}
+Content-Type: application/json
+
+{
+  "message": {
+    "text": "tambah produk nasi goreng harga 15000 kategori makanan",
+    "from": "{{chatId}}"
+  },
+  "from": "{{chatId}}",
+  "chatId": "{{chatId}}"
+}
+
+### Test 8: Tambah Kategori Intent
+POST {{baseUrl}}{{webhookPath}}
+Content-Type: application/json
+
+{
+  "message": {
+    "text": "tambah kategori minuman",
+    "from": "{{chatId}}"
+  },
+  "from": "{{chatId}}",
+  "chatId": "{{chatId}}"
+}
+

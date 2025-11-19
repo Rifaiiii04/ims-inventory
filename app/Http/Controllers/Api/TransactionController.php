@@ -457,10 +457,8 @@ class TransactionController extends Controller
 
                 DB::commit();
 
-                // Kirim notifikasi stok menipis setelah transaksi (jika ada)
-                $this->sendStockNotificationAfterTransaction();
-
-                return response()->json([
+                // Prepare response
+                $response = response()->json([
                     'success' => true,
                     'message' => 'Transaksi berhasil disimpan',
                     'data' => [
@@ -471,6 +469,19 @@ class TransactionController extends Controller
                             ($request->cash_amount - $totalAmount) : 0
                     ]
                 ], 201);
+
+                // Kirim notifikasi stok menipis setelah response dikirim (non-blocking)
+                // Menggunakan register_shutdown_function untuk menjalankan setelah response dikirim
+                register_shutdown_function(function() {
+                    try {
+                        $this->sendStockNotificationAfterTransaction();
+                    } catch (\Exception $e) {
+                        // Silently fail - notification is not critical
+                        Log::error('Error in shutdown function for stock notification: ' . $e->getMessage());
+                    }
+                });
+
+                return $response;
 
             } catch (\Exception $e) {
                 DB::rollback();
@@ -1041,6 +1052,7 @@ class TransactionController extends Controller
     /**
      * Send stock notification after transaction
      * Mengirim notifikasi batch untuk semua stok yang menipis setelah transaksi
+     * Method ini tidak akan memblokir response karena dipanggil setelah response dikirim
      */
     private function sendStockNotificationAfterTransaction()
     {
@@ -1073,28 +1085,55 @@ class TransactionController extends Controller
             })->toArray();
 
             $webhookUrl = config('services.n8n.webhook_url');
-            $timeout = config('services.n8n.timeout', 5);
+            // Reduce timeout to 2 seconds to prevent blocking the response
+            $timeout = min(config('services.n8n.timeout', 5), 2);
 
             if (empty($webhookUrl)) {
                 Log::warning('N8N webhook URL tidak dikonfigurasi');
                 return;
             }
 
-            // Kirim batch data ke n8n webhook
-            Http::timeout($timeout)->post($webhookUrl, [
-                'items' => $items,
-                'batch' => true,
-                'total_items' => count($items)
-            ]);
+            // Kirim batch data ke n8n webhook dengan timeout pendek
+            // Gunakan try-catch untuk menangkap semua jenis error termasuk timeout
+            try {
+                $response = Http::timeout($timeout)
+                    ->connectTimeout(1) // Connection timeout 1 second
+                    ->post($webhookUrl, [
+                        'items' => $items,
+                        'batch' => true,
+                        'total_items' => count($items)
+                    ]);
 
-            Log::info('Stock notification sent to n8n after transaction', [
-                'total_items' => count($items)
-            ]);
+                if ($response->successful()) {
+                    Log::info('Stock notification sent to n8n after transaction', [
+                        'total_items' => count($items)
+                    ]);
+                } else {
+                    Log::warning('Stock notification sent but received non-success response', [
+                        'status' => $response->status(),
+                        'total_items' => count($items)
+                    ]);
+                }
+            } catch (\Illuminate\Http\Client\ConnectionException $e) {
+                // Connection timeout atau connection refused - tidak critical
+                Log::warning('Stock notification connection failed (non-critical)', [
+                    'error' => $e->getMessage(),
+                    'webhook_url' => $webhookUrl
+                ]);
+            } catch (\Illuminate\Http\Client\RequestException $e) {
+                // Request timeout atau HTTP error - tidak critical
+                Log::warning('Stock notification request failed (non-critical)', [
+                    'error' => $e->getMessage(),
+                    'webhook_url' => $webhookUrl
+                ]);
+            }
 
         } catch (\Exception $e) {
             // Log error tapi jangan gagalkan transaksi
+            // Catch all other exceptions that might occur
             Log::error('Failed to send stock notification after transaction: ' . $e->getMessage(), [
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
             ]);
         }
     }

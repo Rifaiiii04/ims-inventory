@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 
-function PaymentModal({ total, onProcess, onClose }) {
+function PaymentModal({ total, onProcess, onClose, isProcessing = false }) {
     const [paymentMethod, setPaymentMethod] = useState("tunai");
     const [cashAmount, setCashAmount] = useState("");
     const [transferProof, setTransferProof] = useState("");
@@ -34,6 +34,11 @@ function PaymentModal({ total, onProcess, onClose }) {
 
     const handleSubmit = (e) => {
         e.preventDefault();
+
+        // Prevent double submission
+        if (isProcessing) {
+            return;
+        }
 
         if (
             paymentMethod === "tunai" &&
@@ -98,7 +103,10 @@ function PaymentModal({ total, onProcess, onClose }) {
                         </div>
                         <button
                             onClick={onClose}
-                            className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                            disabled={isProcessing}
+                            className={`p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors ${
+                                isProcessing ? "opacity-50 cursor-not-allowed" : ""
+                            }`}
                         >
                             <svg
                                 className="w-6 h-6"
@@ -137,7 +145,9 @@ function PaymentModal({ total, onProcess, onClose }) {
                             Metode Pembayaran
                         </label>
                         <div className="space-y-3">
-                            <label className="flex items-center p-3 border-2 rounded-lg cursor-pointer transition-all duration-200 hover:bg-gray-50">
+                            <label className={`flex items-center p-3 border-2 rounded-lg transition-all duration-200 ${
+                                isProcessing ? "opacity-50 cursor-not-allowed" : "cursor-pointer hover:bg-gray-50"
+                            }`}>
                                 <input
                                     type="radio"
                                     name="payment_method"
@@ -146,6 +156,7 @@ function PaymentModal({ total, onProcess, onClose }) {
                                     onChange={(e) =>
                                         setPaymentMethod(e.target.value)
                                     }
+                                    disabled={isProcessing}
                                     className="w-4 h-4 text-green-600 bg-gray-100 border-gray-300 focus:ring-green-500"
                                 />
                                 <div className="ml-3 flex items-center gap-3">
@@ -163,7 +174,9 @@ function PaymentModal({ total, onProcess, onClose }) {
                                 </div>
                             </label>
 
-                            <label className="flex items-center p-3 border-2 rounded-lg cursor-pointer transition-all duration-200 hover:bg-gray-50">
+                            <label className={`flex items-center p-3 border-2 rounded-lg transition-all duration-200 ${
+                                isProcessing ? "opacity-50 cursor-not-allowed" : "cursor-pointer hover:bg-gray-50"
+                            }`}>
                                 <input
                                     type="radio"
                                     name="payment_method"
@@ -172,6 +185,7 @@ function PaymentModal({ total, onProcess, onClose }) {
                                     onChange={(e) =>
                                         setPaymentMethod(e.target.value)
                                     }
+                                    disabled={isProcessing}
                                     className="w-4 h-4 text-green-600 bg-gray-100 border-gray-300 focus:ring-green-500"
                                 />
                                 <div className="ml-3 flex items-center gap-3">
@@ -189,7 +203,9 @@ function PaymentModal({ total, onProcess, onClose }) {
                                 </div>
                             </label>
 
-                            <label className="flex items-center p-3 border-2 rounded-lg cursor-pointer transition-all duration-200 hover:bg-gray-50">
+                            <label className={`flex items-center p-3 border-2 rounded-lg transition-all duration-200 ${
+                                isProcessing ? "opacity-50 cursor-not-allowed" : "cursor-pointer hover:bg-gray-50"
+                            }`}>
                                 <input
                                     type="radio"
                                     name="payment_method"
@@ -198,6 +214,7 @@ function PaymentModal({ total, onProcess, onClose }) {
                                     onChange={(e) =>
                                         setPaymentMethod(e.target.value)
                                     }
+                                    disabled={isProcessing}
                                     className="w-4 h-4 text-green-600 bg-gray-100 border-gray-300 focus:ring-green-500"
                                 />
                                 <div className="ml-3 flex items-center gap-3">
@@ -228,7 +245,10 @@ function PaymentModal({ total, onProcess, onClose }) {
                                 value={cashAmount}
                                 onChange={handleCashAmountChange}
                                 placeholder="Rp 0"
-                                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
+                                disabled={isProcessing}
+                                className={`w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors ${
+                                    isProcessing ? "bg-gray-100 cursor-not-allowed" : ""
+                                }`}
                                 required
                             />
                             {cashAmount && change >= 0 && (
@@ -267,7 +287,10 @@ function PaymentModal({ total, onProcess, onClose }) {
                                 }
                                 placeholder="Masukkan nomor rekening atau bukti transfer"
                                 rows={3}
-                                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
+                                disabled={isProcessing}
+                                className={`w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors ${
+                                    isProcessing ? "bg-gray-100 cursor-not-allowed" : ""
+                                }`}
                                 required
                             />
                         </div>
@@ -295,15 +318,51 @@ function PaymentModal({ total, onProcess, onClose }) {
                         <button
                             type="button"
                             onClick={onClose}
-                            className="px-6 py-3 text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-xl font-semibold transition-colors"
+                            disabled={isProcessing}
+                            className={`px-6 py-3 text-gray-600 bg-gray-100 rounded-xl font-semibold transition-colors ${
+                                isProcessing 
+                                    ? "opacity-50 cursor-not-allowed" 
+                                    : "hover:bg-gray-200"
+                            }`}
                         >
                             Batal
                         </button>
                         <button
                             type="submit"
-                            className="px-6 py-3 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-xl font-semibold hover:from-green-600 hover:to-green-700 transition-all duration-200 shadow-lg hover:shadow-xl"
+                            disabled={isProcessing}
+                            className={`px-6 py-3 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-xl font-semibold transition-all duration-200 shadow-lg flex items-center gap-2 ${
+                                isProcessing 
+                                    ? "opacity-75 cursor-not-allowed" 
+                                    : "hover:from-green-600 hover:to-green-700 hover:shadow-xl"
+                            }`}
                         >
-                            Proses Pembayaran
+                            {isProcessing ? (
+                                <>
+                                    <svg
+                                        className="animate-spin h-5 w-5 text-white"
+                                        xmlns="http://www.w3.org/2000/svg"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                    >
+                                        <circle
+                                            className="opacity-25"
+                                            cx="12"
+                                            cy="12"
+                                            r="10"
+                                            stroke="currentColor"
+                                            strokeWidth="4"
+                                        ></circle>
+                                        <path
+                                            className="opacity-75"
+                                            fill="currentColor"
+                                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                                        ></path>
+                                    </svg>
+                                    <span>Memproses...</span>
+                                </>
+                            ) : (
+                                "Proses Pembayaran"
+                            )}
                         </button>
                     </div>
                 </form>
