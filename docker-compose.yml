@@ -1,0 +1,148 @@
+version: '3.8'
+
+services:
+  # MySQL Database
+  mysql:
+    image: mysql:8.0
+    container_name: angkringan_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${DB_DATABASE:-angkringan_ims}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-rootpassword}
+      MYSQL_USER: ${DB_USERNAME:-angkringan_user}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-angkringan_pass}
+    ports:
+      - "${DB_PORT:-3306}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./database/init:/docker-entrypoint-initdb.d
+    networks:
+      - angkringan_network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: angkringan_redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - angkringan_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Laravel Application
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: angkringan_app
+    restart: unless-stopped
+    working_dir: /var/www/html
+    volumes:
+      - ./:/var/www/html
+      - ./php/local.ini:/usr/local/etc/php/conf.d/local.ini
+    networks:
+      - angkringan_network
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_DATABASE=${DB_DATABASE:-angkringan_ims}
+      - DB_USERNAME=${DB_USERNAME:-angkringan_user}
+      - DB_PASSWORD=${DB_PASSWORD:-angkringan_pass}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+
+  # Nginx Web Server
+  nginx:
+    image: nginx:alpine
+    container_name: angkringan_nginx
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-80}:80"
+    volumes:
+      - ./:/var/www/html
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf
+    networks:
+      - angkringan_network
+    depends_on:
+      - app
+
+  # Python OCR Service
+  ocr_service:
+    build:
+      context: ./python_ocr_service
+      dockerfile: Dockerfile
+    container_name: angkringan_ocr
+    restart: unless-stopped
+    ports:
+      - "${OCR_PORT:-5000}:5000"
+    volumes:
+      - ./python_ocr_service:/app
+      - ocr_uploads:/app/uploads
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - FLASK_ENV=production
+      - FLASK_APP=ocr_service_hybrid.py
+    networks:
+      - angkringan_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # n8n Workflow Automation
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: angkringan_n8n
+    restart: unless-stopped
+    ports:
+      - "${N8N_PORT:-5678}:5678"
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=${N8N_USER:-admin}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_PASSWORD:-admin123}
+      - N8N_HOST=${N8N_HOST:-localhost}
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - WEBHOOK_URL=http://localhost:5678/
+      - GENERIC_TIMEZONE=Asia/Jakarta
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./n8n-workflow-chatbot.json:/data/workflow-chatbot.json
+      - ./n8n-workflow-stock-notification.json:/data/workflow-stock-notification.json
+    networks:
+      - angkringan_network
+    depends_on:
+      - mysql
+      - redis
+
+volumes:
+  mysql_data:
+    driver: local
+  redis_data:
+    driver: local
+  ocr_uploads:
+    driver: local
+  n8n_data:
+    driver: local
+
+networks:
+  angkringan_network:
+    driver: bridge
+

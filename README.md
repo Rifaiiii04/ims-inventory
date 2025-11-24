@@ -12,6 +12,11 @@ Sistem Inventory Management untuk Angkringan dibangun dengan Laravel 10, React 1
 
 ## Persyaratan Sistem
 
+### Development dengan Docker (Recommended)
+-   Docker Desktop
+-   Git
+
+### Development Manual
 -   PHP >= 8.1
 -   Composer
 -   Node.js >= 18.x
@@ -19,6 +24,51 @@ Sistem Inventory Management untuk Angkringan dibangun dengan Laravel 10, React 1
 -   MySQL/MariaDB
 
 ## Instalasi
+
+### Opsi 1: Menggunakan Docker (Recommended untuk Kolaborasi)
+
+Setup Docker environment untuk development yang konsisten:
+
+#### Windows (PowerShell)
+```powershell
+.\docker-start.ps1
+```
+
+#### Linux/Mac (Bash)
+```bash
+chmod +x docker-start.sh
+./docker-start.sh
+```
+
+#### Manual Docker Setup
+```bash
+# 1. Copy environment file
+cp .env.example .env
+
+# 2. Edit .env dan sesuaikan konfigurasi
+
+# 3. Start services
+docker-compose up -d
+
+# 4. Generate application key
+docker-compose exec app php artisan key:generate
+
+# 5. Install dependencies
+docker-compose exec app composer install
+docker-compose exec app npm install
+
+# 6. Run migrations
+docker-compose exec app php artisan migrate
+```
+
+**Dokumentasi lengkap Docker:** Lihat [docker-setup-guide.md](./docker-setup-guide.md)
+
+**Services yang tersedia:**
+- Laravel App: http://localhost
+- n8n: http://localhost:5678
+- OCR Service: http://localhost:5000
+
+### Opsi 2: Instalasi Manual
 
 ### 1. Clone Repository
 
@@ -73,7 +123,22 @@ php artisan migrate
 
 ## Menjalankan Aplikasi
 
-### Development Mode
+### Dengan Docker
+
+```bash
+# Start semua services
+docker-compose up -d
+
+# Run Vite dev server (di container)
+docker-compose exec app npm run dev
+
+# Atau run di background
+docker-compose exec -d app npm run dev
+```
+
+Aplikasi akan berjalan di: `http://localhost`
+
+### Manual Development Mode
 
 Buka 2 terminal:
 
@@ -95,6 +160,12 @@ Aplikasi akan berjalan di: `http://localhost:8000`
 
 Build assets untuk production:
 
+**Docker:**
+```bash
+docker-compose exec app npm run build
+```
+
+**Manual:**
 ```bash
 npm run build
 ```

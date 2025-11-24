@@ -1,4 +1,3 @@
-/.phpunit.cache
 /node_modules
 /public/build
 /public/hot
@@ -17,3 +16,27 @@ yarn-error.log
 /.fleet
 /.idea
 /.vscode
+*.log
+.DS_Store
+Thumbs.db
+
+# Docker
+docker-compose.override.yml
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+*.egg-info/
+dist/
+build/
+
+# OCR Service uploads (keep structure but ignore files)
+python_ocr_service/uploads/*
+!python_ocr_service/uploads/.gitkeep
