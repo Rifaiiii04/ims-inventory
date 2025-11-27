@@ -131,6 +131,24 @@ export const useTransaction = () => {
 
     // Add item to cart
     const addToCart = (variant, quantity, product = null) => {
+        // Validasi stok bahan: cek stok_prediksi
+        // Jika stok_prediksi = 0 atau undefined (kecuali produk langsung dengan stok_prediksi = 999)
+        const isDirectProduct = variant.is_direct_product === true || variant.id_varian?.toString().startsWith('product_');
+        const predictedStock = variant.stok_prediksi;
+        
+        // Untuk produk langsung (stok_prediksi = 999), selalu bisa ditambahkan
+        // Untuk variant dengan komposisi, cek stok_prediksi
+        if (!isDirectProduct && (predictedStock === undefined || predictedStock === null || predictedStock <= 0)) {
+            alert(`Stok bahan tidak mencukupi untuk memproduksi ${variant.nama_varian || 'produk ini'}.`);
+            return;
+        }
+
+        // Jika bukan produk langsung, cek apakah quantity melebihi stok_prediksi
+        if (!isDirectProduct && predictedStock !== 999 && quantity > predictedStock) {
+            alert(`Stok bahan hanya cukup untuk ${predictedStock} porsi. Tidak bisa menambahkan ${quantity} porsi.`);
+            return;
+        }
+
         const existingItem = cart.find(
             (item) => item.variant.id_varian === variant.id_varian
         );
@@ -146,6 +164,20 @@ export const useTransaction = () => {
         }
 
         if (existingItem) {
+            // Cek total quantity setelah ditambahkan
+            const newQuantity = existingItem.quantity + quantity;
+            
+            // Validasi stok untuk existing item
+            if (!isDirectProduct && predictedStock !== 999 && newQuantity > predictedStock) {
+                const maxCanAdd = predictedStock - existingItem.quantity;
+                if (maxCanAdd <= 0) {
+                    alert(`Stok bahan tidak mencukupi. Maksimal yang bisa ditambahkan: ${existingItem.quantity} porsi.`);
+                    return;
+                }
+                alert(`Stok bahan hanya cukup untuk ${predictedStock} porsi. Hanya bisa menambahkan ${maxCanAdd} porsi lagi.`);
+                quantity = maxCanAdd;
+            }
+            
             setCart(
                 cart.map((item) =>
                     item.variant.id_varian === variant.id_varian
@@ -177,6 +209,26 @@ export const useTransaction = () => {
         if (quantity <= 0) {
             removeFromCart(variantId);
             return;
+        }
+
+        // Cari item di cart
+        const item = cart.find((item) => item.variant.id_varian === variantId);
+        if (!item) {
+            return;
+        }
+
+        // Validasi stok bahan
+        const variant = item.variant;
+        const isDirectProduct = variant.is_direct_product || variant.id_varian?.toString().startsWith('product_');
+        const predictedStock = variant.stok_prediksi;
+
+        // Untuk variant dengan komposisi, cek stok_prediksi
+        if (!isDirectProduct && predictedStock !== 999 && predictedStock !== undefined && predictedStock !== null) {
+            if (quantity > predictedStock) {
+                alert(`Stok bahan hanya cukup untuk ${predictedStock} porsi.`);
+                // Set quantity ke maksimal yang tersedia
+                quantity = predictedStock;
+            }
         }
 
         setCart(

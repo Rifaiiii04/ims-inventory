@@ -67,14 +67,6 @@ function AccountManagement() {
         status: "Online",
     });
 
-    // Data preferensi
-    const [preferences, setPreferences] = useState({
-        whatsappNotification: true,
-        emailNotification: true,
-        lowStockAlert: true,
-        dailyReport: true,
-    });
-
     // Update profile data when user changes
     useEffect(() => {
         if (user) {
@@ -110,14 +102,6 @@ function AccountManagement() {
     };
 
     const tabs = getTabs();
-
-    const handleUpdateProfile = (updatedProfile) => {
-        setProfileData({ ...profileData, ...updatedProfile });
-    };
-
-    const handleUpdatePreferences = (updatedPreferences) => {
-        setPreferences({ ...preferences, ...updatedPreferences });
-    };
 
     return (
         <div className="flex h-screen bg-gray-50">
@@ -184,20 +168,12 @@ function AccountManagement() {
                     {/* Tab Content */}
                     <div className="space-y-6">
                         {activeTab === "profile" && (
-                            <ProfileDashboard
-                                profile={profileData}
-                                onUpdate={handleUpdateProfile}
-                            />
+                            <ProfileDashboard profile={profileData} />
                         )}
 
                         {activeTab === "cashier" && <CashierManagement />}
 
-                        {activeTab === "preferences" && (
-                            <PreferenceSettings
-                                preferences={preferences}
-                                onUpdate={handleUpdatePreferences}
-                            />
-                        )}
+                        {activeTab === "preferences" && <PreferenceSettings />}
                     </div>
                 </div>
             </div>

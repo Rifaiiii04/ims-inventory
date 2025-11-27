@@ -9,6 +9,7 @@ use App\Models\TblVarian;
 use App\Models\TblBahan;
 use App\Models\TblKomposisi;
 use App\Models\TblProduk;
+use App\Models\TblNotifikasi;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -49,6 +50,11 @@ class TransactionController extends Controller
                         // Hitung stok prediksi berdasarkan stok bahan
                         $predictedStock = $this->calculatePredictedStock($compositions);
                         
+                        // Jika variant punya komposisi tapi stok_prediksi = 0, tidak bisa diproduksi
+                        if (!$compositions->isEmpty() && $predictedStock <= 0) {
+                            $canProduce = false;
+                        }
+                        
                         // Gunakan harga dari produk sebagai harga varian jika varian tidak punya harga sendiri
                         return [
                             'id_varian' => $variant->id_varian,
@@ -59,12 +65,18 @@ class TransactionController extends Controller
                             'id_produk' => $variant->id_produk,
                             'unit' => $variant->unit,
                             'compositions' => $compositions,
-                            'is_available' => $canProduce // Flag untuk menandai apakah bisa diproduksi
+                            'is_available' => $canProduce, // Flag untuk menandai apakah bisa diproduksi
+                            'is_direct_product' => $compositions->isEmpty() // Flag untuk produk langsung (tanpa komposisi)
                         ];
                     })
                     ->filter(function($variant) {
-                        // Filter variant yang bisa diproduksi (stok bahan cukup)
-                        return $variant['is_available'] === true;
+                        // Filter variant yang bisa diproduksi (stok bahan cukup ATAU stok_prediksi > 0)
+                        // Variant dengan komposisi kosong (produk langsung) selalu bisa diproduksi
+                        if ($variant['is_direct_product']) {
+                            return true;
+                        }
+                        // Variant dengan komposisi harus punya stok_prediksi > 0
+                        return $variant['is_available'] === true && $variant['stok_prediksi'] > 0;
                     });
 
                 // Jika produk tidak punya variant, buat "virtual variant" untuk produk itu sendiri
@@ -83,19 +95,28 @@ class TransactionController extends Controller
                     ]]);
                 }
 
+                // Convert variants collection to array untuk memastikan konsistensi di frontend
+                $variantsArray = $variants->values()->toArray();
+                
                 return [
                     'id' => $product->id_produk,
                     'name' => $product->nama_produk,
                     'description' => $product->deskripsi ?? '',
                     'category' => $product->nama_kategori ?? 'Umum',
                     'harga' => $product->harga_produk,
-                    'variants' => $variants,
-                    'has_variants' => $variants->count() > 1 || ($variants->count() === 1 && !isset($variants->first()['is_direct_product']))
+                    'variants' => $variantsArray, // Pastikan selalu array, bukan collection
+                    'has_variants' => count($variantsArray) > 1 || (count($variantsArray) === 1 && !isset($variantsArray[0]['is_direct_product']))
                 ];
             })
             ->filter(function($product) {
                 // Filter produk yang masih punya variant tersedia
-                return $product['variants']->count() > 0;
+                // Pastikan variants adalah array dan tidak kosong
+                $variants = $product['variants'] ?? [];
+                if (is_array($variants)) {
+                    return count($variants) > 0;
+                }
+                // Jika masih collection, gunakan count()
+                return is_object($variants) && method_exists($variants, 'count') ? $variants->count() > 0 : false;
             });
 
             return response()->json([
@@ -338,6 +359,7 @@ class TransactionController extends Controller
 
                     // Cek stok bahan berdasarkan komposisi (hanya untuk variant, bukan produk langsung)
                     if (!$isDirectProduct) {
+                        // Gunakan lockForUpdate untuk mencegah race condition
                         $compositions = DB::table('tbl_komposisi')
                             ->join('tbl_bahan', 'tbl_komposisi.id_bahan', '=', 'tbl_bahan.id_bahan')
                             ->where('tbl_komposisi.id_varian', $variant->id_varian)
@@ -349,20 +371,29 @@ class TransactionController extends Controller
                                 'tbl_bahan.stok_bahan',
                                 'tbl_bahan.min_stok'
                             )
+                            ->lockForUpdate() // Lock untuk mencegah race condition
                             ->get();
 
                         foreach ($compositions as $composition) {
                             $requiredIngredient = $composition->jumlah_per_porsi * $item['quantity'];
-                            if ($composition->stok_bahan < $requiredIngredient) {
+                            
+                            // Reload stok dengan lock untuk memastikan data terbaru
+                            $bahan = TblBahan::lockForUpdate()->find($composition->id_bahan);
+                            if (!$bahan) {
+                                throw new \Exception("Bahan {$composition->nama_bahan} tidak ditemukan");
+                            }
+                            
+                            // Cek stok dengan data terbaru yang di-lock
+                            if ($bahan->stok_bahan < $requiredIngredient) {
                                 Log::error('Insufficient ingredient stock:', [
-                                    'ingredient' => $composition->nama_bahan,
+                                    'ingredient' => $bahan->nama_bahan,
                                     'required' => $requiredIngredient,
-                                    'available' => $composition->stok_bahan,
+                                    'available' => $bahan->stok_bahan,
                                     'variant' => $variant->nama_varian,
                                     'composition_per_portion' => $composition->jumlah_per_porsi,
                                     'quantity_ordered' => $item['quantity']
                                 ]);
-                                throw new \Exception("Stok bahan {$composition->nama_bahan} tidak mencukupi untuk memproduksi {$variant->nama_varian}. Dibutuhkan: {$requiredIngredient} {$composition->satuan}, Tersedia: {$composition->stok_bahan} {$composition->satuan}");
+                                throw new \Exception("Stok bahan {$bahan->nama_bahan} tidak mencukupi untuk memproduksi {$variant->nama_varian}. Dibutuhkan: {$requiredIngredient} {$composition->satuan}, Tersedia: {$bahan->stok_bahan} {$composition->satuan}");
                             }
                         }
                     }
@@ -524,6 +555,26 @@ class TransactionController extends Controller
                             foreach ($compositions as $composition) {
                                 $ingredientUsage = $composition->jumlah_per_porsi * $item['quantity'];
                                 
+                                // Gunakan lockForUpdate untuk memastikan konsistensi
+                                $bahan = TblBahan::lockForUpdate()->find($composition->id_bahan);
+                                if (!$bahan) {
+                                    Log::error('Bahan not found for stock update:', [
+                                        'ingredient_id' => $composition->id_bahan
+                                    ]);
+                                    continue;
+                                }
+                                
+                                // Double check stok sebelum update
+                                if ($bahan->stok_bahan < $ingredientUsage) {
+                                    Log::error('Insufficient ingredient stock during update:', [
+                                        'ingredient' => $bahan->nama_bahan,
+                                        'required' => $ingredientUsage,
+                                        'available' => $bahan->stok_bahan,
+                                        'variant' => $item['variant']->nama_varian
+                                    ]);
+                                    throw new \Exception("Stok bahan {$bahan->nama_bahan} tidak mencukupi saat update. Dibutuhkan: {$ingredientUsage}, Tersedia: {$bahan->stok_bahan}");
+                                }
+                                
                                 Log::info('Updating ingredient stock:', [
                                     'ingredient_id' => $composition->id_bahan,
                                     'usage_per_portion' => $composition->jumlah_per_porsi,
@@ -532,9 +583,28 @@ class TransactionController extends Controller
                                     'variant' => $item['variant']->nama_varian
                                 ]);
                                 
-                                DB::table('tbl_bahan')
-                                    ->where('id_bahan', $composition->id_bahan)
-                                    ->decrement('stok_bahan', $ingredientUsage);
+                                // Update dengan decrement yang aman
+                                $bahan->decrement('stok_bahan', $ingredientUsage);
+                                
+                                // Reload untuk mendapatkan stok terbaru
+                                $bahan->refresh();
+                                
+                                // Trigger notifikasi jika stok menipis (berdasarkan min_stok dari bahan)
+                                if ($bahan->stok_bahan < $bahan->min_stok) {
+                                    // Kirim notifikasi via StockController
+                                    try {
+                                        $stockController = new \App\Http\Controllers\Api\StockController();
+                                        $reflection = new \ReflectionClass($stockController);
+                                        $method = $reflection->getMethod('sendStockNotification');
+                                        $method->setAccessible(true);
+                                        $method->invoke($stockController, $bahan);
+                                    } catch (\Exception $e) {
+                                        Log::error('Failed to send notification after stock update:', [
+                                            'error' => $e->getMessage(),
+                                            'bahan_id' => $bahan->id_bahan
+                                        ]);
+                                    }
+                                }
                             }
                         } catch (\Exception $e) {
                             Log::error('Failed to update ingredient stock:', [
@@ -542,7 +612,8 @@ class TransactionController extends Controller
                                 'variant_id' => $item['variant']->id_varian,
                                 'quantity' => $item['quantity']
                             ]);
-                            // Continue even if ingredient update fails
+                            // Rollback transaction jika gagal update stok bahan
+                            throw $e;
                         }
                     } else {
                         Log::info('Skipping stock update for direct product:', [
@@ -1429,38 +1500,62 @@ class TransactionController extends Controller
 
     /**
      * Send stock notification after transaction
-     * Mengirim notifikasi batch untuk semua stok yang menipis setelah transaksi
+     * Hanya mengirim untuk bahan yang dikonfigurasi di "Kelola Notifikasi" dan aktif
      * Method ini tidak akan memblokir response karena dipanggil setelah response dikirim
      */
     private function sendStockNotificationAfterTransaction()
     {
-        // Cek apakah notifikasi diaktifkan
+        // Cek apakah notifikasi diaktifkan (dari config dan settings)
         if (!config('services.n8n.enabled', true)) {
+            return;
+        }
+        
+        // Cek apakah notifikasi diaktifkan dari settings
+        $notificationEnabled = \App\Models\TblSettings::getValue('notification_enabled', true);
+        if (!$notificationEnabled) {
             return;
         }
 
         try {
-            // Ambil semua stok yang menipis (stok < 5)
-            $lowStockItems = TblBahan::with(['kategori:id_kategori,nama_kategori'])
-                ->where('stok_bahan', '<', 5)
-                ->orderBy('stok_bahan', 'asc')
+            // Ambil semua bahan dengan stok di bawah min_stok
+            $lowStockItems = TblBahan::with('kategori')
+                ->whereColumn('stok_bahan', '<', 'min_stok')
                 ->get();
 
             if ($lowStockItems->isEmpty()) {
                 return; // Tidak ada stok menipis
             }
 
-            // Format data untuk n8n
-            $items = $lowStockItems->map(function($item) {
-                return [
-                    'nama_bahan' => $item->nama_bahan,
-                    'stok_bahan' => (float)$item->stok_bahan,
-                    'id_bahan' => $item->id_bahan,
-                    'satuan' => $item->satuan,
-                    'min_stok' => (float)$item->min_stok,
-                    'kategori' => $item->kategori->nama_kategori ?? 'Tidak ada kategori',
+            $itemsToSend = [];
+            $fiveMinutesAgo = now()->subMinutes(5);
+
+            foreach ($lowStockItems as $bahan) {
+                // Cek cooldown 5 menit menggunakan cache
+                $cacheKey = 'stock_notification_' . $bahan->id_bahan;
+                $lastSent = cache()->get($cacheKey);
+                
+                if ($lastSent && $lastSent->gt($fiveMinutesAgo)) {
+                    continue;
+                }
+
+                $itemsToSend[] = [
+                    'nama_bahan' => $bahan->nama_bahan,
+                    'stok_bahan' => (float)$bahan->stok_bahan,
+                    'id_bahan' => $bahan->id_bahan,
+                    'satuan' => $bahan->satuan,
+                    'min_stok' => (float)$bahan->min_stok,
+                    'kategori' => $bahan->kategori->nama_kategori ?? 'Tidak ada kategori',
                 ];
-            })->toArray();
+
+                // Update cache untuk cooldown
+                cache()->put($cacheKey, now(), now()->addMinutes(5));
+            }
+
+            if (empty($itemsToSend)) {
+                return; // Tidak ada stok menipis yang perlu dikirim
+            }
+
+            $items = $itemsToSend;
 
             $webhookUrl = config('services.n8n.webhook_url');
             // Reduce timeout to 2 seconds to prevent blocking the response

@@ -61,14 +61,16 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/reports/inventory/export/excel', [ReportController::class, 'exportExcel']);
     Route::post('/reports/inventory/export/pdf', [ReportController::class, 'exportPDF']);
     
-    // Stock routes
-    Route::apiResource('stocks', StockController::class);
-    Route::post('/stocks/bulk-delete', [StockController::class, 'bulkDelete']);
-    Route::get('/stocks/low-stock/alerts', [StockController::class, 'lowStock']);
+    // Stock routes - specific routes must come before apiResource to avoid route conflicts
+    Route::get('/stocks/low-stock', [StockController::class, 'lowStock']); // New route for NotificationManagement
+    Route::get('/stocks/low-stock/alerts', [StockController::class, 'lowStock']); // Keep for backward compatibility
     Route::get('/stocks/categories/list', [StockController::class, 'categories']);
     Route::get('/stocks/history', [StockController::class, 'history']);
-    Route::get('/stocks/{id}/history', [StockController::class, 'history']);
-    Route::post('/stocks/send-batch-notification', [StockController::class, 'sendBatchStockNotification']);
+    Route::post('/stocks/bulk-delete', [StockController::class, 'bulkDelete']);
+    Route::post('/stocks/batch-notification', [StockController::class, 'sendBatchStockNotification']); // Updated route name
+    Route::post('/stocks/send-batch-notification', [StockController::class, 'sendBatchStockNotification']); // Keep for backward compatibility
+    Route::apiResource('stocks', StockController::class);
+    Route::get('/stocks/{id}/history', [StockController::class, 'history']); // Must be after apiResource
     
     // Variant routes
     Route::apiResource('variants', VariantController::class);
@@ -103,11 +105,16 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/whatsapp/low-stock', [WhatsAppAgentController::class, 'getLowStockAlerts']);
     Route::post('/whatsapp/send-notification', [WhatsAppAgentController::class, 'sendLowStockNotification']);
     
-    // Notification routes
-    Route::apiResource('notifications', NotificationController::class);
+    // Notification routes - specific routes must come before apiResource to avoid route conflicts
+    Route::get('/notifications/settings', [NotificationController::class, 'getSettings']);
+    Route::put('/notifications/settings', [NotificationController::class, 'updateSettings']);
     Route::post('/notifications/mark-all-read', [NotificationController::class, 'markAllAsRead']);
     Route::get('/notifications/unread-count', [NotificationController::class, 'getUnreadCount']);
     Route::post('/notifications/low-stock', [NotificationController::class, 'createLowStockNotification']);
+    Route::post('/notifications/trigger-all', [NotificationController::class, 'triggerNotification']);
+    Route::post('/notifications/process-scheduled', [NotificationController::class, 'processScheduledNotifications']);
+    Route::apiResource('notifications', NotificationController::class);
+    Route::post('/notifications/{id}/trigger', [NotificationController::class, 'triggerNotification']);
     
     // Default Laravel Sanctum route
     Route::get('/user', function (Request $request) {

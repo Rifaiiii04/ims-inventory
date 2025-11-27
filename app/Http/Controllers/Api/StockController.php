@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\TblBahan;
 use App\Models\TblKategori;
 use App\Models\TblStockHistory;
+use App\Models\TblNotifikasi;
 use App\Traits\StockHistoryTrait;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -693,17 +694,39 @@ class StockController extends Controller
 
     /**
      * Send stock notification to n8n webhook (single item)
+     * Mengirim notifikasi jika stok di bawah min_stok dari bahan itu sendiri
      */
     private function sendStockNotification($stock)
     {
-        // Cek apakah notifikasi diaktifkan
+        // Cek apakah notifikasi diaktifkan (dari config dan settings)
         if (!config('services.n8n.enabled', true)) {
             return;
         }
-
-        // Hanya kirim notifikasi jika stok di bawah 5
-        if ($stock->stok_bahan >= 5) {
+        
+        // Cek apakah notifikasi diaktifkan dari settings
+        $notificationEnabled = \App\Models\TblSettings::getValue('notification_enabled', true);
+        if (!$notificationEnabled) {
             return;
+        }
+
+        // Cek apakah stok di bawah min_stok dari bahan itu sendiri
+        if ($stock->stok_bahan >= $stock->min_stok) {
+            return;
+        }
+
+        // Cek cooldown 5 menit menggunakan cache
+        $cacheKey = 'stock_notification_' . $stock->id_bahan;
+        $lastSent = cache()->get($cacheKey);
+        
+        if ($lastSent) {
+            $fiveMinutesAgo = now()->subMinutes(5);
+            if ($lastSent->gt($fiveMinutesAgo)) {
+                Log::debug('Stock notification skipped: sent recently', [
+                    'bahan_id' => $stock->id_bahan,
+                    'terakhir_kirim' => $lastSent
+                ]);
+                return;
+            }
         }
 
         // Gunakan batch notification jika diaktifkan
@@ -722,19 +745,27 @@ class StockController extends Controller
                 return;
             }
 
+            // Reload stock dengan kategori untuk mendapatkan data lengkap
+            $stock->load('kategori');
+
             // Kirim data ke n8n webhook
             Http::timeout($timeout)->post($webhookUrl, [
                 'nama_bahan' => $stock->nama_bahan,
-                'stok_bahan' => $stock->stok_bahan,
+                'stok_bahan' => (float)$stock->stok_bahan,
                 'id_bahan' => $stock->id_bahan,
                 'satuan' => $stock->satuan,
-                'min_stok' => $stock->min_stok,
+                'min_stok' => (float)$stock->min_stok,
+                'kategori' => $stock->kategori->nama_kategori ?? 'Tidak ada kategori',
             ]);
+
+            // Update cache untuk cooldown
+            cache()->put($cacheKey, now(), now()->addMinutes(5));
 
             Log::info('Stock notification sent to n8n', [
                 'bahan_id' => $stock->id_bahan,
                 'nama_bahan' => $stock->nama_bahan,
-                'stok' => $stock->stok_bahan
+                'stok' => $stock->stok_bahan,
+                'min_stok' => $stock->min_stok
             ]);
 
         } catch (\Exception $e) {
@@ -748,23 +779,37 @@ class StockController extends Controller
 
     /**
      * Send batch stock notification to n8n webhook
-     * Mengirim semua stok menipis dalam satu request
+     * Mengirim semua stok menipis (stok < min_stok) dalam satu request
+     * 
+     * @param Request $request - Optional: 'force' parameter untuk skip pengecekan settings (untuk manual send)
      */
-    public function sendBatchStockNotification()
+    public function sendBatchStockNotification(Request $request)
     {
-        // Cek apakah notifikasi diaktifkan
+        // Cek apakah notifikasi diaktifkan (dari config)
         if (!config('services.n8n.enabled', true)) {
             return response()->json([
                 'success' => false,
-                'message' => 'Notifikasi n8n tidak diaktifkan'
+                'message' => 'Notifikasi n8n tidak diaktifkan di konfigurasi'
             ], 400);
+        }
+        
+        // Untuk manual send (force=true), skip pengecekan settings
+        // Untuk otomatis, cek settings
+        $force = $request->input('force', false);
+        if (!$force) {
+            $notificationEnabled = \App\Models\TblSettings::getValue('notification_enabled', true);
+            if (!$notificationEnabled) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Notifikasi dinonaktifkan di pengaturan. Aktifkan di halaman Pengaturan atau gunakan opsi "Kirim Sekarang" untuk mengirim manual.'
+                ], 400);
+            }
         }
 
         try {
-            // Ambil semua stok yang menipis (stok < 5)
-            $lowStockItems = TblBahan::with(['kategori:id_kategori,nama_kategori'])
-                ->where('stok_bahan', '<', 5)
-                ->orderBy('stok_bahan', 'asc')
+            // Ambil semua bahan dengan stok di bawah min_stok
+            $lowStockItems = TblBahan::with('kategori')
+                ->whereColumn('stok_bahan', '<', 'min_stok')
                 ->get();
 
             if ($lowStockItems->isEmpty()) {
@@ -775,17 +820,47 @@ class StockController extends Controller
                 ], 200);
             }
 
-            // Format data untuk n8n
-            $items = $lowStockItems->map(function($item) {
-                return [
-                    'nama_bahan' => $item->nama_bahan,
-                    'stok_bahan' => (float)$item->stok_bahan,
-                    'id_bahan' => $item->id_bahan,
-                    'satuan' => $item->satuan,
-                    'min_stok' => (float)$item->min_stok,
-                    'kategori' => $item->kategori->nama_kategori ?? 'Tidak ada kategori',
+            $itemsToSend = [];
+            $fiveMinutesAgo = now()->subMinutes(5);
+
+            foreach ($lowStockItems as $bahan) {
+                // Untuk manual send (force=true), skip cooldown
+                // Untuk otomatis, cek cooldown 5 menit menggunakan cache
+                if (!$force) {
+                    $cacheKey = 'stock_notification_' . $bahan->id_bahan;
+                    $lastSent = cache()->get($cacheKey);
+                    
+                    if ($lastSent) {
+                        $lastSentTime = is_string($lastSent) ? \Carbon\Carbon::parse($lastSent) : $lastSent;
+                        if ($lastSentTime instanceof \Carbon\Carbon && $lastSentTime->gt($fiveMinutesAgo)) {
+                            continue;
+                        }
+                    }
+                }
+
+                $itemsToSend[] = [
+                    'nama_bahan' => $bahan->nama_bahan,
+                    'stok_bahan' => (float)$bahan->stok_bahan,
+                    'id_bahan' => $bahan->id_bahan,
+                    'satuan' => $bahan->satuan,
+                    'min_stok' => (float)$bahan->min_stok,
+                    'kategori' => $bahan->kategori->nama_kategori ?? 'Tidak ada kategori',
                 ];
-            })->toArray();
+
+                // Update cache untuk cooldown (hanya untuk otomatis, bukan manual)
+                if (!$force) {
+                    $cacheKey = 'stock_notification_' . $bahan->id_bahan;
+                    cache()->put($cacheKey, now(), now()->addMinutes(5));
+                }
+            }
+
+            if (empty($itemsToSend)) {
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Tidak ada stok yang menipis atau tidak ada notifikasi aktif',
+                    'data' => []
+                ], 200);
+            }
 
             $webhookUrl = config('services.n8n.webhook_url');
             $timeout = config('services.n8n.timeout', 5);
@@ -800,21 +875,21 @@ class StockController extends Controller
 
             // Kirim batch data ke n8n webhook
             Http::timeout($timeout)->post($webhookUrl, [
-                'items' => $items,
+                'items' => $itemsToSend,
                 'batch' => true,
-                'total_items' => count($items)
+                'total_items' => count($itemsToSend)
             ]);
 
             Log::info('Batch stock notification sent to n8n', [
-                'total_items' => count($items),
-                'items' => $items
+                'total_items' => count($itemsToSend),
+                'items' => $itemsToSend
             ]);
 
             return response()->json([
                 'success' => true,
                 'message' => 'Batch notification berhasil dikirim',
-                'total_items' => count($items),
-                'data' => $items
+                'total_items' => count($itemsToSend),
+                'data' => $itemsToSend
             ], 200);
 
         } catch (\Exception $e) {

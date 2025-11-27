@@ -14,9 +14,30 @@ function ProductSelector({ products, onAddToCart }) {
     );
 
     const handleProductClick = (product) => {
+        // Validasi variants
+        if (!product.variants || !Array.isArray(product.variants) || product.variants.length === 0) {
+            console.error('Product has no valid variants:', product);
+            return;
+        }
+        
         // Jika produk tidak punya variant atau hanya punya 1 variant (produk langsung)
         if (!product.has_variants || product.variants.length === 1) {
             const variant = product.variants[0];
+            if (!variant) {
+                console.error('Variant is null:', product);
+                return;
+            }
+            
+            // Validasi stok bahan sebelum menambahkan ke keranjang
+            const isDirectProduct = variant.is_direct_product === true || variant.id_varian?.toString().startsWith('product_');
+            const predictedStock = variant.stok_prediksi;
+            
+            // Cek apakah stok habis
+            if (!isDirectProduct && (predictedStock === undefined || predictedStock === null || predictedStock <= 0)) {
+                alert(`⚠ Stok bahan habis! Tidak bisa menambahkan ${variant.nama_varian || product.name} ke keranjang.`);
+                return;
+            }
+            
             // Langsung tambah ke keranjang dengan quantity 1, termasuk produk parent
             onAddToCart(variant, 1, product);
 
@@ -39,6 +60,16 @@ function ProductSelector({ products, onAddToCart }) {
     };
 
     const handleVariantSelect = (variant) => {
+        // Validasi stok bahan sebelum menambahkan ke keranjang
+        const isDirectProduct = variant.is_direct_product === true || variant.id_varian?.toString().startsWith('product_');
+        const predictedStock = variant.stok_prediksi;
+        
+        // Cek apakah stok habis
+        if (!isDirectProduct && (predictedStock === undefined || predictedStock === null || predictedStock <= 0)) {
+            alert(`⚠ Stok bahan habis! Tidak bisa menambahkan ${variant.nama_varian || 'produk ini'} ke keranjang.`);
+            return;
+        }
+        
         // Langsung tambah ke keranjang dengan quantity 1, termasuk produk parent
         onAddToCart(variant, 1, selectedProduct);
 
@@ -58,16 +89,18 @@ function ProductSelector({ products, onAddToCart }) {
         setSelectedVariant(null);
     };
 
-    const handleQuickAdd = (variant, qty = 1, product = null) => {
-        // Find product from products array
-        const productParent = product || filteredProducts.find(p => 
-            p.variants.some(v => v.id_varian === variant.id_varian)
-        );
-        onAddToCart(variant, qty, productParent);
-    };
-
     const handleAddToCart = () => {
         if (selectedVariant && quantity > 0) {
+            // Validasi stok bahan sebelum menambahkan ke keranjang
+            const isDirectProduct = selectedVariant.is_direct_product === true || selectedVariant.id_varian?.toString().startsWith('product_');
+            const predictedStock = selectedVariant.stok_prediksi;
+            
+            // Cek apakah stok habis
+            if (!isDirectProduct && (predictedStock === undefined || predictedStock === null || predictedStock <= 0)) {
+                alert(`⚠ Stok bahan habis! Tidak bisa menambahkan ${selectedVariant.nama_varian || 'produk ini'} ke keranjang.`);
+                return;
+            }
+            
             onAddToCart(selectedVariant, quantity, selectedProduct);
             setQuantity(1);
         }
@@ -116,20 +149,40 @@ function ProductSelector({ products, onAddToCart }) {
                 <div className="p-4">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         {filteredProducts.map((product) => {
+                            // Pastikan variants adalah array dan tidak kosong
+                            if (!product.variants || !Array.isArray(product.variants) || product.variants.length === 0) {
+                                return null; // Skip produk tanpa variant
+                            }
+                            
                             const variant = product.variants[0];
                             const itemKey = `${product.id}_${variant?.id_varian}`;
                             const isAdded = addedItems.has(itemKey);
+                            
+                            // Cek apakah stok habis - lebih ketat
+                            const isDirectProduct = variant?.is_direct_product === true || variant?.id_varian?.toString().startsWith('product_');
+                            const predictedStock = variant?.stok_prediksi;
+                            const isOutOfStock = !isDirectProduct && (predictedStock === undefined || predictedStock === null || predictedStock <= 0);
 
                             return (
                                 <div
                                     key={product.id}
-                                    onClick={() => handleProductClick(product)}
-                                    className={`p-4 border-2 rounded-xl cursor-pointer transition-all duration-200 ${
-                                        selectedProduct?.id === product.id
-                                            ? "border-green-500 bg-green-50 shadow-lg"
+                                    onClick={(e) => {
+                                        if (isOutOfStock) {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            alert(`⚠ Stok bahan habis! Tidak bisa menambahkan ${product.name} ke keranjang.`);
+                                            return;
+                                        }
+                                        handleProductClick(product);
+                                    }}
+                                    className={`p-4 border-2 rounded-xl transition-all duration-200 ${
+                                        isOutOfStock
+                                            ? "border-red-400 bg-red-50 opacity-75 cursor-not-allowed"
+                                            : selectedProduct?.id === product.id
+                                            ? "border-green-500 bg-green-50 shadow-lg cursor-pointer"
                                             : isAdded
-                                            ? "border-green-600 bg-green-100 shadow-lg scale-105"
-                                            : "border-gray-200 hover:border-gray-300 hover:shadow-md"
+                                            ? "border-green-600 bg-green-100 shadow-lg scale-105 cursor-pointer"
+                                            : "border-gray-200 hover:border-gray-300 hover:shadow-md cursor-pointer"
                                     }`}
                                 >
                                     <div className="flex items-center gap-3">
@@ -146,67 +199,30 @@ function ProductSelector({ products, onAddToCart }) {
                                             <div className="flex items-center justify-between mt-1">
                                                 <div className="flex-1">
                                                     <p className="text-xs text-gray-600">
-                                                        {product.has_variants
+                                                        {product.has_variants && product.variants && Array.isArray(product.variants)
                                                             ? `${product.variants.length} varian tersedia`
                                                             : "Produk langsung"}
                                                     </p>
-                                                    {variant?.stok_prediksi !== undefined && variant.stok_prediksi !== 999 && (
-                                                        <p className="text-xs text-blue-600 font-medium mt-0.5">
-                                                            Prediksi: ~{variant.stok_prediksi} porsi (berdasarkan bahan)
+                                                    {isOutOfStock ? (
+                                                        <p className="text-xs text-red-600 font-bold mt-0.5">
+                                                            ⚠ STOK BAHAN HABIS
                                                         </p>
-                                                    )}
+                                                    ) : variant?.stok_prediksi !== undefined ? (
+                                                        variant.stok_prediksi === 999 ? (
+                                                            <p className="text-xs text-green-600 font-medium mt-0.5">
+                                                                ✓ Tersedia (produk langsung)
+                                                            </p>
+                                                        ) : (
+                                                            <p className="text-xs text-blue-600 font-medium mt-0.5">
+                                                                📊 Bisa dibuat: ~{variant.stok_prediksi} porsi (berdasarkan stok bahan)
+                                                            </p>
+                                                        )
+                                                    ) : null}
                                                 </div>
                                                 <p className="text-sm font-bold text-green-600">
                                                     {formatPrice(product.harga)}
                                                 </p>
                                             </div>
-                                            {/* Quick add buttons for direct products */}
-                                            {!product.has_variants && (
-                                                <div className="flex gap-1 mt-2">
-                                                    <button
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            handleQuickAdd(
-                                                                product
-                                                                    .variants[0],
-                                                                1,
-                                                                product
-                                                            );
-                                                        }}
-                                                        className="px-2 py-1 bg-green-500 text-white text-xs rounded hover:bg-green-600 transition-colors"
-                                                    >
-                                                        +1
-                                                    </button>
-                                                    <button
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            handleQuickAdd(
-                                                                product
-                                                                    .variants[0],
-                                                                2,
-                                                                product
-                                                            );
-                                                        }}
-                                                        className="px-2 py-1 bg-green-600 text-white text-xs rounded hover:bg-green-700 transition-colors"
-                                                    >
-                                                        +2
-                                                    </button>
-                                                    <button
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            handleQuickAdd(
-                                                                product
-                                                                    .variants[0],
-                                                                5,
-                                                                product
-                                                            );
-                                                        }}
-                                                        className="px-2 py-1 bg-green-700 text-white text-xs rounded hover:bg-green-800 transition-colors"
-                                                    >
-                                                        +5
-                                                    </button>
-                                                </div>
-                                            )}
                                             {isAdded && (
                                                 <div className="absolute top-2 right-2 bg-green-500 text-white text-xs px-2 py-1 rounded-full animate-pulse">
                                                     ✓ Ditambahkan
@@ -227,15 +243,31 @@ function ProductSelector({ products, onAddToCart }) {
                             Pilih Varian - {selectedProduct.name}
                         </h4>
                         <div className="grid grid-cols-1 gap-3">
-                            {selectedProduct.variants.map((variant) => (
+                            {selectedProduct.variants && Array.isArray(selectedProduct.variants) && selectedProduct.variants.length > 0 ? (
+                                selectedProduct.variants.map((variant) => {
+                                    const isDirectProduct = variant.is_direct_product === true || variant.id_varian?.toString().startsWith('product_');
+                                    const predictedStock = variant.stok_prediksi;
+                                    const isOutOfStock = !isDirectProduct && (predictedStock === undefined || predictedStock === null || predictedStock <= 0);
+                                    
+                                    return (
                                 <div
                                     key={variant.id_varian}
-                                    onClick={() => handleVariantSelect(variant)}
-                                    className={`p-3 border-2 rounded-lg cursor-pointer transition-all duration-200 ${
-                                        selectedVariant?.id_varian ===
-                                        variant.id_varian
-                                            ? "border-green-500 bg-green-50"
-                                            : "border-gray-200 hover:border-gray-300"
+                                    onClick={(e) => {
+                                        if (isOutOfStock) {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            alert(`⚠ Stok bahan habis! Tidak bisa menambahkan ${variant.nama_varian} ke keranjang.`);
+                                            return;
+                                        }
+                                        handleVariantSelect(variant);
+                                    }}
+                                    className={`p-3 border-2 rounded-lg transition-all duration-200 ${
+                                        isOutOfStock
+                                            ? "border-red-400 bg-red-50 opacity-75 cursor-not-allowed"
+                                            : selectedVariant?.id_varian ===
+                                            variant.id_varian
+                                                ? "border-green-500 bg-green-50 cursor-pointer"
+                                                : "border-gray-200 hover:border-gray-300 cursor-pointer"
                                     }`}
                                 >
                                     <div className="flex items-center justify-between">
@@ -246,11 +278,21 @@ function ProductSelector({ products, onAddToCart }) {
                                             <p className="text-sm text-gray-500">
                                                 Stok: {variant.stok_varian}
                                             </p>
-                                            {variant.stok_prediksi !== undefined && variant.stok_prediksi !== 999 && (
-                                                <p className="text-xs text-blue-600 font-medium">
-                                                    Prediksi: ~{variant.stok_prediksi} porsi (berdasarkan bahan)
+                                            {isOutOfStock ? (
+                                                <p className="text-xs text-red-600 font-bold">
+                                                    ⚠ STOK BAHAN HABIS
                                                 </p>
-                                            )}
+                                            ) : variant.stok_prediksi !== undefined ? (
+                                                variant.stok_prediksi === 999 ? (
+                                                    <p className="text-xs text-green-600 font-medium">
+                                                        ✓ Tersedia (produk langsung)
+                                                    </p>
+                                                ) : (
+                                                    <p className="text-xs text-blue-600 font-medium">
+                                                        📊 Bisa dibuat: ~{variant.stok_prediksi} porsi (berdasarkan stok bahan)
+                                                    </p>
+                                                )
+                                            ) : null}
                                         </div>
                                         <div className="text-right">
                                             <p className="font-bold text-green-600">
@@ -259,7 +301,14 @@ function ProductSelector({ products, onAddToCart }) {
                                         </div>
                                     </div>
                                 </div>
-                            ))}
+                                    );
+                                })
+                            ) : (
+                                <div className="p-4 text-center text-gray-500 bg-yellow-50 border border-yellow-200 rounded-lg">
+                                    <p className="text-sm">Tidak ada varian tersedia untuk produk ini.</p>
+                                    <p className="text-xs mt-1">Stok bahan mungkin tidak mencukupi.</p>
+                                </div>
+                            )}
                         </div>
 
                         {/* Quantity and Add to Cart */}

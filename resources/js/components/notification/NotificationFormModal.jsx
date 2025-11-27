@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import axios from "axios";
 
-function NotificationFormModal({ notification, onClose, onSave }) {
+function NotificationFormModal({ notification, onClose, onSubmit }) {
     const [formData, setFormData] = useState({
         id_bahan: "",
         jadwal: "",
@@ -77,14 +77,14 @@ function NotificationFormModal({ notification, onClose, onSave }) {
 
     const handleSubmit = (e) => {
         e.preventDefault();
-        
+
         // Validasi field yang sebenarnya ada di form
         if (!formData.id_bahan || !formData.jadwal) {
             alert("Mohon lengkapi semua field yang diperlukan");
             return;
         }
-        
-        onSave(formData);
+
+        onSubmit(formData);
     };
 
     return (
@@ -267,7 +267,12 @@ function NotificationFormModal({ notification, onClose, onSave }) {
                         </button>
                         <button
                             type="submit"
-                            className="px-6 py-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl font-semibold hover:from-blue-600 hover:to-blue-700 transition-all duration-200 shadow-lg hover:shadow-xl"
+                            disabled={
+                                loading ||
+                                !formData.id_bahan ||
+                                !formData.jadwal
+                            }
+                            className="px-6 py-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl font-semibold hover:from-blue-600 hover:to-blue-700 transition-all duration-200 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                             {notification
                                 ? "Update Notifikasi"

@@ -8,82 +8,54 @@
                 "responseMode": "responseNode",
                 "options": {}
             },
-            "id": "webhook-stock",
+            "id": "ebcae19a-87e9-4a76-b840-d58580be4915",
             "name": "Webhook - Terima Data Stok",
             "type": "n8n-nodes-base.webhook",
             "typeVersion": 1.1,
-            "position": [240, 300],
+            "position": [-1216, 144],
             "webhookId": "stock-notification-webhook"
         },
         {
             "parameters": {
                 "respondWith": "json",
-                "responseBody": "={{ { \"success\": true, \"message\": \"Data stok diterima dan sedang diproses\" } }}"
+                "responseBody": "={{ { \"success\": true, \"message\": \"Data stok diterima dan sedang diproses\" } }}",
+                "options": {}
             },
-            "id": "respond-webhook",
+            "id": "d9298946-c126-45f0-b3cb-2b24296105f0",
             "name": "Respond to Webhook",
             "type": "n8n-nodes-base.respondToWebhook",
             "typeVersion": 1,
-            "position": [240, 500]
+            "position": [-1184, 416]
         },
         {
             "parameters": {
-                "jsCode": "// Extract data dari webhook body\nconst body = $input.item.json.body || $input.item.json;\n\n// Ambil nilai stok (coba beberapa kemungkinan field)\nconst stock = parseFloat(body.stok_bahan || body.stok || body.quantity || 0);\n\n// Return data yang sudah di-extract\nreturn {\n  json: {\n    nama_bahan: body.nama_bahan || body.nama_produk || body.name || 'Produk Tidak Dikenal',\n    stok_bahan: stock,\n    id_bahan: body.id_bahan || body.id_produk || 'unknown',\n    satuan: body.satuan || body.unit || '',\n    min_stok: parseFloat(body.min_stok || body.minStock || 5)\n  }\n};"
+                "jsCode": "// Handle batch data atau single data\nconst body = $input.item.json.body || $input.item.json;\n\n// Cek apakah ini batch notification\nif (body.batch && body.items && Array.isArray(body.items)) {\n  // Batch mode: return array of items (setiap item menjadi output terpisah)\n  const results = [];\n  body.items.forEach(item => {\n    results.push({\n      json: {\n        nama_bahan: item.nama_bahan,\n        stok_bahan: parseFloat(item.stok_bahan || 0),\n        id_bahan: item.id_bahan,\n        satuan: item.satuan || '',\n        min_stok: parseFloat(item.min_stok || 5),\n        kategori: item.kategori || 'Tidak ada kategori',\n        isBatch: true\n      }\n    });\n  });\n  return results; // Return array untuk multiple items\n} else {\n  // Single mode: backward compatible\n  const stock = parseFloat(body.stok_bahan || body.stok || body.quantity || 0);\n  return {\n    json: {\n      nama_bahan: body.nama_bahan || body.nama_produk || body.name || 'Produk Tidak Dikenal',\n      stok_bahan: stock,\n      id_bahan: body.id_bahan || body.id_produk || 'unknown',\n      satuan: body.satuan || body.unit || '',\n      min_stok: parseFloat(body.min_stok || body.minStock || 5),\n      kategori: body.kategori || 'Tidak ada kategori',\n      isBatch: false\n    }\n  };\n}"
             },
-            "id": "extract-data",
+            "id": "d0b2b3bb-d37f-41c3-af2b-12235da4b109",
             "name": "Extract Data",
             "type": "n8n-nodes-base.code",
             "typeVersion": 2,
-            "position": [460, 300]
+            "position": [-928, 144]
         },
         {
             "parameters": {
-                "conditions": {
-                    "options": {
-                        "caseSensitive": true,
-                        "leftValue": "",
-                        "typeValidation": "strict"
-                    },
-                    "conditions": [
-                        {
-                            "id": "check-stock",
-                            "leftValue": "={{ $json.stok_bahan }}",
-                            "rightValue": 5,
-                            "operator": {
-                                "type": "number",
-                                "operation": "smaller"
-                            }
-                        }
-                    ],
-                    "combinator": "and"
-                },
-                "options": {}
+                "jsCode": "// Ambil semua data dari input (bisa multiple items dari batch)\nconst items = $input.all();\n\n// Cek apakah ini batch atau single\nconst isBatch = items.length > 1 || (items[0]?.json?.isBatch === true);\n\nif (isBatch) {\n  // Format pesan untuk batch (multiple items)\n  let message = \"🚨 *ALERT STOK MENIPIS* 🚨\\n\\n\";\n  \n  items.forEach((item, index) => {\n    const data = item.json;\n    message += `${index + 1}. *${data.nama_bahan}* (${data.kategori})\\n`;\n    message += `   Stok: ${data.stok_bahan} ${data.satuan}\\n`;\n    message += `   Minimum: ${data.min_stok} ${data.satuan}\\n`;\n    message += `   Kekurangan: ${(data.min_stok - data.stok_bahan).toFixed(2)} ${data.satuan}\\n\\n`;\n  });\n  \n  message += \"Segera lakukan restocking! 📦\";\n  \n  // Return single message untuk semua items\n  return {\n    json: {\n      message: message,\n      totalItems: items.length,\n      isBatch: true,\n      items: items.map(item => item.json)\n    }\n  };\n} else {\n  // Format pesan untuk single item (backward compatible)\n  const data = items[0].json;\n  const productName = data.nama_bahan;\n  const stock = data.stok_bahan;\n  const satuan = data.satuan || '';\n  \n  const message = `⚠️ Stok produk ${productName} tersisa ${stock}${satuan ? ' ' + satuan : ''}. Segera restock sebelum habis!`;\n  \n  return {\n    json: {\n      productName: productName,\n      stock: stock,\n      productId: data.id_bahan,\n      satuan: satuan,\n      message: message,\n      isBatch: false,\n      timestamp: new Date().toISOString()\n    }\n  };\n}"
             },
-            "id": "if-stock-low",
-            "name": "Cek Stok < 5?",
-            "type": "n8n-nodes-base.if",
-            "typeVersion": 2,
-            "position": [680, 300]
-        },
-        {
-            "parameters": {
-                "jsCode": "// Ambil data dari node Extract Data\nconst data = $input.item.json;\nconst productName = data.nama_bahan;\nconst stock = data.stok_bahan;\nconst productId = data.id_bahan;\nconst satuan = data.satuan || '';\n\n// Format pesan WhatsApp\nconst message = `⚠️ Stok produk ${productName} tersisa ${stock}${satuan ? ' ' + satuan : ''}. Segera restock sebelum habis!`;\n\n// Return data untuk node berikutnya\nreturn {\n  json: {\n    productName: productName,\n    stock: stock,\n    productId: productId,\n    satuan: satuan,\n    message: message,\n    timestamp: new Date().toISOString()\n  }\n};"
-            },
-            "id": "format-message",
+            "id": "5fee2c85-500e-44e4-a577-6d90f7c433c3",
             "name": "Format Pesan WhatsApp",
             "type": "n8n-nodes-base.code",
             "typeVersion": 2,
-            "position": [900, 200]
+            "position": [-928, 400]
         },
         {
             "parameters": {
-                "jsCode": "// Cek apakah sudah mengirim notifikasi untuk produk ini dalam 5 menit terakhir\n// Menggunakan memory untuk menyimpan timestamp terakhir pengiriman\nconst productId = $input.item.json.productId;\nconst currentTime = Date.now();\nconst fiveMinutes = 5 * 60 * 1000; // 5 menit dalam milliseconds\n\n// Ambil data dari memory (jika ada)\nconst memory = $getWorkflowStaticData('global');\nif (!memory.lastNotification) {\n  memory.lastNotification = {};\n}\n\nconst lastSent = memory.lastNotification[productId];\n\n// Jika belum pernah dikirim atau sudah lebih dari 5 menit\nif (!lastSent || (currentTime - lastSent) > fiveMinutes) {\n  // Update timestamp\n  memory.lastNotification[productId] = currentTime;\n  \n  // Lanjutkan proses dengan menambahkan flag\n  return {\n    json: {\n      ...$input.item.json,\n      shouldSend: true\n    }\n  };\n} else {\n  // Skip, sudah dikirim baru-baru ini\n  return {\n    json: {\n      ...$input.item.json,\n      shouldSend: false,\n      skipReason: 'Notifikasi sudah dikirim dalam 5 menit terakhir'\n    }\n  };\n}"
+                "jsCode": "// Ambil data\nconst data = $input.item.json;\nconst currentTime = Date.now();\nconst fiveMinutes = 5 * 60 * 1000;\n\n// Untuk batch, gunakan key khusus\nconst memory = $getWorkflowStaticData('global');\nif (!memory.lastNotification) {\n  memory.lastNotification = {};\n}\n\n// Key untuk batch: \"batch_\" + timestamp (dibulatkan ke menit)\n// Key untuk single: productId\nconst key = data.isBatch ? `batch_${Math.floor(currentTime / 60000)}` : (data.productId || data.items?.[0]?.id_bahan || 'unknown');\n\nconst lastSent = memory.lastNotification[key];\n\nif (!lastSent || (currentTime - lastSent) > fiveMinutes) {\n  memory.lastNotification[key] = currentTime;\n  \n  return {\n    json: {\n      ...data,\n      shouldSend: true\n    }\n  };\n} else {\n  return {\n    json: {\n      ...data,\n      shouldSend: false,\n      skipReason: 'Notifikasi sudah dikirim dalam 5 menit terakhir'\n    }\n  };\n}"
             },
-            "id": "prevent-duplicate",
+            "id": "0687aebb-11d2-4b28-994c-b46386f5f6fb",
             "name": "Cegah Duplikasi Pesan",
             "type": "n8n-nodes-base.code",
             "typeVersion": 2,
-            "position": [1120, 200]
+            "position": [-640, 400]
         },
         {
             "parameters": {
@@ -108,46 +80,43 @@
                 },
                 "options": {}
             },
-            "id": "filter-skip",
+            "id": "618399c6-1958-47cf-8b8c-cb2028b80ba3",
             "name": "Filter - Skip jika Duplikat",
             "type": "n8n-nodes-base.if",
             "typeVersion": 2,
-            "position": [1340, 200]
+            "position": [-432, 400]
         },
         {
             "parameters": {
                 "method": "POST",
-                "url": "=http://{{ $env.WAHA_IP || 'localhost' }}:{{ $env.WAHA_PORT || '3000' }}/api/sendText",
-                "authentication": "none",
+                "url": "http://host.docker.internal:3000/api/sendText",
                 "sendBody": true,
-                "contentType": "json",
                 "specifyBody": "json",
-                "jsonBody": "={\n  \"session\": \"{{ $env.WAHA_SESSION || 'default' }}\",\n  \"chatId\": \"{{ $env.WAHA_CHAT_ID || '6281380630988@c.us' }}\",\n  \"text\": \"{{ $json.message }}\"\n}",
+                "jsonBody": "={{ $json.wahaRequest }}",
                 "options": {
                     "response": {
                         "response": {
-                            "responseFormat": "json",
-                            "fullResponse": false
+                            "responseFormat": "json"
                         }
                     }
                 }
             },
-            "id": "send-whatsapp",
+            "id": "804f719f-8b38-446c-afb3-3e5040b288c0",
             "name": "Kirim WhatsApp via WAHA",
             "type": "n8n-nodes-base.httpRequest",
             "typeVersion": 4.2,
-            "position": [1560, 200],
+            "position": [-256, 144],
             "continueOnFail": true
         },
         {
             "parameters": {
                 "jsCode": "// Ambil data dari node sebelumnya\nconst wahaResponse = $input.item.json;\nconst formatData = $('Format Pesan WhatsApp').item.json;\n\n// Cek apakah ada error\nconst hasError = wahaResponse.error || (wahaResponse.statusCode && wahaResponse.statusCode >= 400);\n\nif (hasError) {\n  return {\n    json: {\n      success: false,\n      message: 'Gagal mengirim notifikasi WhatsApp',\n      productName: formatData.productName,\n      stock: formatData.stock,\n      error: wahaResponse.error || wahaResponse,\n      timestamp: new Date().toISOString()\n    }\n  };\n}\n\nreturn {\n  json: {\n    success: true,\n    message: 'Notifikasi WhatsApp berhasil dikirim',\n    productName: formatData.productName,\n    stock: formatData.stock,\n    sentAt: new Date().toISOString(),\n    wahaResponse: wahaResponse\n  }\n};"
             },
-            "id": "log-result",
+            "id": "b0e02005-ebf7-4bbc-ae5f-9f580130a2de",
             "name": "Log Hasil",
             "type": "n8n-nodes-base.code",
             "typeVersion": 2,
-            "position": [1780, 200]
+            "position": [-48, 144]
         },
         {
             "parameters": {
@@ -155,7 +124,8 @@
                     "options": {
                         "caseSensitive": true,
                         "leftValue": "",
-                        "typeValidation": "strict"
+                        "typeValidation": "strict",
+                        "version": 1
                     },
                     "conditions": [
                         {
@@ -172,13 +142,35 @@
                 },
                 "options": {}
             },
-            "id": "check-success",
+            "id": "12361b17-3be9-46ee-8db1-a3dacb9b6171",
             "name": "Cek Sukses?",
             "type": "n8n-nodes-base.if",
             "typeVersion": 2,
-            "position": [2000, 200]
+            "position": [-160, 416]
+        },
+        {
+            "parameters": {
+                "mode": "runOnceForEachItem",
+                "jsCode": "// Ambil data dari node sebelumnya\nconst data = $input.item.json;\n\n// Pastikan stok_bahan dan min_stok adalah number\nconst stock = parseFloat(data.stok_bahan) || 0;\nconst minStock = parseFloat(data.min_stok) || 5; // Default 5 jika tidak ada\n\n// Debug: log untuk melihat nilai\nconsole.log('Stock value:', stock, 'Min stock:', minStock, 'Type:', typeof stock);\n\n// Cek apakah stok < min_stok (bukan hardcoded 5)\nif (stock < minStock) {\n  // Jika stok menipis, return data untuk lanjut ke node berikutnya\n  return {\n    json: {\n      ...data,\n      stockCheck: true,\n      stockValue: stock,\n      minStockValue: minStock\n    }\n  };\n} else {\n  // Jika stok cukup, return null untuk skip (tidak lanjut ke node berikutnya)\n  return null;\n}"
+            },
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [-704, 144],
+            "id": "1210168b-6a7d-48b2-abb2-be0458874bf2",
+            "name": "Code in JavaScript"
+        },
+        {
+            "parameters": {
+                "jsCode": "const data = $input.item.json;\nconst message = data.message || '';\n\n// Escape karakter khusus untuk JSON\nconst escapedMessage = message\n  .replace(/\\\\/g, '\\\\\\\\')\n  .replace(/\"/g, '\\\\\"')\n  .replace(/\\n/g, '\\\\n')\n  .replace(/\\r/g, '\\\\r')\n  .replace(/\\t/g, '\\\\t');\n\nreturn {\n  json: {\n    ...data,\n    wahaRequest: {\n      session: \"default\",\n      chatId: \"6281380630988@c.us\",\n      text: message\n    }\n  }\n};"
+            },
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [-448, 144],
+            "id": "947ab40e-09d5-4de6-b50b-c95e1f48ee58",
+            "name": "Prepare WAHA REQ"
         }
     ],
+    "pinData": {},
     "connections": {
         "Webhook - Terima Data Stok": {
             "main": [
@@ -200,23 +192,11 @@
             "main": [
                 [
                     {
-                        "node": "Cek Stok < 5?",
+                        "node": "Code in JavaScript",
                         "type": "main",
                         "index": 0
                     }
                 ]
-            ]
-        },
-        "Cek Stok < 5?": {
-            "main": [
-                [
-                    {
-                        "node": "Format Pesan WhatsApp",
-                        "type": "main",
-                        "index": 0
-                    }
-                ],
-                []
             ]
         },
         "Format Pesan WhatsApp": {
@@ -245,12 +225,11 @@
             "main": [
                 [
                     {
-                        "node": "Kirim WhatsApp via WAHA",
+                        "node": "Prepare WAHA REQ",
                         "type": "main",
                         "index": 0
                     }
-                ],
-                []
+                ]
             ]
         },
         "Kirim WhatsApp via WAHA": {
@@ -275,17 +254,38 @@
                 ]
             ]
         },
-        "Cek Sukses?": {
-            "main": [[], []]
+        "Code in JavaScript": {
+            "main": [
+                [
+                    {
+                        "node": "Format Pesan WhatsApp",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Prepare WAHA REQ": {
+            "main": [
+                [
+                    {
+                        "node": "Kirim WhatsApp via WAHA",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
         }
     },
-    "pinData": {},
+    "active": true,
     "settings": {
         "executionOrder": "v1"
     },
-    "staticData": null,
-    "tags": [],
-    "triggerCount": 1,
-    "updatedAt": "2024-01-01T00:00:00.000Z",
-    "versionId": "1"
+    "versionId": "d67035ba-9efc-46ed-aff5-201e208f1c2a",
+    "meta": {
+        "templateCredsSetupCompleted": true,
+        "instanceId": "5af7d02029ba6243127cacb5bd0d4293718443cfb3d1bcf87d3824e6eeefa2d9"
+    },
+    "id": "LZmcwXib2tmSWn1G",
+    "tags": []
 }
