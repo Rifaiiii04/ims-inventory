@@ -1,0 +1,1990 @@
+{
+    "name": "WhatsApp Chatbot - UMKM Assistant",
+    "nodes": [
+        {
+            "parameters": {
+                "httpMethod": "POST",
+                "path": "whatsapp-chatbot",
+                "responseMode": "responseNode",
+                "options": {}
+            },
+            "id": "webhook-whatsapp",
+            "name": "Webhook - Terima Pesan WA",
+            "type": "n8n-nodes-base.webhook",
+            "typeVersion": 1.1,
+            "position": [240, 400],
+            "webhookId": "whatsapp-chatbot-webhook"
+        },
+        {
+            "parameters": {
+                "respondWith": "json",
+                "responseBody": "={{ { \"success\": true, \"message\": \"Pesan diterima\" } }}"
+            },
+            "id": "respond-webhook",
+            "name": "Respond to Webhook",
+            "type": "n8n-nodes-base.respondToWebhook",
+            "typeVersion": 1,
+            "position": [240, 600]
+        },
+        {
+            "parameters": {
+                "jsCode": "// Extract data dari webhook WAHA\n// Handle berbagai format dari WAHA\nconst rawBody = $input.item.json.body || $input.item.json;\nconst body = rawBody.payload || rawBody.data || rawBody;\n\n// Extract message text dari berbagai kemungkinan struktur\n// Format WAHA baru: payload.body\nlet message = '';\nif (body.body) {\n  // Format baru WAHA: payload.body\n  message = body.body;\n} else if (body.message?.text) {\n  message = body.message.text;\n} else if (body.message?.body) {\n  message = body.message.body;\n} else if (body.text) {\n  message = body.text;\n} else if (body.message) {\n  message = typeof body.message === 'string' ? body.message : '';\n} else if (rawBody.payload?.body) {\n  // Fallback: cek langsung di rawBody.payload.body\n  message = rawBody.payload.body;\n}\n\n// Extract from/chatId dari berbagai kemungkinan struktur\nlet from = '';\nif (body.from) {\n  from = body.from;\n} else if (body.chatId) {\n  from = body.chatId;\n} else if (body.message?.from) {\n  from = body.message.from;\n} else if (body.key?.remoteJid) {\n  from = body.key.remoteJid;\n} else if (body.payload?.from) {\n  from = body.payload.from;\n} else if (rawBody.payload?.from) {\n  // Fallback: cek langsung di rawBody.payload.from\n  from = rawBody.payload.from;\n}\n\n// Extract messageId\nconst messageId = body.id || body.messageId || body.key?.id || body.message?.id || rawBody.payload?.id || '';\nconst timestamp = body.timestamp || body.message?.timestamp || rawBody.payload?.timestamp || Date.now();\n\n// Normalize chatId format (WAHA format: 6281380630988@c.us)\nlet chatId = from;\nif (chatId) {\n  // Remove + jika ada\n  chatId = chatId.replace(/^\\+/, '');\n  // Tambahkan @c.us jika belum ada\n  if (!chatId.includes('@')) {\n    chatId = chatId + '@c.us';\n  }\n}\n\n// Cek apakah pesan dari kita sendiri (fromMe) - skip jika ya\n// Cek di berbagai level struktur\nconst fromMe = body.fromMe || \n               body.payload?.fromMe || \n               rawBody.payload?.fromMe || \n               body.message?.fromMe ||\n               false;\n\nif (fromMe === true || fromMe === 'true' || fromMe === 1) {\n  console.log('[SKIP] Message from bot itself (fromMe=true), skipping...');\n  return null; // Skip pesan dari kita sendiri\n}\n\n// Cek juga jika body mengandung [object Object] - ini adalah pesan error dari bot sendiri\nif (message && (message.includes('[object Object]') || message.includes('❌ [object Object]'))) {\n  console.log('[SKIP] Message contains [object Object], likely error from bot, skipping...');\n  return null;\n}\n\n// Debug: log raw data untuk troubleshooting\nconsole.log('Raw WAHA data:', JSON.stringify(rawBody, null, 2));\nconsole.log('Extracted message:', message);\nconsole.log('Extracted chatId:', chatId);\nconsole.log('Message ID:', messageId);\n\nreturn {\n  json: {\n    message: (message || '').trim(),\n    chatId: chatId,\n    messageId: messageId,\n    timestamp: timestamp,\n    rawData: rawBody,\n    // Unique key untuk deduplication\n    uniqueKey: chatId + '_' + messageId + '_' + timestamp\n  }\n};"
+            },
+            "id": "extract-message",
+            "name": "Extract Pesan",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [460, 400]
+        },
+        {
+            "parameters": {
+                "jsCode": "// Cegah duplikat execution dengan tracking messageId\nconst inputData = $input.item.json;\n\n// Skip jika null (pesan dari kita sendiri)\nif (!inputData) {\n  return null;\n}\n\n// Ambil workflow static data untuk tracking\nconst workflowStaticData = $getWorkflowStaticData('global');\n\n// Inisialisasi jika belum ada\nif (!workflowStaticData.processedMessages) {\n  workflowStaticData.processedMessages = {};\n}\n\n// Generate unique key - gunakan messageId sebagai primary key\n// Format: chatId_messageId atau chatId_timestamp jika messageId tidak ada\nconst messageId = inputData.messageId || '';\nconst chatId = inputData.chatId || '';\nconst timestamp = inputData.timestamp || Date.now();\n\n// Generate unique key - prioritas messageId\nlet uniqueKey;\nif (messageId && chatId) {\n  uniqueKey = `${chatId}_${messageId}`;\n} else if (chatId) {\n  // Fallback ke timestamp jika messageId tidak ada\n  uniqueKey = `${chatId}_${timestamp}`;\n} else {\n  // Last resort\n  uniqueKey = `unknown_${timestamp}`;\n}\n\nconst now = Date.now();\n\n// Cek apakah message sudah diproses dalam 30 detik terakhir (dikurangi dari 60 detik)\nif (workflowStaticData.processedMessages[uniqueKey]) {\n  const processedTime = workflowStaticData.processedMessages[uniqueKey];\n  const timeDiff = now - processedTime;\n  \n  // Jika kurang dari 30 detik, skip (duplikat)\n  if (timeDiff < 30000) {\n    console.log(`[DUPLICATE] Skipping message: ${uniqueKey} (processed ${Math.round(timeDiff/1000)}s ago)`);\n    return null;\n  } else {\n    // Jika lebih dari 30 detik, hapus entry lama dan proses ulang\n    delete workflowStaticData.processedMessages[uniqueKey];\n    console.log(`[DUPLICATE] Old entry removed, reprocessing: ${uniqueKey}`);\n  }\n}\n\n// Mark message sebagai processed\nworkflowStaticData.processedMessages[uniqueKey] = now;\n\n// Cleanup old entries (lebih dari 10 menit) - prevent memory leak\nconst tenMinutesAgo = now - 600000;\nlet cleanedCount = 0;\nfor (const key in workflowStaticData.processedMessages) {\n  if (workflowStaticData.processedMessages[key] < tenMinutesAgo) {\n    delete workflowStaticData.processedMessages[key];\n    cleanedCount++;\n  }\n}\n\nif (cleanedCount > 0) {\n  console.log(`[CLEANUP] Removed ${cleanedCount} old entries`);\n}\n\nconsole.log(`[PROCESSING] Message: ${uniqueKey} (chatId: ${chatId}, messageId: ${messageId})`);\n\nreturn {\n  json: {\n    ...inputData,\n    uniqueKey: uniqueKey\n  }\n};"
+            },
+            "id": "deduplicate-message",
+            "name": "Cegah Duplikat",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [460, 550]
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": true,
+                        "leftValue": "",
+                        "typeValidation": "strict"
+                    },
+                    "conditions": [
+                        {
+                            "id": "check-not-null",
+                            "leftValue": "={{ $json }}",
+                            "rightValue": null,
+                            "operator": {
+                                "type": "object",
+                                "operation": "notEmpty"
+                            }
+                        }
+                    ],
+                    "combinator": "and"
+                },
+                "options": {}
+            },
+            "id": "check-not-duplicate",
+            "name": "Skip jika Duplikat?",
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 2,
+            "position": [680, 550]
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": false,
+                        "leftValue": "",
+                        "typeValidation": "loose"
+                    },
+                    "conditions": [
+                        {
+                            "id": "check-empty",
+                            "leftValue": "={{ $json.message }}",
+                            "rightValue": "",
+                            "operator": {
+                                "type": "string",
+                                "operation": "notEmpty"
+                            }
+                        }
+                    ],
+                    "combinator": "and"
+                },
+                "options": {}
+            },
+            "id": "check-message",
+            "name": "Cek Pesan Kosong?",
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 2,
+            "position": [680, 400]
+        },
+        {
+            "parameters": {
+                "jsCode": "// Cek apakah pesan mengandung keyword untuk fitur spesifik\n// Jika tidak ada keyword, langsung ke AI chat biasa\nconst inputData = $input.item.json || {};\nconst originalMessage = (inputData.message || '').trim();\nconst message = originalMessage.toLowerCase().trim();\n\nconsole.log('[KEYWORD DETECTION] Original message:', originalMessage);\nconsole.log('[KEYWORD DETECTION] Lowercase message:', message);\n\n// Keyword untuk fitur spesifik\nconst keywords = {\n  tambahStok: /tambah\\s+stok|stok\\s+tambah|update\\s+stok|stok\\s+\\+/i,\n  lihatStok: /lihat\\s+stok|cek\\s+stok|cekstok|stok\\s+apa|inventory|daftar\\s+stok|cek.*stok|lihat.*stok|stok\\s+saat\\s+ini|cek\\s+inventory|cek.*inventory/i,\n  laporanPenjualan: /laporan\\s+penjualan|laporan\\s+sales|penjualan\\s+hari/i,\n  laporanInventory: /laporan\\s+inventory|laporan\\s+stok/i,\n  tambahProduk: /tambah\\s+produk|produk\\s+baru/i,\n  tambahKategori: /tambah\\s+kategori|kategori\\s+baru/i,\n  tambahVarian: /tambah\\s+varian|varian\\s+baru/i,\n  tambahKomposisi: /tambah\\s+komposisi|komposisi\\s+baru/i,\n  help: /^help$|^bantuan$|^menu$|^perintah$|^fitur$|help\\s+me|bantuan\\s+saya|menu\\s+bantuan/i\n};\n\n// Cek keyword dengan prioritas exact match\nlet hasKeyword = false;\nlet detectedIntent = 'chat';\n\n// Cek exact match dulu untuk help dan cek stok (lebih prioritas)\nconst exactHelp = /^(help|bantuan|menu|perintah|fitur)$/i.test(originalMessage.trim());\nconst exactCekStok = /^(cek\\s+stok|lihat\\s+stok|stok|cekstok|cek\\s+inventory)$/i.test(originalMessage.trim());\n\nif (exactHelp) {\n  hasKeyword = true;\n  detectedIntent = 'help';\n  console.log('[KEYWORD] Exact match HELP detected');\n} else if (exactCekStok) {\n  hasKeyword = true;\n  detectedIntent = 'lihatStok';\n  console.log('[KEYWORD] Exact match CEK STOK detected');\n} else {\n  // Cek pattern untuk keyword lain\n  for (const [intent, pattern] of Object.entries(keywords)) {\n    if (pattern.test(message)) {\n      hasKeyword = true;\n      detectedIntent = intent;\n      console.log('[KEYWORD] Pattern match:', intent);\n      break;\n    }\n  }\n}\n\nconsole.log('[KEYWORD DETECTION] Message:', message);\nconsole.log('[KEYWORD DETECTION] Has Keyword:', hasKeyword);\nconsole.log('[KEYWORD DETECTION] Intent:', detectedIntent);\n\n// VALIDASI: Pastikan intent benar\nif (detectedIntent === 'help' && !hasKeyword) {\n  console.warn('[KEYWORD DETECTION] WARNING: help intent but hasKeyword=false');\n  hasKeyword = true; // Force true untuk help\n}\nif (detectedIntent === 'lihatStok' && !hasKeyword) {\n  console.warn('[KEYWORD DETECTION] WARNING: lihatStok intent but hasKeyword=false');\n  hasKeyword = true; // Force true untuk lihatStok\n}\n\n// FORCE DEBUG: Log semua untuk troubleshooting\nconsole.log('=== KEYWORD DETECTION RESULT ===');\nconsole.log('Original Message:', originalMessage);\nconsole.log('Lowercase Message:', message);\nconsole.log('Detected Intent:', detectedIntent);\nconsole.log('Has Keyword:', hasKeyword);\nconsole.log('Exact Help Match:', exactHelp);\nconsole.log('Exact Cek Stok Match:', exactCekStok);\nconsole.log('==================================');\n\nreturn {\n  json: {\n    ...inputData,\n    intent: detectedIntent,\n    hasKeyword: hasKeyword,\n    originalMessage: inputData.message || '',\n    // Tambahkan flag untuk memudahkan routing\n    isHelp: detectedIntent === 'help',\n    isLihatStok: detectedIntent === 'lihatStok',\n    isChat: detectedIntent === 'chat'\n  }\n};"
+            },
+            "id": "detect-intent",
+            "name": "Cek Keyword Fitur",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [900, 400]
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": true,
+                        "leftValue": "",
+                        "typeValidation": "strict"
+                    },
+                    "conditions": [
+                        {
+                            "id": "check-has-keyword",
+                            "leftValue": "={{ $json.hasKeyword }}",
+                            "rightValue": true,
+                            "operator": {
+                                "type": "boolean",
+                                "operation": "true"
+                            }
+                        }
+                    ],
+                    "combinator": "and"
+                },
+                "options": {}
+            },
+            "id": "check-keyword",
+            "name": "Ada Keyword Fitur?",
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 2,
+            "position": [1120, 400]
+        },
+        {
+            "parameters": {
+                "mode": "rules",
+                "rules": {
+                    "values": [
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": true,
+                                    "leftValue": "",
+                                    "typeValidation": "strict"
+                                },
+                                "conditions": [
+                                    {
+                                        "id": "route-tambah-stok",
+                                        "leftValue": "={{ $json.intent }}",
+                                        "rightValue": "tambahStok",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals"
+                                        }
+                                    }
+                                ],
+                                "combinator": "and"
+                            },
+                            "renameOutput": true,
+                            "outputKey": "tambahStok"
+                        },
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": true,
+                                    "leftValue": "",
+                                    "typeValidation": "strict"
+                                },
+                                "conditions": [
+                                    {
+                                        "id": "route-lihat-stok",
+                                        "leftValue": "={{ $json.intent }}",
+                                        "rightValue": "lihatStok",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals"
+                                        }
+                                    }
+                                ],
+                                "combinator": "and"
+                            },
+                            "renameOutput": true,
+                            "outputKey": "lihatStok"
+                        },
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": true,
+                                    "leftValue": "",
+                                    "typeValidation": "strict"
+                                },
+                                "conditions": [
+                                    {
+                                        "id": "route-laporan-penjualan",
+                                        "leftValue": "={{ $json.intent }}",
+                                        "rightValue": "laporanPenjualan",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals"
+                                        }
+                                    }
+                                ],
+                                "combinator": "and"
+                            },
+                            "renameOutput": true,
+                            "outputKey": "laporanPenjualan"
+                        },
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": true,
+                                    "leftValue": "",
+                                    "typeValidation": "strict"
+                                },
+                                "conditions": [
+                                    {
+                                        "id": "route-laporan-inventory",
+                                        "leftValue": "={{ $json.intent }}",
+                                        "rightValue": "laporanInventory",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals"
+                                        }
+                                    }
+                                ],
+                                "combinator": "and"
+                            },
+                            "renameOutput": true,
+                            "outputKey": "laporanInventory"
+                        },
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": true,
+                                    "leftValue": "",
+                                    "typeValidation": "strict"
+                                },
+                                "conditions": [
+                                    {
+                                        "id": "route-tambah-produk",
+                                        "leftValue": "={{ $json.intent }}",
+                                        "rightValue": "tambahProduk",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals"
+                                        }
+                                    }
+                                ],
+                                "combinator": "and"
+                            },
+                            "renameOutput": true,
+                            "outputKey": "tambahProduk"
+                        },
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": true,
+                                    "leftValue": "",
+                                    "typeValidation": "strict"
+                                },
+                                "conditions": [
+                                    {
+                                        "id": "route-tambah-kategori",
+                                        "leftValue": "={{ $json.intent }}",
+                                        "rightValue": "tambahKategori",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals"
+                                        }
+                                    }
+                                ],
+                                "combinator": "and"
+                            },
+                            "renameOutput": true,
+                            "outputKey": "tambahKategori"
+                        },
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": true,
+                                    "leftValue": "",
+                                    "typeValidation": "strict"
+                                },
+                                "conditions": [
+                                    {
+                                        "id": "route-tambah-varian",
+                                        "leftValue": "={{ $json.intent }}",
+                                        "rightValue": "tambahVarian",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals"
+                                        }
+                                    }
+                                ],
+                                "combinator": "and"
+                            },
+                            "renameOutput": true,
+                            "outputKey": "tambahVarian"
+                        },
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": true,
+                                    "leftValue": "",
+                                    "typeValidation": "strict"
+                                },
+                                "conditions": [
+                                    {
+                                        "id": "route-tambah-komposisi",
+                                        "leftValue": "={{ $json.intent }}",
+                                        "rightValue": "tambahKomposisi",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals"
+                                        }
+                                    }
+                                ],
+                                "combinator": "and"
+                            },
+                            "renameOutput": true,
+                            "outputKey": "tambahKomposisi"
+                        },
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": true,
+                                    "leftValue": "",
+                                    "typeValidation": "strict"
+                                },
+                                "conditions": [
+                                    {
+                                        "id": "route-help",
+                                        "leftValue": "={{ $json.intent }}",
+                                        "rightValue": "help",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals"
+                                        }
+                                    }
+                                ],
+                                "combinator": "and"
+                            },
+                            "renameOutput": true,
+                            "outputKey": "help"
+                        },
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": true,
+                                    "leftValue": "",
+                                    "typeValidation": "strict"
+                                },
+                                "conditions": [
+                                    {
+                                        "id": "route-chat-fallback",
+                                        "leftValue": "={{ $json.intent }}",
+                                        "rightValue": "chat",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals"
+                                        }
+                                    }
+                                ],
+                                "combinator": "and"
+                            },
+                            "renameOutput": true,
+                            "outputKey": "chat"
+                        },
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": true,
+                                    "leftValue": "",
+                                    "typeValidation": "strict"
+                                },
+                                "conditions": [
+                                    {
+                                        "id": "route-chat",
+                                        "leftValue": "={{ $json.intent }}",
+                                        "rightValue": "chat",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals"
+                                        }
+                                    }
+                                ],
+                                "combinator": "and"
+                            },
+                            "renameOutput": true,
+                            "outputKey": "chat"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "id": "route-intent",
+            "name": "Route Intent",
+            "type": "n8n-nodes-base.switch",
+            "typeVersion": 3,
+            "position": [1340, 400]
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": true,
+                        "leftValue": "",
+                        "typeValidation": "strict"
+                    },
+                    "conditions": [
+                        {
+                            "id": "check-tambah-stok",
+                            "leftValue": "={{ $json.tambahStok }}",
+                            "rightValue": true,
+                            "operator": {
+                                "type": "boolean",
+                                "operation": "true"
+                            }
+                        }
+                    ],
+                    "combinator": "and"
+                },
+                "options": {}
+            },
+            "id": "switch-tambah-stok",
+            "name": "Switch - Tambah Stok",
+            "type": "n8n-nodes-base.switch",
+            "typeVersion": 3,
+            "position": [1560, 200]
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": true,
+                        "leftValue": "",
+                        "typeValidation": "strict"
+                    },
+                    "conditions": [
+                        {
+                            "id": "check-lihat-stok",
+                            "leftValue": "={{ $json.intent }}",
+                            "rightValue": "lihatStok",
+                            "operator": {
+                                "type": "string",
+                                "operation": "equals"
+                            }
+                        }
+                    ],
+                    "combinator": "and"
+                },
+                "options": {}
+            },
+            "id": "switch-lihat-stok",
+            "name": "Switch - Lihat Stok",
+            "type": "n8n-nodes-base.switch",
+            "typeVersion": 3,
+            "position": [1560, 300]
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": true,
+                        "leftValue": "",
+                        "typeValidation": "strict"
+                    },
+                    "conditions": [
+                        {
+                            "id": "check-laporan-penjualan",
+                            "leftValue": "={{ $json.laporanPenjualan }}",
+                            "rightValue": true,
+                            "operator": {
+                                "type": "boolean",
+                                "operation": "true"
+                            }
+                        }
+                    ],
+                    "combinator": "and"
+                },
+                "options": {}
+            },
+            "id": "switch-laporan-penjualan",
+            "name": "Switch - Laporan Penjualan",
+            "type": "n8n-nodes-base.switch",
+            "typeVersion": 3,
+            "position": [1560, 400]
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": true,
+                        "leftValue": "",
+                        "typeValidation": "strict"
+                    },
+                    "conditions": [
+                        {
+                            "id": "check-laporan-inventory",
+                            "leftValue": "={{ $json.laporanInventory }}",
+                            "rightValue": true,
+                            "operator": {
+                                "type": "boolean",
+                                "operation": "true"
+                            }
+                        }
+                    ],
+                    "combinator": "and"
+                },
+                "options": {}
+            },
+            "id": "switch-laporan-inventory",
+            "name": "Switch - Laporan Inventory",
+            "type": "n8n-nodes-base.switch",
+            "typeVersion": 3,
+            "position": [1560, 500]
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": true,
+                        "leftValue": "",
+                        "typeValidation": "strict"
+                    },
+                    "conditions": [
+                        {
+                            "id": "check-tambah-produk",
+                            "leftValue": "={{ $json.tambahProduk }}",
+                            "rightValue": true,
+                            "operator": {
+                                "type": "boolean",
+                                "operation": "true"
+                            }
+                        }
+                    ],
+                    "combinator": "and"
+                },
+                "options": {}
+            },
+            "id": "switch-tambah-produk",
+            "name": "Switch - Tambah Produk",
+            "type": "n8n-nodes-base.switch",
+            "typeVersion": 3,
+            "position": [1560, 600]
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": true,
+                        "leftValue": "",
+                        "typeValidation": "strict"
+                    },
+                    "conditions": [
+                        {
+                            "id": "check-tambah-kategori",
+                            "leftValue": "={{ $json.tambahKategori }}",
+                            "rightValue": true,
+                            "operator": {
+                                "type": "boolean",
+                                "operation": "true"
+                            }
+                        }
+                    ],
+                    "combinator": "and"
+                },
+                "options": {}
+            },
+            "id": "switch-tambah-kategori",
+            "name": "Switch - Tambah Kategori",
+            "type": "n8n-nodes-base.switch",
+            "typeVersion": 3,
+            "position": [1560, 700]
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": true,
+                        "leftValue": "",
+                        "typeValidation": "strict"
+                    },
+                    "conditions": [
+                        {
+                            "id": "check-tambah-varian",
+                            "leftValue": "={{ $json.tambahVarian }}",
+                            "rightValue": true,
+                            "operator": {
+                                "type": "boolean",
+                                "operation": "true"
+                            }
+                        }
+                    ],
+                    "combinator": "and"
+                },
+                "options": {}
+            },
+            "id": "switch-tambah-varian",
+            "name": "Switch - Tambah Varian",
+            "type": "n8n-nodes-base.switch",
+            "typeVersion": 3,
+            "position": [1560, 800]
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": true,
+                        "leftValue": "",
+                        "typeValidation": "strict"
+                    },
+                    "conditions": [
+                        {
+                            "id": "check-tambah-komposisi",
+                            "leftValue": "={{ $json.tambahKomposisi }}",
+                            "type": "boolean",
+                            "operation": "true"
+                        }
+                    ],
+                    "combinator": "and"
+                },
+                "options": {}
+            },
+            "id": "switch-tambah-komposisi",
+            "name": "Switch - Tambah Komposisi",
+            "type": "n8n-nodes-base.switch",
+            "typeVersion": 3,
+            "position": [1560, 900]
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": true,
+                        "leftValue": "",
+                        "typeValidation": "strict"
+                    },
+                    "conditions": [
+                        {
+                            "id": "check-help",
+                            "leftValue": "={{ $json.help }}",
+                            "rightValue": true,
+                            "operator": {
+                                "type": "boolean",
+                                "operation": "true"
+                            }
+                        }
+                    ],
+                    "combinator": "and"
+                },
+                "options": {}
+            },
+            "id": "switch-help",
+            "name": "Switch - Help",
+            "type": "n8n-nodes-base.switch",
+            "typeVersion": 3,
+            "position": [1560, 1000]
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": true,
+                        "leftValue": "",
+                        "typeValidation": "strict"
+                    },
+                    "conditions": [
+                        {
+                            "id": "check-chat",
+                            "leftValue": "={{ $json.chat }}",
+                            "rightValue": true,
+                            "operator": {
+                                "type": "boolean",
+                                "operation": "true"
+                            }
+                        }
+                    ],
+                    "combinator": "and"
+                },
+                "options": {}
+            },
+            "id": "switch-chat",
+            "name": "Switch - Chat AI",
+            "type": "n8n-nodes-base.switch",
+            "typeVersion": 3,
+            "position": [1560, 1100]
+        },
+        {
+            "parameters": {
+                "jsCode": "// Parse pesan untuk mengekstrak informasi tambah stok\nconst message = $input.item.json.originalMessage || '';\n\n// Pattern untuk mengekstrak: nama bahan dan jumlah\n// Contoh: \"tambah stok beras 10\" atau \"stok +5 untuk beras\"\nconst patterns = [\n  /tambah\\s+stok\\s+(.+?)\\s+(\\d+(?:\\.\\d+)?)/i,\n  /stok\\s+tambah\\s+(.+?)\\s+(\\d+(?:\\.\\d+)?)/i,\n  /stok\\s+\\+\\s*(\\d+(?:\\.\\d+)?)\\s+(.+)/i,\n  /(.+?)\\s+stok\\s+(\\d+(?:\\.\\d+)?)/i,\n  /tambah\\s+(\\d+(?:\\.\\d+)?)\\s+(.+?)\\s+stok/i\n];\n\nlet bahanName = null;\nlet quantity = null;\n\nfor (const pattern of patterns) {\n  const match = message.match(pattern);\n  if (match) {\n    bahanName = match[1]?.trim();\n    quantity = parseFloat(match[2] || match[1]);\n    if (isNaN(quantity)) {\n      quantity = parseFloat(match[1]);\n      bahanName = match[2]?.trim();\n    }\n    if (bahanName && quantity && !isNaN(quantity)) break;\n  }\n}\n\n// Jika tidak ditemukan, coba ekstrak angka dan kata terakhir\nif (!quantity || !bahanName) {\n  const numberMatch = message.match(/\\d+(?:\\.\\d+)?/);\n  if (numberMatch) {\n    quantity = parseFloat(numberMatch[0]);\n  }\n  // Ambil kata-kata setelah \"stok\" atau sebelum angka\n  const words = message.split(/\\s+/);\n  const stokIndex = words.findIndex(w => /stok/i.test(w));\n  if (stokIndex >= 0 && stokIndex < words.length - 1) {\n    bahanName = words.slice(stokIndex + 1).filter(w => !/\\d/.test(w)).join(' ');\n  }\n}\n\nreturn {\n  json: {\n    ...$input.item.json,\n    action: 'tambahStok',\n    bahanName: bahanName,\n    quantity: quantity,\n    needsConfirmation: !bahanName || !quantity || isNaN(quantity)\n  }\n};"
+            },
+            "id": "parse-tambah-stok",
+            "name": "Parse Tambah Stok",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [1780, 200]
+        },
+        {
+            "parameters": {
+                "method": "GET",
+                "url": "={{ $env.API_BASE_URL || 'http://host.docker.internal:8000' }}/api/stocks",
+                "authentication": "none",
+                "options": {}
+            },
+            "id": "get-products-list",
+            "name": "Get Stocks List",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [2000, 200],
+            "continueOnFail": true
+        },
+        {
+            "parameters": {
+                "jsCode": "// Cari bahan berdasarkan nama\nconst stocks = $input.item.json.data || $input.item.json || [];\nconst searchName = $('Parse Tambah Stok').item.json.bahanName;\n\nif (!searchName) {\n  return {\n    json: {\n      ...$('Parse Tambah Stok').item.json,\n      error: 'Nama bahan tidak ditemukan dalam pesan',\n      suggestion: 'Format: tambah stok [nama bahan] [jumlah]'\n    }\n  };\n}\n\n// Fuzzy search untuk nama bahan\nconst searchLower = searchName.toLowerCase();\nconst matchedBahan = stocks.find(s => {\n  const name = (s.name || s.nama_bahan || s.nama || '').toLowerCase();\n  return name.includes(searchLower) || searchLower.includes(name);\n});\n\nif (!matchedBahan) {\n  return {\n    json: {\n      ...$('Parse Tambah Stok').item.json,\n      error: `Bahan \"${searchName}\" tidak ditemukan`,\n      availableBahan: stocks.slice(0, 10).map(s => s.name || s.nama_bahan || s.nama)\n    }\n  };\n}\n\nreturn {\n  json: {\n    ...$('Parse Tambah Stok').item.json,\n    bahanId: matchedBahan.id || matchedBahan.id_bahan,\n    bahanName: matchedBahan.name || matchedBahan.nama_bahan || matchedBahan.nama,\n    currentStock: matchedBahan.quantity || matchedBahan.stok_bahan || 0,\n    foundBahan: matchedBahan\n  }\n};"
+            },
+            "id": "find-product",
+            "name": "Find Bahan",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [2220, 200]
+        },
+        {
+            "parameters": {
+                "method": "GET",
+                "url": "={{ $env.API_BASE_URL || 'http://localhost:8000' }}/api/stocks/{{ $json.bahanId }}",
+                "authentication": "none",
+                "options": {}
+            },
+            "id": "get-stock-info",
+            "name": "Get Stock Info",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [2440, 200],
+            "continueOnFail": true
+        },
+        {
+            "parameters": {
+                "method": "PUT",
+                "url": "={{ $env.API_BASE_URL || 'http://localhost:8000' }}/api/stocks/{{ $json.bahanId }}",
+                "authentication": "none",
+                "sendBody": true,
+                "contentType": "json",
+                "specifyBody": "json",
+                "jsonBody": "={\n  \"stok_bahan\": {{ $json.currentStock + $json.quantity }}\n}",
+                "options": {}
+            },
+            "id": "update-stock",
+            "name": "Update Stock",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [2660, 200],
+            "continueOnFail": true
+        },
+        {
+            "parameters": {
+                "jsCode": "// Format response untuk tambah stok\nconst data = $input.item.json.data || $input.item.json;\nconst parseData = $('Parse Tambah Stok').item.json;\nconst findData = $('Find Bahan').item.json;\n\nif (findData.error) {\n  return {\n    json: {\n      ...$input.item.json,\n      responseMessage: `❌ ${findData.error}\\n\\n${findData.suggestion || ''}\\n\\n${findData.availableBahan ? 'Bahan yang tersedia:\\n' + findData.availableBahan.slice(0, 10).join('\\n') : ''}`\n    }\n  };\n}\n\nif (data.error || data.message) {\n  return {\n    json: {\n      ...$input.item.json,\n      responseMessage: `❌ Gagal update stok: ${data.message || data.error || 'Error tidak diketahui'}`\n    }\n  };\n}\n\nconst newStock = data.quantity || data.stok_bahan || (findData.currentStock + parseData.quantity);\n\nreturn {\n  json: {\n    ...$input.item.json,\n    responseMessage: `✅ Stok berhasil ditambahkan!\\n\\n📦 Bahan: ${findData.bahanName}\\n➕ Ditambah: ${parseData.quantity}\\n📊 Stok sekarang: ${newStock}`\n  }\n};"
+            },
+            "id": "format-tambah-stok-response",
+            "name": "Format Response Tambah Stok",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [2880, 200]
+        },
+        {
+            "parameters": {
+                "method": "GET",
+                "url": "={{ $env.API_BASE_URL || 'http://host.docker.internal:8000' }}/api/stocks",
+                "authentication": "none",
+                "options": {
+                    "timeout": 10000
+                }
+            },
+            "id": "get-all-stocks",
+            "name": "Get All Stocks",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [1780, 300],
+            "continueOnFail": true
+        },
+        {
+            "parameters": {
+                "jsCode": "// Format laporan stok dengan error handling\nconsole.log('[FORMAT STOK] Node executed');\nconst inputData = $input.item.json || {};\n\nconsole.log('[FORMAT STOK] Input data keys:', Object.keys(inputData));\n\n// Cek jika ada error dari API\nif (inputData.error || (inputData.success === false)) {\n  const errorMsg = `❌ ${inputData.message || inputData.error || 'Gagal mengambil data stok. Pastikan backend API berjalan dan dapat diakses.'}`;\n  console.log('[FORMAT STOK] Error detected:', errorMsg);\n  return {\n    json: {\n      ...inputData,\n      responseMessage: errorMsg,\n      intent: 'lihatStok'\n    }\n  };\n}\n\n// Extract stocks dari berbagai format response API\nlet stocks = [];\n\nconsole.log('[FORMAT STOK] Input data structure:', JSON.stringify(Object.keys(inputData)));\nconsole.log('[FORMAT STOK] Has success field:', !!inputData.success);\nconsole.log('[FORMAT STOK] Has data field:', !!inputData.data);\n\n// Cek berbagai kemungkinan format - PRIORITAS: format API Laravel\nif (inputData.success === true && Array.isArray(inputData.data)) {\n  // Format Laravel API: {success: true, data: [...]}\n  stocks = inputData.data;\n  console.log('[FORMAT STOK] Using Laravel API format, stocks count:', stocks.length);\n} else if (Array.isArray(inputData.data)) {\n  stocks = inputData.data;\n  console.log('[FORMAT STOK] Using data array format, stocks count:', stocks.length);\n} else if (Array.isArray(inputData.stocks)) {\n  stocks = inputData.stocks;\n  console.log('[FORMAT STOK] Using stocks array format, stocks count:', stocks.length);\n} else if (Array.isArray(inputData)) {\n  stocks = inputData;\n  console.log('[FORMAT STOK] Using direct array format, stocks count:', stocks.length);\n} else if (inputData.data && typeof inputData.data === 'object') {\n  // Jika data adalah object, coba convert ke array\n  if (Array.isArray(Object.values(inputData.data))) {\n    stocks = Object.values(inputData.data);\n    console.log('[FORMAT STOK] Using object values format, stocks count:', stocks.length);\n  }\n}\n\n// Pastikan stocks adalah array\nif (!Array.isArray(stocks)) {\n  console.warn('[FORMAT STOK] Stocks is not an array, resetting to empty array');\n  stocks = [];\n}\n\nconsole.log('[FORMAT STOK] Final stocks array length:', stocks.length);\n\nif (stocks.length === 0) {\n  const emptyMsg = '📦 *Laporan Stok Inventory*\\n\\nTidak ada data stok tersedia saat ini.\\n\\n💡 *Tips:* Tambahkan stok baru melalui aplikasi web atau ketik \"tambah stok [nama bahan] [jumlah]\"';\n  console.log('[FORMAT STOK] No stocks found');\n  return {\n    json: {\n      ...inputData,\n      responseMessage: emptyMsg,\n      intent: 'lihatStok'\n    }\n  };\n}\n\n// Format sebagai list\nlet message = '📦 *Laporan Stok Inventory*\\n\\n';\n\nstocks.slice(0, 20).forEach((stock, index) => {\n  // Handle format API Laravel: {name, quantity, unit, minStock}\n  const nama = stock.name || stock.nama_bahan || stock.nama || 'Tidak diketahui';\n  const stok = stock.quantity || stock.stok_bahan || stock.stok || 0;\n  const satuan = stock.unit || stock.satuan || '';\n  const minStok = stock.minStock || stock.min_stok || stock.min_stok_bahan || 0;\n  \n  console.log(`[FORMAT STOK] Stock ${index + 1}: ${nama}, stok: ${stok} ${satuan}`);\n  \n  const status = stok <= minStok ? '⚠️' : '✅';\n  \n  message += `${status} ${index + 1}. ${nama}\\n   Stok: ${stok} ${satuan}`;\n  if (minStok > 0) {\n    message += ` (Min: ${minStok} ${satuan})`;\n  }\n  message += '\\n\\n';\n});\n\nif (stocks.length > 20) {\n  message += `\\n... dan ${stocks.length - 20} item lainnya`;\n}\n\nconsole.log('[FORMAT STOK] Response message generated, length:', message.length);\n\nreturn {\n  json: {\n    ...inputData,\n    responseMessage: message,\n    intent: 'lihatStok'\n  }\n};"
+            },
+            "id": "format-stok-response",
+            "name": "Format Response Stok",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [2000, 300]
+        },
+        {
+            "parameters": {
+                "method": "GET",
+                "url": "={{ $env.API_BASE_URL || 'http://host.docker.internal:8000' }}/api/reports/sales",
+                "authentication": "none",
+                "options": {
+                    "queryParameters": {
+                        "parameters": [
+                            {
+                                "name": "period",
+                                "value": "today"
+                            }
+                        ]
+                    }
+                }
+            },
+            "id": "get-sales-report",
+            "name": "Get Sales Report",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [1780, 400],
+            "continueOnFail": true
+        },
+        {
+            "parameters": {
+                "jsCode": "// Format laporan penjualan\nconst report = $input.item.json.data || $input.item.json || {};\n\nlet message = '📊 *Laporan Penjualan*\\n\\n';\n\nif (report.total_sales || report.total) {\n  message += `💰 Total Penjualan: Rp ${(report.total_sales || report.total || 0).toLocaleString('id-ID')}\\n`;\n}\n\nif (report.total_transactions || report.transactions) {\n  message += `🛒 Total Transaksi: ${report.total_transactions || report.transactions || 0}\\n`;\n}\n\nif (report.period) {\n  message += `📅 Periode: ${report.period}\\n`;\n}\n\nif (report.top_products && Array.isArray(report.top_products)) {\n  message += '\\n🏆 *Produk Terlaris:*\\n';\n  report.top_products.slice(0, 5).forEach((product, index) => {\n    message += `${index + 1}. ${product.nama_produk || product.nama}\\n   Terjual: ${product.quantity || 0}\\n`;\n  });\n}\n\nreturn {\n  json: {\n    ...$input.item.json,\n    responseMessage: message\n  }\n};"
+            },
+            "id": "format-sales-response",
+            "name": "Format Response Sales",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [2000, 400]
+        },
+        {
+            "parameters": {
+                "method": "GET",
+                "url": "={{ $env.API_BASE_URL || 'http://host.docker.internal:8000' }}/api/reports/inventory",
+                "authentication": "none",
+                "options": {}
+            },
+            "id": "get-inventory-report",
+            "name": "Get Inventory Report",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [1780, 500],
+            "continueOnFail": true
+        },
+        {
+            "parameters": {
+                "jsCode": "// Format laporan inventory\nconst report = $input.item.json.data || $input.item.json || {};\n\nlet message = '📦 *Laporan Inventory*\\n\\n';\n\nif (report.total_items) {\n  message += `📊 Total Item: ${report.total_items}\\n`;\n}\n\nif (report.low_stock_count) {\n  message += `⚠️ Stok Rendah: ${report.low_stock_count} item\\n`;\n}\n\nif (report.total_value) {\n  message += `💰 Total Nilai: Rp ${(report.total_value || 0).toLocaleString('id-ID')}\\n`;\n}\n\nif (report.low_stock_items && Array.isArray(report.low_stock_items)) {\n  message += '\\n⚠️ *Stok Rendah:*\\n';\n  report.low_stock_items.slice(0, 10).forEach((item, index) => {\n    message += `${index + 1}. ${item.nama_bahan || item.nama}\\n   Stok: ${item.stok || 0}\\n`;\n  });\n}\n\nreturn {\n  json: {\n    ...$input.item.json,\n    responseMessage: message\n  }\n};"
+            },
+            "id": "format-inventory-response",
+            "name": "Format Response Inventory",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [2000, 500]
+        },
+        {
+            "parameters": {
+                "jsCode": "// Parse pesan untuk tambah produk\nconst message = $input.item.json.originalMessage || '';\n\n// Ekstrak informasi produk dari pesan\n// Format: \"tambah produk [nama] harga [harga] kategori [kategori]\"\nconst nameMatch = message.match(/produk\\s+(.+?)(?:\\s+harga|\\s+kategori|$)/i);\nconst priceMatch = message.match(/harga\\s+(\\d+)/i);\nconst categoryMatch = message.match(/kategori\\s+(.+?)(?:\\s+harga|$)/i);\n\nreturn {\n  json: {\n    ...$input.item.json,\n    action: 'tambahProduk',\n    productName: nameMatch ? nameMatch[1].trim() : null,\n    price: priceMatch ? parseFloat(priceMatch[1]) : null,\n    categoryName: categoryMatch ? categoryMatch[1].trim() : null,\n    needsInfo: !nameMatch || !priceMatch\n  }\n};"
+            },
+            "id": "parse-tambah-produk",
+            "name": "Parse Tambah Produk",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [1780, 600]
+        },
+        {
+            "parameters": {
+                "method": "GET",
+                "url": "={{ $env.API_BASE_URL || 'http://host.docker.internal:8000' }}/api/categories",
+                "authentication": "none",
+                "options": {}
+            },
+            "id": "get-categories-for-product",
+            "name": "Get Categories",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [2000, 600],
+            "continueOnFail": true
+        },
+        {
+            "parameters": {
+                "jsCode": "// Cari kategori berdasarkan nama\nconst categories = $input.item.json.data || $input.item.json || [];\nconst parseData = $('Parse Tambah Produk').item.json;\n\nlet categoryId = 1; // default\n\nif (parseData.categoryName) {\n  const searchLower = parseData.categoryName.toLowerCase();\n  const matchedCategory = categories.find(c => {\n    const name = (c.name || c.nama_kategori || c.nama || '').toLowerCase();\n    return name.includes(searchLower) || searchLower.includes(name);\n  });\n  \n  if (matchedCategory) {\n    categoryId = matchedCategory.id || matchedCategory.id_kategori || 1;\n  }\n}\n\nreturn {\n  json: {\n    ...parseData,\n    categoryId: categoryId\n  }\n};"
+            },
+            "id": "find-category-for-product",
+            "name": "Find Category for Product",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [2220, 600]
+        },
+        {
+            "parameters": {
+                "method": "POST",
+                "url": "={{ $env.API_BASE_URL || 'http://host.docker.internal:8000' }}/api/products",
+                "authentication": "none",
+                "sendBody": true,
+                "contentType": "json",
+                "specifyBody": "json",
+                "jsonBody": "={\n  \"nama_produk\": \"{{ $json.productName }}\",\n  \"harga\": {{ $json.price }},\n  \"id_kategori\": {{ $json.categoryId || 1 }}\n}",
+                "options": {}
+            },
+            "id": "create-product",
+            "name": "Create Product",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [2440, 600],
+            "continueOnFail": true
+        },
+        {
+            "parameters": {
+                "jsCode": "// Format response untuk tambah produk\nconst data = $input.item.json;\nconst productName = $('Parse Tambah Produk').item.json.productName;\n\nif (data.error || data.message) {\n  return {\n    json: {\n      ...$input.item.json,\n      responseMessage: `❌ Gagal menambah produk: ${data.message || data.error || 'Error tidak diketahui'}`\n    }\n  };\n}\n\nreturn {\n  json: {\n    ...$input.item.json,\n    responseMessage: `✅ Produk berhasil ditambahkan!\\n\\n📦 Nama: ${productName}\\n💰 Harga: Rp ${(data.harga || $('Parse Tambah Produk').item.json.price || 0).toLocaleString('id-ID')}\\n🆔 ID: ${data.id_produk || data.id || 'N/A'}`\n  }\n};"
+            },
+            "id": "format-tambah-produk-response",
+            "name": "Format Response Tambah Produk",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [2660, 600]
+        },
+        {
+            "parameters": {
+                "jsCode": "// Parse pesan untuk tambah kategori\nconst message = $input.item.json.originalMessage || '';\n\n// Ekstrak nama kategori\nconst categoryMatch = message.match(/(?:tambah|add|create)\\s+kategori\\s+(.+)/i);\n\nreturn {\n  json: {\n    ...$input.item.json,\n    action: 'tambahKategori',\n    categoryName: categoryMatch ? categoryMatch[1].trim() : null,\n    needsInfo: !categoryMatch\n  }\n};"
+            },
+            "id": "parse-tambah-kategori",
+            "name": "Parse Tambah Kategori",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [1780, 700]
+        },
+        {
+            "parameters": {
+                "method": "POST",
+                "url": "={{ $env.API_BASE_URL || 'http://host.docker.internal:8000' }}/api/categories",
+                "authentication": "none",
+                "sendBody": true,
+                "contentType": "json",
+                "specifyBody": "json",
+                "jsonBody": "={\n  \"nama_kategori\": \"{{ $json.categoryName }}\"\n}",
+                "options": {}
+            },
+            "id": "create-category",
+            "name": "Create Category",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [2000, 700],
+            "continueOnFail": true
+        },
+        {
+            "parameters": {
+                "jsCode": "// Format response untuk tambah kategori\nconst data = $input.item.json;\nconst categoryName = $('Parse Tambah Kategori').item.json.categoryName;\n\nif (data.error || data.message) {\n  return {\n    json: {\n      ...$input.item.json,\n      responseMessage: `❌ Gagal menambah kategori: ${data.message || data.error || 'Error tidak diketahui'}`\n    }\n  };\n}\n\nreturn {\n  json: {\n    ...$input.item.json,\n    responseMessage: `✅ Kategori berhasil ditambahkan!\\n\\n📁 Nama: ${categoryName}\\n🆔 ID: ${data.id_kategori || data.id || 'N/A'}`\n  }\n};"
+            },
+            "id": "format-tambah-kategori-response",
+            "name": "Format Response Tambah Kategori",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [2220, 700]
+        },
+        {
+            "parameters": {
+                "jsCode": "// Parse pesan untuk tambah varian\nconst message = $input.item.json.originalMessage || '';\n\n// Ekstrak informasi varian\nconst variantMatch = message.match(/(?:tambah|add)\\s+varian\\s+(.+?)(?:\\s+produk|\\s+untuk|$)/i);\nconst productMatch = message.match(/(?:produk|untuk)\\s+(.+)/i);\n\nreturn {\n  json: {\n    ...$input.item.json,\n    action: 'tambahVarian',\n    variantName: variantMatch ? variantMatch[1].trim() : null,\n    productName: productMatch ? productMatch[1].trim() : null,\n    needsInfo: !variantMatch || !productMatch\n  }\n};"
+            },
+            "id": "parse-tambah-varian",
+            "name": "Parse Tambah Varian",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [1780, 800]
+        },
+        {
+            "parameters": {
+                "method": "GET",
+                "url": "={{ $env.API_BASE_URL || 'http://host.docker.internal:8000' }}/api/products",
+                "authentication": "none",
+                "options": {}
+            },
+            "id": "get-products-for-variant",
+            "name": "Get Products for Variant",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [2000, 800],
+            "continueOnFail": true
+        },
+        {
+            "parameters": {
+                "jsCode": "// Cari produk berdasarkan nama untuk varian\nconst products = $input.item.json.data || $input.item.json || [];\nconst searchName = $('Parse Tambah Varian').item.json.productName;\n\nif (!searchName) {\n  return {\n    json: {\n      ...$('Parse Tambah Varian').item.json,\n      error: 'Nama produk tidak ditemukan dalam pesan',\n      suggestion: 'Format: tambah varian [nama varian] untuk [nama produk]'\n    }\n  };\n}\n\n// Fuzzy search untuk nama produk\nconst searchLower = searchName.toLowerCase();\nconst matchedProduct = products.find(p => {\n  const name = (p.name || p.nama_produk || p.nama || '').toLowerCase();\n  return name.includes(searchLower) || searchLower.includes(name);\n});\n\nif (!matchedProduct) {\n  return {\n    json: {\n      ...$('Parse Tambah Varian').item.json,\n      error: `Produk \"${searchName}\" tidak ditemukan`,\n      availableProducts: products.slice(0, 10).map(p => p.name || p.nama_produk || p.nama)\n    }\n  };\n}\n\nreturn {\n  json: {\n    ...$('Parse Tambah Varian').item.json,\n    productId: matchedProduct.id || matchedProduct.id_produk,\n    foundProduct: matchedProduct\n  }\n};"
+            },
+            "id": "find-product-for-variant",
+            "name": "Find Product for Variant",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [2220, 800]
+        },
+        {
+            "parameters": {
+                "method": "POST",
+                "url": "={{ $env.API_BASE_URL || 'http://host.docker.internal:8000' }}/api/variants",
+                "authentication": "none",
+                "sendBody": true,
+                "contentType": "json",
+                "specifyBody": "json",
+                "jsonBody": "={\n  \"nama_varian\": \"{{ $json.variantName }}\",\n  \"id_produk\": {{ $json.productId || 1 }}\n}",
+                "options": {}
+            },
+            "id": "create-variant",
+            "name": "Create Variant",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [2440, 800],
+            "continueOnFail": true
+        },
+        {
+            "parameters": {
+                "jsCode": "// Format response untuk tambah varian\nconst data = $input.item.json.data || $input.item.json;\nconst parseData = $('Parse Tambah Varian').item.json;\nconst findData = $('Find Product for Variant').item.json;\n\nif (findData.error) {\n  return {\n    json: {\n      ...$input.item.json,\n      responseMessage: `❌ ${findData.error}\\n\\n${findData.suggestion || ''}\\n\\n${findData.availableProducts ? 'Produk yang tersedia:\\n' + findData.availableProducts.slice(0, 10).join('\\n') : ''}`\n    }\n  };\n}\n\nif (data.error || data.message) {\n  return {\n    json: {\n      ...$input.item.json,\n      responseMessage: `❌ Gagal menambah varian: ${data.message || data.error || 'Error tidak diketahui'}`\n    }\n  };\n}\n\nreturn {\n  json: {\n    ...$input.item.json,\n    responseMessage: `✅ Varian berhasil ditambahkan!\\n\\n🏷️ Nama: ${parseData.variantName}\\n📦 Produk: ${findData.productName || parseData.productName}\\n🆔 ID: ${data.id_varian || data.id || 'N/A'}`\n  }\n};"
+            },
+            "id": "format-tambah-varian-response",
+            "name": "Format Response Tambah Varian",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [2660, 800]
+        },
+        {
+            "parameters": {
+                "jsCode": "// Parse pesan untuk tambah komposisi\nconst message = $input.item.json.originalMessage || '';\n\n// Ekstrak informasi komposisi\n// Format: \"tambah komposisi produk [nama] bahan [bahan] jumlah [jumlah]\"\nconst productMatch = message.match(/produk\\s+(.+?)(?:\\s+bahan|$)/i);\nconst ingredientMatch = message.match(/bahan\\s+(.+?)(?:\\s+jumlah|$)/i);\nconst quantityMatch = message.match(/jumlah\\s+(\\d+(?:\\.\\d+)?)/i);\n\nreturn {\n  json: {\n    ...$input.item.json,\n    action: 'tambahKomposisi',\n    productName: productMatch ? productMatch[1].trim() : null,\n    ingredientName: ingredientMatch ? ingredientMatch[1].trim() : null,\n    quantity: quantityMatch ? parseFloat(quantityMatch[1]) : null,\n    needsInfo: !productMatch || !ingredientMatch || !quantityMatch\n  }\n};"
+            },
+            "id": "parse-tambah-komposisi",
+            "name": "Parse Tambah Komposisi",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [1780, 900]
+        },
+        {
+            "parameters": {
+                "method": "GET",
+                "url": "={{ $env.API_BASE_URL || 'http://host.docker.internal:8000' }}/api/products",
+                "authentication": "none",
+                "options": {}
+            },
+            "id": "get-products-for-composition",
+            "name": "Get Products for Composition",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [2000, 900],
+            "continueOnFail": true
+        },
+        {
+            "parameters": {
+                "method": "GET",
+                "url": "={{ $env.API_BASE_URL || 'http://host.docker.internal:8000' }}/api/stocks",
+                "authentication": "none",
+                "options": {}
+            },
+            "id": "get-stocks-for-composition",
+            "name": "Get Stocks for Composition",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [2220, 900],
+            "continueOnFail": true
+        },
+        {
+            "parameters": {
+                "jsCode": "// Cari produk dan bahan untuk komposisi\nconst products = $('Get Products for Composition').item.json.data || $('Get Products for Composition').item.json || [];\nconst stocks = $input.item.json.data || $input.item.json || [];\nconst parseData = $('Parse Tambah Komposisi').item.json;\n\n// Cari produk\nconst productSearch = (parseData.productName || '').toLowerCase();\nconst matchedProduct = products.find(p => {\n  const name = (p.name || p.nama_produk || p.nama || '').toLowerCase();\n  return name.includes(productSearch) || productSearch.includes(name);\n});\n\n// Cari bahan\nconst ingredientSearch = (parseData.ingredientName || '').toLowerCase();\nconst matchedBahan = stocks.find(s => {\n  const name = (s.name || s.nama_bahan || s.nama || '').toLowerCase();\n  return name.includes(ingredientSearch) || ingredientSearch.includes(name);\n});\n\nif (!parseData.productName) {\n  return {\n    json: {\n      ...parseData,\n      error: 'Nama produk tidak ditemukan dalam pesan',\n      suggestion: 'Format: tambah komposisi produk [nama] bahan [bahan] jumlah [jumlah]'\n    }\n  };\n}\n\nif (!matchedProduct) {\n  return {\n    json: {\n      ...parseData,\n      error: `Produk \"${parseData.productName}\" tidak ditemukan`,\n      availableProducts: products.slice(0, 10).map(p => p.name || p.nama_produk || p.nama)\n    }\n  };\n}\n\nif (!parseData.ingredientName) {\n  return {\n    json: {\n      ...parseData,\n      error: 'Nama bahan tidak ditemukan dalam pesan',\n      suggestion: 'Format: tambah komposisi produk [nama] bahan [bahan] jumlah [jumlah]'\n    }\n  };\n}\n\nif (!matchedBahan) {\n  return {\n    json: {\n      ...parseData,\n      error: `Bahan \"${parseData.ingredientName}\" tidak ditemukan`,\n      availableBahan: stocks.slice(0, 10).map(s => s.name || s.nama_bahan || s.nama)\n    }\n  };\n}\n\nreturn {\n  json: {\n    ...parseData,\n    productId: matchedProduct.id || matchedProduct.id_produk,\n    ingredientId: matchedBahan.id || matchedBahan.id_bahan,\n    productName: matchedProduct.name || matchedProduct.nama_produk || matchedProduct.nama,\n    ingredientName: matchedBahan.name || matchedBahan.nama_bahan || matchedBahan.nama\n  }\n};"
+            },
+            "id": "find-product-and-bahan",
+            "name": "Find Product and Bahan",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [2440, 900]
+        },
+        {
+            "parameters": {
+                "method": "POST",
+                "url": "={{ $env.API_BASE_URL || 'http://host.docker.internal:8000' }}/api/compositions",
+                "authentication": "none",
+                "sendBody": true,
+                "contentType": "json",
+                "specifyBody": "json",
+                "jsonBody": "={\n  \"id_produk\": {{ $json.productId || 1 }},\n  \"id_bahan\": {{ $json.ingredientId || 1 }},\n  \"jumlah_per_porsi\": {{ $json.quantity || 1 }}\n}",
+                "options": {}
+            },
+            "id": "create-composition",
+            "name": "Create Composition",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [2660, 900],
+            "continueOnFail": true
+        },
+        {
+            "parameters": {
+                "jsCode": "// Format response untuk tambah komposisi\nconst data = $input.item.json.data || $input.item.json;\nconst findData = $('Find Product and Bahan').item.json;\n\nif (findData.error) {\n  return {\n    json: {\n      ...$input.item.json,\n      responseMessage: `❌ ${findData.error}\\n\\n${findData.suggestion || ''}\\n\\n${findData.availableProducts ? 'Produk yang tersedia:\\n' + findData.availableProducts.slice(0, 10).join('\\n') : ''}\\n${findData.availableBahan ? 'Bahan yang tersedia:\\n' + findData.availableBahan.slice(0, 10).join('\\n') : ''}`\n    }\n  };\n}\n\nif (data.error || data.message) {\n  return {\n    json: {\n      ...$input.item.json,\n      responseMessage: `❌ Gagal menambah komposisi: ${data.message || data.error || 'Error tidak diketahui'}`\n    }\n  };\n}\n\nreturn {\n  json: {\n    ...$input.item.json,\n    responseMessage: `✅ Komposisi berhasil ditambahkan!\\n\\n📦 Produk: ${findData.productName}\\n🥘 Bahan: ${findData.ingredientName}\\n📊 Jumlah: ${findData.quantity} per porsi`\n  }\n};"
+            },
+            "id": "format-tambah-komposisi-response",
+            "name": "Format Response Tambah Komposisi",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [2880, 900]
+        },
+        {
+            "parameters": {
+                "jsCode": "// Generate help message\nconsole.log('[GENERATE HELP] Node executed');\nconst inputData = $input.item.json || {};\n\nconst helpMessage = `🤖 *Menu Bantuan Chatbot UMKM*\\n\\n` +\n  `*Perintah yang Tersedia:*\\n\\n` +\n  `📦 *Stok:*\\n` +\n  `• Tambah stok: \"tambah stok [nama produk] [jumlah]\"\\n` +\n  `• Lihat stok: \"lihat stok\" atau \"cek stok\"\\n\\n` +\n  `📊 *Laporan:*\\n` +\n  `• Laporan penjualan: \"laporan penjualan\"\\n` +\n  `• Laporan inventory: \"laporan inventory\"\\n\\n` +\n  `➕ *Tambah Data:*\\n` +\n  `• Tambah produk: \"tambah produk [nama] harga [harga] kategori [kategori]\"\\n` +\n  `• Tambah kategori: \"tambah kategori [nama]\"\\n` +\n  `• Tambah varian: \"tambah varian [nama] untuk [produk]\"\\n` +\n  `• Tambah komposisi: \"tambah komposisi produk [nama] bahan [bahan] jumlah [jumlah]\"\\n\\n` +\n  `💬 *Chat & Konsultasi:*\\n` +\n  `• Tanya apapun tentang penjualan, stok, atau bisnis Anda\\n` +\n  `• Contoh: \"bagaimana penjualan hari ini?\"\\n\\n` +\n  `Ketik *help* untuk menampilkan menu ini lagi.`;\n\nconsole.log('[GENERATE HELP] Response message generated:', helpMessage.substring(0, 100));\n\nreturn {\n  json: {\n    ...inputData,\n    responseMessage: helpMessage,\n    intent: 'help'\n  }\n};"
+            },
+            "id": "generate-help",
+            "name": "Generate Help",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [1780, 1000]
+        },
+        {
+            "parameters": {
+                "method": "GET",
+                "url": "={{ $env.API_BASE_URL || 'http://host.docker.internal:8000' }}/api/reports/sales",
+                "authentication": "none",
+                "options": {}
+            },
+            "id": "get-sales-data-for-ai",
+            "name": "Get Sales Data for AI",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [1780, 1100],
+            "continueOnFail": true
+        },
+        {
+            "parameters": {
+                "method": "GET",
+                "url": "={{ $env.API_BASE_URL || 'http://host.docker.internal:8000' }}/api/dashboard/summary",
+                "authentication": "none",
+                "options": {}
+            },
+            "id": "get-dashboard-summary",
+            "name": "Get Dashboard Summary",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [2000, 1100],
+            "continueOnFail": true
+        },
+        {
+            "parameters": {
+                "method": "POST",
+                "url": "=https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=AIzaSyBcXp7KL2rzTiQgqHEkSw-slg27K03vj0s",
+                "authentication": "none",
+                "sendBody": true,
+                "contentType": "json",
+                "specifyBody": "json",
+                "jsonBody": "={\n  \"contents\": [\n    {\n      \"parts\": [\n        {\n          \"text\": \"Anda adalah asisten AI yang ramah untuk UMKM. Anda membantu pemilik bisnis melalui WhatsApp dengan menjawab pertanyaan, memberikan saran, dan membantu mengelola bisnis.\\n\\n*Konteks Sistem:*\\n- Sistem ini adalah chatbot untuk UMKM yang terintegrasi dengan database inventory dan penjualan\\n- User dapat meminta informasi stok, laporan penjualan, dan menambah data\\n\\n*Fitur yang Tersedia:*\\n1. Cek stok: User bisa ketik 'cek stok' atau 'lihat stok' untuk melihat daftar stok\\n2. Help: User bisa ketik 'help' untuk melihat menu bantuan\\n3. Laporan: User bisa minta laporan penjualan atau inventory\\n4. Chat: Untuk pertanyaan umum, jawablah dengan natural dan ramah\\n\\n*Pesan dari user:* {{ $json.message || $json.originalMessage }}\\n\\n*Instruksi:*\\n- Jika user bertanya tentang stok, sarankan untuk ketik 'cek stok'\\n- Jika user minta bantuan, sarankan untuk ketik 'help'\\n- Jawablah dengan natural, ramah, dan dalam bahasa Indonesia seperti sedang ngobrol biasa\\n- Gunakan emoji jika perlu untuk membuat lebih ramah\\n- Jika user hanya mengucapkan salam (hai, halo, hello, hi), balas dengan ramah dan tanyakan apa yang bisa dibantu\\n- SELALU berikan respons, jangan pernah mengabaikan pesan user\"\n        }\n      ]\n    }\n  ],\n  \"generationConfig\": {\n    \"temperature\": 0.8,\n    \"maxOutputTokens\": 500\n  }\n}",
+                "options": {
+                    "timeout": 10000
+                }
+            },
+            "id": "call-gemini-ai",
+            "name": "AI Chat Response",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [1340, 600],
+            "continueOnFail": true,
+            "notes": "Calls Gemini AI for general chat. If fails, Format AI Response will provide fallback."
+        },
+        {
+            "parameters": {
+                "jsCode": "// Extract response dari Gemini AI\nconsole.log('[FORMAT AI RESPONSE] Node executed');\nconst geminiResponse = $input.item.json || {};\nconst originalData = $('Extract Pesan').item.json || {};\nconst userMessage = originalData.message || originalData.originalMessage || '';\n\nconsole.log('[FORMAT AI RESPONSE] User message:', userMessage);\nconsole.log('[FORMAT AI RESPONSE] Gemini response keys:', Object.keys(geminiResponse));\n\nlet aiMessage = null;\n\n// Extract dari struktur Gemini API\nif (geminiResponse.candidates && geminiResponse.candidates[0]) {\n  const candidate = geminiResponse.candidates[0];\n  if (candidate.content && candidate.content.parts && candidate.content.parts[0]) {\n    aiMessage = candidate.content.parts[0].text;\n  }\n}\n\n// Fallback jika struktur berbeda\nif (!aiMessage) {\n  if (geminiResponse.text) {\n    aiMessage = geminiResponse.text;\n  } else if (geminiResponse.message) {\n    aiMessage = geminiResponse.message;\n  } else if (typeof geminiResponse === 'string') {\n    aiMessage = geminiResponse;\n  }\n}\n\n// Jika masih tidak ada response dari Gemini, generate response sederhana berdasarkan pesan user\nif (!aiMessage || aiMessage.trim() === '') {\n  const lowerMessage = userMessage.toLowerCase().trim();\n  \n  // Generate response sederhana berdasarkan konteks\n  if (lowerMessage.includes('hai') || lowerMessage.includes('halo') || lowerMessage.includes('hello') || lowerMessage === 'hi') {\n    aiMessage = 'Halo! 👋 Ada yang bisa saya bantu hari ini? Saya bisa membantu dengan stok, penjualan, atau pertanyaan lainnya tentang bisnis Anda.';\n  } else if (lowerMessage.includes('terima kasih') || lowerMessage.includes('makasih') || lowerMessage.includes('thanks')) {\n    aiMessage = 'Sama-sama! 😊 Kalau ada yang perlu dibantu lagi, jangan ragu untuk bertanya ya!';\n  } else if (lowerMessage.includes('test') || lowerMessage.includes('tes')) {\n    aiMessage = 'Halo! 👋 Chatbot berfungsi dengan baik. Ada yang bisa saya bantu? Ketik *help* untuk melihat menu bantuan.';\n  } else if (lowerMessage.length < 3) {\n    aiMessage = 'Halo! 👋 Ada yang bisa saya bantu? Ketik *help* untuk melihat menu bantuan.';\n  } else {\n    // Response default yang lebih ramah\n    aiMessage = `Terima kasih atas pesan Anda! 😊 Saya adalah asisten AI untuk membantu mengelola bisnis Anda.\\n\\nSaya bisa membantu dengan:\\n• Cek stok inventory\\n• Laporan penjualan\\n• Menambah data produk, kategori, dll\\n• Konsultasi bisnis\\n\\nKetik *help* untuk melihat semua perintah yang tersedia, atau tanyakan apapun tentang bisnis Anda!`;\n  }\n} else {\n  // Pastikan response dari Gemini tidak kosong\n  aiMessage = aiMessage.trim();\n  if (aiMessage === '') {\n    aiMessage = 'Terima kasih atas pesan Anda! Ada yang bisa saya bantu? Ketik *help* untuk melihat menu bantuan.';\n  }\n}\n\nconsole.log('[FORMAT AI RESPONSE] Final AI message:', aiMessage ? aiMessage.substring(0, 100) : 'null');\n\nreturn {\n  json: {\n    ...originalData,\n    responseMessage: aiMessage,\n    message: aiMessage,\n    intent: 'chat'\n  }\n};"
+            },
+            "id": "format-ai-response",
+            "name": "Format AI Response",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [1560, 600]
+        },
+        {
+            "parameters": {
+                "jsCode": "// Merge semua response dari berbagai branch\n// PASTIKAN SELALU RETURN STRING, BUKAN OBJECT\nconst items = $input.all();\n\n// Helper function untuk convert ke string - SANGAT STRICT\nfunction ensureString(value) {\n  // Null/undefined\n  if (value === null || value === undefined) return '';\n  \n  // Sudah string\n  if (typeof value === 'string') return value;\n  \n  // Number/boolean - convert ke string\n  if (typeof value === 'number' || typeof value === 'boolean') return String(value);\n  \n  // Object - JANGAN stringify, extract message/error/text saja\n  if (typeof value === 'object') {\n    // Coba extract dari property umum\n    if (value.message && typeof value.message === 'string') return value.message;\n    if (value.error && typeof value.error === 'string') return value.error;\n    if (value.text && typeof value.text === 'string') return value.text;\n    if (value.responseMessage && typeof value.responseMessage === 'string') return value.responseMessage;\n    \n    // Jika tidak ada string property, return error message\n    return 'Terjadi kesalahan dalam memproses respons';\n  }\n  \n  // Fallback\n  return String(value);\n}\n\n// Cari item yang memiliki responseMessage (string)\n// PRIORITAS: Fitur spesifik (help, stok) > AI Chat\nlet responseItem = null;\nlet responseMessage = '';\nconst priorityIntents = ['help', 'lihatStok', 'tambahStok', 'laporanPenjualan', 'laporanInventory'];\n\n// Loop 1: Cari response dari fitur spesifik dulu\nconsole.log('[MERGE] Looking for priority responses...');\nfor (let i = 0; i < items.length; i++) {\n  const item = items[i];\n  if (item.json) {\n    const intent = item.json.intent || item.json.originalIntent || 'unknown';\n    console.log(`[MERGE] Item ${i}: intent=${intent}, hasResponseMessage=${!!item.json.responseMessage}`);\n    // Prioritaskan fitur spesifik\n    if (priorityIntents.includes(intent)) {\n      if (item.json.responseMessage) {\n        const msg = ensureString(item.json.responseMessage);\n        if (msg && msg.trim()) {\n          responseItem = item;\n          responseMessage = msg;\n          console.log('[MERGE] ✅ Found priority response from intent:', intent);\n          console.log('[MERGE] Response preview:', msg.substring(0, 100));\n          break;\n        }\n      }\n    }\n  }\n}\n\n// Loop 2: Jika belum ada, cari dari semua item\nif (!responseMessage) {\n  for (const item of items) {\n    if (item.json) {\n      // Cek responseMessage dulu\n      if (item.json.responseMessage) {\n        const msg = ensureString(item.json.responseMessage);\n        if (msg && msg.trim()) {\n          responseItem = item;\n          responseMessage = msg;\n          console.log('[MERGE] Found response from:', item.json.intent || 'unknown');\n          break;\n        }\n      }\n      // Cek message\n      if (!responseMessage && item.json.message) {\n        const msg = ensureString(item.json.message);\n        if (msg && msg.trim()) {\n          responseItem = item;\n          responseMessage = msg;\n          console.log('[MERGE] Found message from:', item.json.intent || 'unknown');\n          break;\n        }\n      }\n    }\n  }\n}\n\n// Jika tidak ada, coba cari dari error\nif (!responseMessage) {\n  for (const item of items) {\n    if (item.json) {\n      if (item.json.error) {\n        const errorMsg = ensureString(item.json.error);\n        if (errorMsg) {\n          responseMessage = `❌ ${errorMsg}`;\n          break;\n        }\n      }\n    }\n  }\n}\n\n// Jika masih tidak ada, gunakan default\nif (!responseMessage || !responseMessage.trim()) {\n  responseMessage = 'Terima kasih atas pesan Anda! Ada yang bisa saya bantu? Ketik *help* untuk melihat menu bantuan.';\n}\n\n// PASTIKAN responseMessage adalah string dan tidak kosong\nresponseMessage = String(responseMessage).trim();\nif (!responseMessage) {\n  responseMessage = 'Terima kasih atas pesan Anda!';\n}\n\n// Ambil chatId dari original message dengan fallback\ntry {\n  const originalData = $('Extract Pesan').item.json || {};\n  const chatId = originalData.chatId || responseItem?.json?.chatId || '6283836339182@c.us';\n  \n  // PASTIKAN chatId juga string\n  const finalChatId = String(chatId).trim() || '6283836339182@c.us';\n  \n  return {\n    json: {\n      chatId: finalChatId,\n      responseMessage: responseMessage,\n      message: responseMessage,\n      originalIntent: responseItem?.json?.intent || 'unknown'\n    }\n  };\n} catch (e) {\n  // Fallback jika error\n  return {\n    json: {\n      chatId: '6283836339182@c.us',\n      responseMessage: 'Terima kasih atas pesan Anda!',\n      message: 'Terima kasih atas pesan Anda!',\n      originalIntent: 'unknown'\n    }\n  };\n}"
+            },
+            "id": "merge-responses",
+            "name": "Merge Responses",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [2660, 600]
+        },
+        {
+            "parameters": {
+                "method": "POST",
+                "url": "=http://host.docker.internal:3000/api/sendText",
+                "authentication": "none",
+                "sendBody": true,
+                "contentType": "json",
+                "specifyBody": "json",
+                "jsonBody": "={\n  \"session\": \"{{ $json.session || 'default' }}\",\n  \"chatId\": \"{{ $json.chatId }}\",\n  \"text\": \"{{ $json.text || $json.responseMessage || $json.message }}\"\n}",
+                "options": {
+                    "response": {
+                        "response": {
+                            "responseFormat": "json",
+                            "fullResponse": false
+                        }
+                    }
+                }
+            },
+            "id": "send-whatsapp-response",
+            "name": "Send WhatsApp Response",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [2220, 600],
+            "continueOnFail": true
+        },
+        {
+            "parameters": {
+                "jsCode": "// Final validation - PASTIKAN responseMessage adalah STRING\nconst inputData = $input.item.json || {};\n\nfunction forceString(value) {\n  if (value === null || value === undefined) return '';\n  if (typeof value === 'string') return value;\n  if (typeof value === 'number' || typeof value === 'boolean') return String(value);\n  if (typeof value === 'object') {\n    if (value.message && typeof value.message === 'string') return value.message;\n    if (value.error && typeof value.error === 'string') return '❌ ' + value.error;\n    if (value.text && typeof value.text === 'string') return value.text;\n    if (value.responseMessage && typeof value.responseMessage === 'string') return value.responseMessage;\n    console.error('[ERROR] Object detected:', JSON.stringify(value));\n    return 'Terjadi kesalahan dalam memproses respons. Silakan coba lagi.';\n  }\n  return String(value);\n}\n\nlet responseMessage = forceString(inputData.responseMessage || inputData.message || '');\nif (!responseMessage || responseMessage.trim() === '') {\n  responseMessage = 'Terima kasih atas pesan Anda! Ada yang bisa saya bantu? Ketik *help* untuk melihat menu bantuan.';\n}\nif (responseMessage.includes('[object Object]')) {\n  console.error('[ERROR] [object Object] detected!');\n  responseMessage = 'Terima kasih atas pesan Anda! Ada yang bisa saya bantu? Ketik *help* untuk melihat menu bantuan.';\n}\n\nlet chatId = String(inputData.chatId || '6283836339182@c.us').trim();\nif (!chatId) chatId = '6283836339182@c.us';\n\nresponseMessage = String(responseMessage).trim();\n\nreturn {\n  json: {\n    session: 'default',\n    chatId: chatId,\n    text: responseMessage,\n    responseMessage: responseMessage,\n    message: responseMessage\n  }\n};"
+            },
+            "id": "final-validate-response",
+            "name": "Final Validate Response",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [2000, 600]
+        }
+    ],
+    "connections": {
+        "Webhook - Terima Pesan WA": {
+            "main": [
+                [
+                    {
+                        "node": "Respond to Webhook",
+                        "type": "main",
+                        "index": 0
+                    },
+                    {
+                        "node": "Extract Pesan",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Extract Pesan": {
+            "main": [
+                [
+                    {
+                        "node": "Cegah Duplikat",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Cegah Duplikat": {
+            "main": [
+                [
+                    {
+                        "node": "Skip jika Duplikat?",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Skip jika Duplikat?": {
+            "main": [
+                [
+                    {
+                        "node": "Cek Pesan Kosong?",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                []
+            ]
+        },
+        "Cek Pesan Kosong?": {
+            "main": [
+                [
+                    {
+                        "node": "Cek Keyword Fitur",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                []
+            ]
+        },
+        "Cek Keyword Fitur": {
+            "main": [
+                [
+                    {
+                        "node": "Ada Keyword Fitur?",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Ada Keyword Fitur?": {
+            "main": [
+                [
+                    {
+                        "node": "Route Intent",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "AI Chat Response",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Route Intent": {
+            "main": [
+                [
+                    {
+                        "node": "Parse Tambah Stok",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Get All Stocks",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Get Sales Report",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Get Inventory Report",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Parse Tambah Produk",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Parse Tambah Kategori",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Parse Tambah Varian",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Parse Tambah Komposisi",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Generate Help",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "AI Chat Response",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Switch - Tambah Stok": {
+            "main": [
+                [
+                    {
+                        "node": "Parse Tambah Stok",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Merge Responses",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Parse Tambah Stok": {
+            "main": [
+                [
+                    {
+                        "node": "Get Stocks List",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Get Stocks List": {
+            "main": [
+                [
+                    {
+                        "node": "Find Bahan",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Find Bahan": {
+            "main": [
+                [
+                    {
+                        "node": "Get Stock Info",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Get Stock Info": {
+            "main": [
+                [
+                    {
+                        "node": "Update Stock",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Update Stock": {
+            "main": [
+                [
+                    {
+                        "node": "Format Response Tambah Stok",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Format Response Tambah Stok": {
+            "main": [
+                [
+                    {
+                        "node": "Merge Responses",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Switch - Lihat Stok": {
+            "main": [
+                [
+                    {
+                        "node": "Get All Stocks",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Merge Responses",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Get All Stocks": {
+            "main": [
+                [
+                    {
+                        "node": "Format Response Stok",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Format Response Stok": {
+            "main": [
+                [
+                    {
+                        "node": "Merge Responses",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Switch - Laporan Penjualan": {
+            "main": [
+                [
+                    {
+                        "node": "Get Sales Report",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Merge Responses",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Get Sales Report": {
+            "main": [
+                [
+                    {
+                        "node": "Format Response Sales",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Format Response Sales": {
+            "main": [
+                [
+                    {
+                        "node": "Merge Responses",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Switch - Laporan Inventory": {
+            "main": [
+                [
+                    {
+                        "node": "Get Inventory Report",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Merge Responses",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Get Inventory Report": {
+            "main": [
+                [
+                    {
+                        "node": "Format Response Inventory",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Format Response Inventory": {
+            "main": [
+                [
+                    {
+                        "node": "Merge Responses",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Switch - Tambah Produk": {
+            "main": [
+                [
+                    {
+                        "node": "Parse Tambah Produk",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Merge Responses",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Parse Tambah Produk": {
+            "main": [
+                [
+                    {
+                        "node": "Get Categories",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Get Categories": {
+            "main": [
+                [
+                    {
+                        "node": "Find Category for Product",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Find Category for Product": {
+            "main": [
+                [
+                    {
+                        "node": "Create Product",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Create Product": {
+            "main": [
+                [
+                    {
+                        "node": "Format Response Tambah Produk",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Format Response Tambah Produk": {
+            "main": [
+                [
+                    {
+                        "node": "Merge Responses",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Switch - Tambah Kategori": {
+            "main": [
+                [
+                    {
+                        "node": "Parse Tambah Kategori",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Merge Responses",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Parse Tambah Kategori": {
+            "main": [
+                [
+                    {
+                        "node": "Create Category",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Create Category": {
+            "main": [
+                [
+                    {
+                        "node": "Format Response Tambah Kategori",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Format Response Tambah Kategori": {
+            "main": [
+                [
+                    {
+                        "node": "Merge Responses",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Switch - Tambah Varian": {
+            "main": [
+                [
+                    {
+                        "node": "Parse Tambah Varian",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Merge Responses",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Parse Tambah Varian": {
+            "main": [
+                [
+                    {
+                        "node": "Get Products for Variant",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Get Products for Variant": {
+            "main": [
+                [
+                    {
+                        "node": "Find Product for Variant",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Find Product for Variant": {
+            "main": [
+                [
+                    {
+                        "node": "Create Variant",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Create Variant": {
+            "main": [
+                [
+                    {
+                        "node": "Format Response Tambah Varian",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Format Response Tambah Varian": {
+            "main": [
+                [
+                    {
+                        "node": "Merge Responses",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Switch - Tambah Komposisi": {
+            "main": [
+                [
+                    {
+                        "node": "Parse Tambah Komposisi",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Merge Responses",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Parse Tambah Komposisi": {
+            "main": [
+                [
+                    {
+                        "node": "Get Products for Composition",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Get Products for Composition": {
+            "main": [
+                [
+                    {
+                        "node": "Get Stocks for Composition",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Get Stocks for Composition": {
+            "main": [
+                [
+                    {
+                        "node": "Find Product and Bahan",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Find Product and Bahan": {
+            "main": [
+                [
+                    {
+                        "node": "Create Composition",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Create Composition": {
+            "main": [
+                [
+                    {
+                        "node": "Format Response Tambah Komposisi",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Format Response Tambah Komposisi": {
+            "main": [
+                [
+                    {
+                        "node": "Merge Responses",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Switch - Help": {
+            "main": [
+                [
+                    {
+                        "node": "Generate Help",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Merge Responses",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Generate Help": {
+            "main": [
+                [
+                    {
+                        "node": "Merge Responses",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Switch - Chat AI": {
+            "main": [
+                [
+                    {
+                        "node": "Get Sales Data for AI",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Merge Responses",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Get Sales Data for AI": {
+            "main": [
+                [
+                    {
+                        "node": "Get Dashboard Summary",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Get Dashboard Summary": {
+            "main": [
+                [
+                    {
+                        "node": "AI Chat Response",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "AI Chat Response": {
+            "main": [
+                [
+                    {
+                        "node": "Format AI Response",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Format AI Response": {
+            "main": [
+                [
+                    {
+                        "node": "Merge Responses",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Merge Responses": {
+            "main": [
+                [
+                    {
+                        "node": "Final Validate Response",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Final Validate Response": {
+            "main": [
+                [
+                    {
+                        "node": "Send WhatsApp Response",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Send WhatsApp Response": {
+            "main": [[]]
+        }
+    },
+    "pinData": {},
+    "settings": {
+        "executionOrder": "v1"
+    },
+    "staticData": null,
+    "tags": [],
+    "triggerCount": 1,
+    "updatedAt": "2024-01-01T00:00:00.000Z",
+    "versionId": "1"
+}

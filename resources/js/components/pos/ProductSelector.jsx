@@ -144,11 +144,18 @@ function ProductSelector({ products, onAddToCart }) {
                                                 {product.category}
                                             </p>
                                             <div className="flex items-center justify-between mt-1">
-                                                <p className="text-xs text-gray-600">
-                                                    {product.has_variants
-                                                        ? `${product.variants.length} varian tersedia`
-                                                        : "Produk langsung"}
-                                                </p>
+                                                <div className="flex-1">
+                                                    <p className="text-xs text-gray-600">
+                                                        {product.has_variants
+                                                            ? `${product.variants.length} varian tersedia`
+                                                            : "Produk langsung"}
+                                                    </p>
+                                                    {variant?.stok_prediksi !== undefined && variant.stok_prediksi !== 999 && (
+                                                        <p className="text-xs text-blue-600 font-medium mt-0.5">
+                                                            Prediksi: ~{variant.stok_prediksi} porsi (berdasarkan bahan)
+                                                        </p>
+                                                    )}
+                                                </div>
                                                 <p className="text-sm font-bold text-green-600">
                                                     {formatPrice(product.harga)}
                                                 </p>
@@ -239,6 +246,11 @@ function ProductSelector({ products, onAddToCart }) {
                                             <p className="text-sm text-gray-500">
                                                 Stok: {variant.stok_varian}
                                             </p>
+                                            {variant.stok_prediksi !== undefined && variant.stok_prediksi !== 999 && (
+                                                <p className="text-xs text-blue-600 font-medium">
+                                                    Prediksi: ~{variant.stok_prediksi} porsi (berdasarkan bahan)
+                                                </p>
+                                            )}
                                         </div>
                                         <div className="text-right">
                                             <p className="font-bold text-green-600">

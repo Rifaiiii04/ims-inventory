@@ -226,6 +226,31 @@ export const useStock = () => {
         }
     };
 
+    const bulkDeleteStock = async (ids) => {
+        try {
+            const response = await axios.post("/api/stocks/bulk-delete", {
+                ids,
+            });
+            if (response.data.success) {
+                // Invalidate cache dan force refresh
+                localStorage.removeItem(`${CACHE_KEY}_stocks`);
+                localStorage.removeItem(`${CACHE_KEY}_alerts`);
+                await fetchStocks(true); // Force refresh
+                return {
+                    success: true,
+                    message: response.data.message,
+                    data: response.data.data,
+                };
+            }
+            return { success: false, message: response.data.message };
+        } catch (err) {
+            const errorMessage =
+                err.response?.data?.message ||
+                "Terjadi kesalahan saat menghapus stok";
+            return { success: false, message: errorMessage };
+        }
+    };
+
     const refreshData = () => {
         // Force refresh semua data
         fetchStocks(true);
@@ -257,6 +282,7 @@ export const useStock = () => {
         createStock,
         updateStock,
         deleteStock,
+        bulkDeleteStock,
         refreshData,
     };
 };

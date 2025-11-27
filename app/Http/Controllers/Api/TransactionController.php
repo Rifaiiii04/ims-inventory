@@ -42,16 +42,29 @@ class TransactionController extends Controller
                     ->select('id_varian', 'nama_varian', 'stok_varian', 'id_produk', 'unit')
                     ->get()
                     ->map(function($variant) use ($product) {
+                        // Cek apakah stok bahan cukup untuk membuat minimal 1 porsi
+                        $compositions = $this->getVariantCompositions($variant->id_varian);
+                        $canProduce = $this->canProduceVariantWithCompositions($compositions, 1);
+                        
+                        // Hitung stok prediksi berdasarkan stok bahan
+                        $predictedStock = $this->calculatePredictedStock($compositions);
+                        
                         // Gunakan harga dari produk sebagai harga varian jika varian tidak punya harga sendiri
                         return [
                             'id_varian' => $variant->id_varian,
                             'nama_varian' => $variant->nama_varian,
                             'harga' => $product->harga_produk, // Harga dari produk
                             'stok_varian' => $variant->stok_varian,
+                            'stok_prediksi' => $predictedStock, // Stok prediksi berdasarkan bahan
                             'id_produk' => $variant->id_produk,
                             'unit' => $variant->unit,
-                            'compositions' => $this->getVariantCompositions($variant->id_varian)
+                            'compositions' => $compositions,
+                            'is_available' => $canProduce // Flag untuk menandai apakah bisa diproduksi
                         ];
+                    })
+                    ->filter(function($variant) {
+                        // Filter variant yang bisa diproduksi (stok bahan cukup)
+                        return $variant['is_available'] === true;
                     });
 
                 // Jika produk tidak punya variant, buat "virtual variant" untuk produk itu sendiri
@@ -61,10 +74,12 @@ class TransactionController extends Controller
                         'nama_varian' => $product->nama_produk,
                         'harga' => $product->harga_produk,
                         'stok_varian' => 999, // Stok virtual untuk produk tanpa variant
+                        'stok_prediksi' => 999, // Stok prediksi untuk produk langsung (tidak terbatas)
                         'id_produk' => $product->id_produk,
                         'unit' => 'pcs',
                         'compositions' => [],
-                        'is_direct_product' => true // Flag untuk produk langsung
+                        'is_direct_product' => true, // Flag untuk produk langsung
+                        'is_available' => true // Produk langsung selalu tersedia
                     ]]);
                 }
 
@@ -77,6 +92,10 @@ class TransactionController extends Controller
                     'variants' => $variants,
                     'has_variants' => $variants->count() > 1 || ($variants->count() === 1 && !isset($variants->first()['is_direct_product']))
                 ];
+            })
+            ->filter(function($product) {
+                // Filter produk yang masih punya variant tersedia
+                return $product['variants']->count() > 0;
             });
 
             return response()->json([
@@ -110,6 +129,84 @@ class TransactionController extends Controller
                 'tbl_bahan.min_stok'
             )
             ->get();
+    }
+
+    /**
+     * Check if variant can be produced with available ingredient stock
+     * @param int $variantId
+     * @param float $quantity
+     * @return bool
+     */
+    private function canProduceVariant($variantId, $quantity = 1)
+    {
+        $compositions = DB::table('tbl_komposisi')
+            ->join('tbl_bahan', 'tbl_komposisi.id_bahan', '=', 'tbl_bahan.id_bahan')
+            ->where('tbl_komposisi.id_varian', $variantId)
+            ->select(
+                'tbl_komposisi.jumlah_per_porsi',
+                'tbl_bahan.stok_bahan'
+            )
+            ->get();
+
+        return $this->canProduceVariantWithCompositions($compositions, $quantity);
+    }
+
+    /**
+     * Check if variant can be produced with given compositions
+     * @param \Illuminate\Support\Collection $compositions
+     * @param float $quantity
+     * @return bool
+     */
+    private function canProduceVariantWithCompositions($compositions, $quantity = 1)
+    {
+        // Jika tidak ada komposisi, berarti produk langsung (selalu bisa diproduksi)
+        if ($compositions->isEmpty()) {
+            return true;
+        }
+
+        // Cek setiap bahan apakah stoknya cukup
+        foreach ($compositions as $composition) {
+            $requiredIngredient = $composition->jumlah_per_porsi * $quantity;
+            if ($composition->stok_bahan < $requiredIngredient) {
+                return false; // Stok bahan tidak cukup
+            }
+        }
+
+        return true; // Semua bahan cukup
+    }
+
+    /**
+     * Calculate predicted stock based on ingredient stock
+     * Menghitung berapa banyak produk yang bisa dibuat berdasarkan stok bahan
+     * @param \Illuminate\Support\Collection $compositions
+     * @return float|int
+     */
+    private function calculatePredictedStock($compositions)
+    {
+        // Jika tidak ada komposisi, berarti produk langsung (tidak terbatas)
+        if ($compositions->isEmpty()) {
+            return 999; // Stok virtual untuk produk langsung
+        }
+
+        $maxQuantity = null;
+
+        // Hitung untuk setiap bahan, berapa banyak produk yang bisa dibuat
+        foreach ($compositions as $composition) {
+            if ($composition->jumlah_per_porsi <= 0) {
+                continue; // Skip jika jumlah per porsi 0 atau negatif
+            }
+
+            // Hitung berapa banyak produk yang bisa dibuat dari bahan ini
+            $possibleQuantity = floor($composition->stok_bahan / $composition->jumlah_per_porsi);
+
+            // Ambil nilai minimum (karena terbatas oleh bahan yang paling sedikit)
+            if ($maxQuantity === null || $possibleQuantity < $maxQuantity) {
+                $maxQuantity = $possibleQuantity;
+            }
+        }
+
+        // Jika tidak ada komposisi valid, return 0
+        return $maxQuantity !== null ? max(0, $maxQuantity) : 0;
     }
 
     /**
@@ -603,6 +700,287 @@ class TransactionController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+    /**
+     * Print receipt for a single transaction
+     */
+    public function printReceipt($id)
+    {
+        try {
+            $transaction = TblTransaksi::with([
+                'user',
+                'details' => function($query) {
+                    $query->with([
+                        'produk.kategori',
+                        'varian' => function($q) {
+                            $q->with('produk.kategori');
+                        }
+                    ]);
+                }
+            ])
+                ->find($id);
+
+            if (!$transaction) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Transaksi tidak ditemukan'
+                ], 404);
+            }
+
+            // Generate HTML content for receipt
+            $html = $this->generateReceiptHtml($transaction);
+
+            // Return HTML that can be printed
+            return response($html)
+                ->header('Content-Type', 'text/html; charset=utf-8')
+                ->header('Content-Disposition', 'inline; filename="struk-TRX' . $transaction->id_transaksi . '.html"');
+
+        } catch (\Exception $e) {
+            Log::error('Error generating receipt:', [
+                'transaction_id' => $id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Terjadi kesalahan saat generate struk',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Generate HTML content for receipt
+     */
+    private function generateReceiptHtml($transaction)
+    {
+        $paymentMethodText = '';
+        switch($transaction->metode_bayar) {
+            case 'cash':
+                $paymentMethodText = 'Tunai';
+                break;
+            case 'qris':
+                $paymentMethodText = 'QRIS';
+                break;
+            case 'lainnya':
+                $paymentMethodText = 'Transfer Bank';
+                break;
+            default:
+                $paymentMethodText = $transaction->metode_bayar;
+        }
+
+        $dateTime = date('d F Y H:i', strtotime($transaction->tanggal_waktu));
+        $cashierName = $transaction->user->nama_user ?? 'Unknown';
+
+        $html = '<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Struk Transaksi - TRX' . $transaction->id_transaksi . '</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        @media print {
+            body { margin: 0; padding: 0; }
+            .no-print { display: none !important; }
+        }
+        body { 
+            font-family: "Courier New", monospace; 
+            padding: 20px; 
+            background: #f5f5f5; 
+            max-width: 400px; 
+            margin: 0 auto;
+        }
+        .receipt { 
+            background: white; 
+            padding: 20px; 
+            border-radius: 8px; 
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1); 
+        }
+        .header { 
+            text-align: center; 
+            border-bottom: 2px dashed #10b981; 
+            padding-bottom: 15px; 
+            margin-bottom: 15px; 
+        }
+        .header h1 { 
+            color: #10b981; 
+            font-size: 20px; 
+            margin-bottom: 5px; 
+        }
+        .header p { 
+            color: #666; 
+            font-size: 12px; 
+        }
+        .info { 
+            margin-bottom: 15px; 
+            font-size: 12px; 
+        }
+        .info-row { 
+            display: flex; 
+            justify-content: space-between; 
+            margin-bottom: 5px; 
+        }
+        .info-label { 
+            color: #666; 
+        }
+        .info-value { 
+            font-weight: bold; 
+            color: #111; 
+        }
+        .divider { 
+            border-top: 1px dashed #ddd; 
+            margin: 15px 0; 
+        }
+        .items { 
+            margin-bottom: 15px; 
+        }
+        .item { 
+            margin-bottom: 10px; 
+            font-size: 12px; 
+        }
+        .item-name { 
+            font-weight: bold; 
+            margin-bottom: 3px; 
+        }
+        .item-detail { 
+            display: flex; 
+            justify-content: space-between; 
+            color: #666; 
+            font-size: 11px; 
+        }
+        .total { 
+            background: #f0fdf4; 
+            border: 2px solid #10b981; 
+            padding: 15px; 
+            border-radius: 8px; 
+            margin-bottom: 15px; 
+        }
+        .total-row { 
+            display: flex; 
+            justify-content: space-between; 
+            margin-bottom: 5px; 
+            font-size: 14px; 
+        }
+        .total-label { 
+            font-weight: bold; 
+            color: #111; 
+        }
+        .total-value { 
+            font-weight: bold; 
+            color: #10b981; 
+            font-size: 18px; 
+        }
+        .footer { 
+            text-align: center; 
+            padding-top: 15px; 
+            border-top: 2px dashed #10b981; 
+            color: #666; 
+            font-size: 11px; 
+        }
+        .print-btn { 
+            margin-top: 20px; 
+            text-align: center; 
+        }
+        .print-btn button { 
+            background: #10b981; 
+            color: white; 
+            border: none; 
+            padding: 12px 24px; 
+            border-radius: 8px; 
+            font-size: 14px; 
+            font-weight: bold; 
+            cursor: pointer; 
+        }
+        .print-btn button:hover { 
+            background: #059669; 
+        }
+    </style>
+</head>
+<body>
+    <div class="receipt">
+        <div class="header">
+            <h1>ANGKRINGAN IMS</h1>
+            <p>Sistem Point of Sale</p>
+        </div>
+
+        <div class="info">
+            <div class="info-row">
+                <span class="info-label">No. Transaksi:</span>
+                <span class="info-value">TRX' . $transaction->id_transaksi . '</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Tanggal:</span>
+                <span class="info-value">' . $dateTime . '</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Kasir:</span>
+                <span class="info-value">' . htmlspecialchars($cashierName) . '</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">Metode Bayar:</span>
+                <span class="info-value">' . $paymentMethodText . '</span>
+            </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="items">
+            <div style="font-weight: bold; margin-bottom: 10px; font-size: 12px;">Daftar Item:</div>';
+
+        foreach ($transaction->details as $detail) {
+            $itemName = $detail->varian ? $detail->varian->nama_varian : ($detail->produk ? $detail->produk->nama_produk : 'Unknown Item');
+            $price = $detail->harga_satuan;
+            $quantity = $detail->jumlah;
+            $subtotal = $detail->total_harga;
+
+            $html .= '
+            <div class="item">
+                <div class="item-name">' . htmlspecialchars($itemName) . '</div>
+                <div class="item-detail">
+                    <span>' . number_format($price, 0, ',', '.') . ' x ' . $quantity . '</span>
+                    <span>Rp ' . number_format($subtotal, 0, ',', '.') . '</span>
+                </div>
+            </div>';
+        }
+
+        $html .= '
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="total">
+            <div class="total-row">
+                <span class="total-label">TOTAL:</span>
+                <span class="total-value">Rp ' . number_format($transaction->total_transaksi, 0, ',', '.') . '</span>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p>Terima kasih telah berbelanja!</p>
+            <p>Silakan datang kembali</p>
+            <p style="margin-top: 10px; font-size: 10px;">Dicetak pada: ' . date('d F Y H:i:s') . '</p>
+        </div>
+    </div>
+
+    <div class="print-btn no-print">
+        <button onclick="window.print()">Cetak Struk</button>
+    </div>
+
+    <script>
+        // Auto trigger print dialog after page loads
+        window.onload = function() {
+            setTimeout(function() {
+                window.print();
+            }, 250);
+        };
+    </script>
+</body>
+</html>';
+
+        return $html;
     }
 
     /**

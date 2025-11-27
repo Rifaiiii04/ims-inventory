@@ -20,7 +20,10 @@ const ProtectedRoute = ({ children, requiredRole = null }) => {
 
     // Redirect to login if not authenticated
     if (!isAuthenticated) {
-        return <Navigate to="/" state={{ from: location }} replace />;
+        // Don't save POS pages in state to prevent redirecting there after login
+        // Admin should always go to dashboard, not to POS pages
+        const shouldSaveState = !location.pathname.startsWith('/pos/');
+        return <Navigate to="/" state={shouldSaveState ? { from: location } : {}} replace />;
     }
 
     // Check role-based access

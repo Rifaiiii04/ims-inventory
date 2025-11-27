@@ -1,7 +1,65 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import ConversionDisplay from "./ConversionDisplay";
 
-function StockTable({ data, onEdit, onDelete, onViewHistory }) {
+function StockTable({ data, onEdit, onDelete, onViewHistory, onBulkDelete }) {
+    const [selectedItems, setSelectedItems] = useState(new Set());
+    const [selectAll, setSelectAll] = useState(false);
+
+    // Reset select all when data changes
+    useEffect(() => {
+        setSelectAll(false);
+        setSelectedItems(new Set());
+    }, [data]);
+
+    // Update select all state when selected items change
+    useEffect(() => {
+        if (data.length > 0) {
+            setSelectAll(selectedItems.size === data.length);
+        } else {
+            setSelectAll(false);
+        }
+    }, [selectedItems, data.length]);
+
+    const handleSelectAll = (checked) => {
+        if (checked) {
+            const allIds = new Set(data.map((item) => item.id));
+            setSelectedItems(allIds);
+            setSelectAll(true);
+        } else {
+            setSelectedItems(new Set());
+            setSelectAll(false);
+        }
+    };
+
+    const handleSelectItem = (id, checked) => {
+        const newSelected = new Set(selectedItems);
+        if (checked) {
+            newSelected.add(id);
+        } else {
+            newSelected.delete(id);
+        }
+        setSelectedItems(newSelected);
+    };
+
+    const handleBulkDelete = () => {
+        if (selectedItems.size === 0) {
+            alert("Pilih minimal 1 item untuk dihapus");
+            return;
+        }
+
+        const count = selectedItems.size;
+        if (
+            confirm(
+                `Apakah Anda yakin ingin menghapus ${count} item yang dipilih?`
+            )
+        ) {
+            if (onBulkDelete) {
+                onBulkDelete(Array.from(selectedItems));
+                setSelectedItems(new Set());
+                setSelectAll(false);
+            }
+        }
+    };
     const getCategoryBadge = (category) => {
         return category === "Produk"
             ? "bg-gradient-to-r from-blue-50 to-blue-100 text-blue-700 border border-blue-200 shadow-sm"
@@ -50,14 +108,43 @@ function StockTable({ data, onEdit, onDelete, onViewHistory }) {
                             </h3>
                             <p className="text-sm text-gray-500">
                                 {data.length} item tersedia
+                                {selectedItems.size > 0 && (
+                                    <span className="ml-2 text-blue-600 font-semibold">
+                                        ({selectedItems.size} dipilih)
+                                    </span>
+                                )}
                             </p>
                         </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                        <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                        <span className="text-xs text-gray-500 font-medium">
-                            Live
-                        </span>
+                    <div className="flex items-center gap-3">
+                        {selectedItems.size > 0 && (
+                            <button
+                                onClick={handleBulkDelete}
+                                className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-sm font-semibold flex items-center gap-2"
+                            >
+                                <svg
+                                    xmlns="http://www.w3.org/2000/svg"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    strokeWidth={2}
+                                    stroke="currentColor"
+                                    className="w-4 h-4"
+                                >
+                                    <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"
+                                    />
+                                </svg>
+                                Hapus ({selectedItems.size})
+                            </button>
+                        )}
+                        <div className="flex items-center gap-2">
+                            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                            <span className="text-xs text-gray-500 font-medium">
+                                Live
+                            </span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -67,6 +154,18 @@ function StockTable({ data, onEdit, onDelete, onViewHistory }) {
                 <table className="w-full">
                     <thead className="bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200/50">
                         <tr>
+                            <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider w-12">
+                                <div className="flex items-center gap-2">
+                                    <input
+                                        type="checkbox"
+                                        checked={selectAll}
+                                        onChange={(e) =>
+                                            handleSelectAll(e.target.checked)
+                                        }
+                                        className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500 cursor-pointer"
+                                    />
+                                </div>
+                            </th>
                             <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
                                 <div className="flex items-center gap-2">
                                     <span>Nama Stok</span>
@@ -119,8 +218,25 @@ function StockTable({ data, onEdit, onDelete, onViewHistory }) {
                                     index % 2 === 0
                                         ? "bg-white"
                                         : "bg-gray-50/30"
+                                } ${
+                                    selectedItems.has(item.id)
+                                        ? "bg-blue-50"
+                                        : ""
                                 }`}
                             >
+                                <td className="px-6 py-5">
+                                    <input
+                                        type="checkbox"
+                                        checked={selectedItems.has(item.id)}
+                                        onChange={(e) =>
+                                            handleSelectItem(
+                                                item.id,
+                                                e.target.checked
+                                            )
+                                        }
+                                        className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500 cursor-pointer"
+                                    />
+                                </td>
                                 <td className="px-6 py-5">
                                     <div className="flex items-center gap-3">
                                         <div className="w-8 h-8 bg-gradient-to-br from-blue-100 to-blue-200 rounded-lg flex items-center justify-center text-blue-600 font-bold text-sm">
@@ -272,10 +388,21 @@ function StockTable({ data, onEdit, onDelete, onViewHistory }) {
                         key={item.id}
                         className={`p-5 hover:bg-gradient-to-r hover:from-gray-50 hover:to-blue-50/30 transition-all duration-200 ${
                             index % 2 === 0 ? "bg-white" : "bg-gray-50/30"
-                        }`}
+                        } ${selectedItems.has(item.id) ? "bg-blue-50" : ""}`}
                     >
                         <div className="flex justify-between items-start mb-4">
                             <div className="flex items-center gap-3">
+                                <input
+                                    type="checkbox"
+                                    checked={selectedItems.has(item.id)}
+                                    onChange={(e) =>
+                                        handleSelectItem(
+                                            item.id,
+                                            e.target.checked
+                                        )
+                                    }
+                                    className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500 cursor-pointer flex-shrink-0"
+                                />
                                 <div className="w-10 h-10 bg-gradient-to-br from-blue-100 to-blue-200 rounded-xl flex items-center justify-center text-blue-600 font-bold text-sm">
                                     {item.name.charAt(0).toUpperCase()}
                                 </div>
@@ -429,21 +556,48 @@ function StockTable({ data, onEdit, onDelete, onViewHistory }) {
             {/* Mobile View */}
             <div className="lg:hidden">
                 {data.map((item, index) => (
-                    <div key={item.id} className="border-b border-gray-200/50 last:border-b-0">
+                    <div
+                        key={item.id}
+                        className={`border-b border-gray-200/50 last:border-b-0 ${
+                            selectedItems.has(item.id) ? "bg-blue-50" : ""
+                        }`}
+                    >
                         <div className="p-4 hover:bg-gray-50/50 transition-colors">
                             {/* Mobile Card Header */}
                             <div className="flex items-start justify-between mb-3">
-                                <div className="flex-1 min-w-0">
-                                    <h4 className="font-bold text-gray-800 text-sm truncate">
-                                        {item.name}
-                                    </h4>
-                                    <div className="flex items-center gap-2 mt-1">
-                                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getCategoryBadge(item.category)}`}>
-                                            {item.category}
-                                        </span>
-                                        <span className={`${getStockStatus(item.quantity)}`}>
-                                            {getStockIcon(item.quantity)} {item.quantity} {item.unit}
-                                        </span>
+                                <div className="flex items-center gap-2 flex-1 min-w-0">
+                                    <input
+                                        type="checkbox"
+                                        checked={selectedItems.has(item.id)}
+                                        onChange={(e) =>
+                                            handleSelectItem(
+                                                item.id,
+                                                e.target.checked
+                                            )
+                                        }
+                                        className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500 cursor-pointer flex-shrink-0"
+                                    />
+                                    <div className="flex-1 min-w-0">
+                                        <h4 className="font-bold text-gray-800 text-sm truncate">
+                                            {item.name}
+                                        </h4>
+                                        <div className="flex items-center gap-2 mt-1">
+                                            <span
+                                                className={`px-2 py-1 rounded-full text-xs font-medium ${getCategoryBadge(
+                                                    item.category
+                                                )}`}
+                                            >
+                                                {item.category}
+                                            </span>
+                                            <span
+                                                className={`${getStockStatus(
+                                                    item.quantity
+                                                )}`}
+                                            >
+                                                {getStockIcon(item.quantity)}{" "}
+                                                {item.quantity} {item.unit}
+                                            </span>
+                                        </div>
                                     </div>
                                 </div>
                                 <div className="flex items-center gap-1 ml-2">
@@ -452,8 +606,18 @@ function StockTable({ data, onEdit, onDelete, onViewHistory }) {
                                         className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                                         title="Edit"
                                     >
-                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                        <svg
+                                            className="w-4 h-4"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            viewBox="0 0 24 24"
+                                        >
+                                            <path
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                                strokeWidth={2}
+                                                d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                                            />
                                         </svg>
                                     </button>
                                     <button
@@ -461,8 +625,18 @@ function StockTable({ data, onEdit, onDelete, onViewHistory }) {
                                         className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
                                         title="History"
                                     >
-                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                        <svg
+                                            className="w-4 h-4"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            viewBox="0 0 24 24"
+                                        >
+                                            <path
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                                strokeWidth={2}
+                                                d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                                            />
                                         </svg>
                                     </button>
                                     <button
@@ -470,8 +644,18 @@ function StockTable({ data, onEdit, onDelete, onViewHistory }) {
                                         className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                                         title="Hapus"
                                     >
-                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                        <svg
+                                            className="w-4 h-4"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            viewBox="0 0 24 24"
+                                        >
+                                            <path
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                                strokeWidth={2}
+                                                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                                            />
                                         </svg>
                                     </button>
                                 </div>
@@ -480,13 +664,18 @@ function StockTable({ data, onEdit, onDelete, onViewHistory }) {
                             {/* Mobile Card Details */}
                             <div className="grid grid-cols-2 gap-3 text-xs">
                                 <div className="bg-gray-50 rounded-lg p-2">
-                                    <div className="text-gray-500 mb-1">Harga Beli</div>
+                                    <div className="text-gray-500 mb-1">
+                                        Harga Beli
+                                    </div>
                                     <div className="font-semibold text-gray-800">
-                                        Rp {item.buyPrice.toLocaleString('id-ID')}
+                                        Rp{" "}
+                                        {item.buyPrice.toLocaleString("id-ID")}
                                     </div>
                                 </div>
                                 <div className="bg-gray-50 rounded-lg p-2">
-                                    <div className="text-gray-500 mb-1">Min. Stok</div>
+                                    <div className="text-gray-500 mb-1">
+                                        Min. Stok
+                                    </div>
                                     <div className="font-semibold text-gray-800">
                                         {item.minStock} {item.unit}
                                     </div>
@@ -496,7 +685,9 @@ function StockTable({ data, onEdit, onDelete, onViewHistory }) {
                             {/* Mobile Card Footer */}
                             <div className="mt-3 pt-3 border-t border-gray-100">
                                 <div className="flex items-center justify-between text-xs text-gray-500">
-                                    <span>Terakhir update: {item.lastUpdated}</span>
+                                    <span>
+                                        Terakhir update: {item.lastUpdated}
+                                    </span>
                                     <span>By: {item.updatedBy}</span>
                                 </div>
                             </div>

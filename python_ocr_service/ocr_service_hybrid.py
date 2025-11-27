@@ -17,16 +17,45 @@ import base64
 from dotenv import load_dotenv
 load_dotenv()
 
+# Fix untuk Pillow 10+ compatibility dengan EasyOCR
+# ANTIALIAS sudah deprecated di Pillow 10.0.0+
+try:
+    from PIL import Image
+    # Patch ANTIALIAS untuk kompatibilitas Pillow 10+
+    if not hasattr(Image, 'ANTIALIAS'):
+        # Gunakan LANCZOS sebagai pengganti ANTIALIAS
+        Image.ANTIALIAS = Image.LANCZOS
+        print("Pillow 10+ detected: Patched ANTIALIAS to LANCZOS")
+except (ImportError, AttributeError) as e:
+    print(f"Warning: Could not patch PIL.Image.ANTIALIAS: {e}")
+
 print("Initializing EasyOCR...")
-reader = easyocr.Reader(['en', 'id'])
-print("EasyOCR initialized successfully!")
+try:
+    reader = easyocr.Reader(['en', 'id'])
+    print("EasyOCR initialized successfully!")
+except Exception as e:
+    print(f"EasyOCR initialization error: {e}")
+    print("Trying to continue anyway...")
+    reader = None
 
 
 print("Initializing Gemini AI...")
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-flash-latest')
-print("Gemini AI initialized successfully!")
+model = None
+if not GEMINI_API_KEY or GEMINI_API_KEY == 'YOUR_GEMINI_API_KEY_HERE' or GEMINI_API_KEY == 'API_GEMINI_KEY':
+    print("WARNING: GEMINI_API_KEY not set or invalid!")
+    print("Please set GEMINI_API_KEY environment variable")
+    print("Example: set GEMINI_API_KEY=your_api_key_here")
+    print("Gemini AI will use fallback parsing mode")
+else:
+    try:
+        genai.configure(api_key=GEMINI_API_KEY)
+        model = genai.GenerativeModel('gemini-flash-latest')
+        print("Gemini AI initialized successfully!")
+    except Exception as e:
+        print(f"Error initializing Gemini AI: {e}")
+        print("Gemini AI will use fallback parsing mode")
+        model = None
 
 app = Flask(__name__)
 
@@ -77,22 +106,61 @@ def preprocess(image_file):
 def extract_text_with_easyocr(image_file):
     """Extract text using EasyOCR - SIMPLE seperti contoh user"""
     try:
+        if reader is None:
+            print("EasyOCR reader not initialized!")
+            return []
+            
         image_file.seek(0)
         
         print("\n=== Step 1: EasyOCR Text Extraction ===")
         
-        processed = preprocess(image_file)
-        if processed is None:
-            return []
+        # Coba langsung tanpa preprocessing dulu
+        image_file.seek(0)
+        image_bytes = image_file.read()
+        image_file.seek(0)
         
-        result = reader.readtext(processed, detail=0)
+        # Convert bytes to numpy array
+        nparr = np.frombuffer(image_bytes, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        
+        result = []
+        
+        if img is not None:
+            # Try direct OCR first (lebih cepat)
+            try:
+                result = reader.readtext(img, detail=0)
+                print(f"Direct OCR: {len(result)} items found")
+            except Exception as e:
+                print(f"Direct OCR error: {e}, trying preprocessing...")
+                result = []
+        
+        # Jika direct OCR gagal atau tidak ada hasil, coba dengan preprocessing
+        if not result or len(result) == 0:
+            print("Trying with preprocessing...")
+            processed = preprocess(image_file)
+            if processed is not None:
+                try:
+                    result = reader.readtext(processed, detail=0)
+                    print(f"Preprocessed OCR: {len(result)} items found")
+                except Exception as e:
+                    print(f"Preprocessed OCR error: {e}")
+                    result = []
+            else:
+                print("Preprocessing failed")
+        
         print(f"\n=== Hasil OCR ===")
-        print(result)
+        if result:
+            for i, text in enumerate(result, 1):
+                print(f"{i}. {text}")
+        else:
+            print("Tidak ada text yang ditemukan")
         
-        return result
+        return result if result else []
 
     except Exception as e:
         print(f"EasyOCR error: {e}")
+        import traceback
+        traceback.print_exc()
         return []
 
 def classify_with_gemini(text_list, image_file=None):
@@ -116,7 +184,7 @@ def classify_with_gemini(text_list, image_file=None):
         nama barang yang relevan dengan text yang berantakan tersebut. untuk harga itu formatnya Rp / Rupiah dan hanya angka saja tanpa simbol apapun.
         """
 
-        if GEMINI_API_KEY != 'API_GEMINI_KEY':
+        if model and GEMINI_API_KEY and GEMINI_API_KEY != 'API_GEMINI_KEY' and GEMINI_API_KEY != 'YOUR_GEMINI_API_KEY_HERE':
             response = model.generate_content(prompt)
             result_text = response.text.strip()
             
@@ -282,19 +350,20 @@ def process_receipt():
 
 @app.route('/health', methods=['GET'])
 def health():
-    gemini_status = "configured" if GEMINI_API_KEY != 'YOUR_GEMINI_API_KEY_HERE' else "not_configured"
+    gemini_status = "configured" if (model and GEMINI_API_KEY and GEMINI_API_KEY != 'YOUR_GEMINI_API_KEY_HERE' and GEMINI_API_KEY != 'API_GEMINI_KEY') else "not_configured"
     return jsonify({
         "status": "healthy", 
         "message": "OCR service is running",
         "easyocr": "ready",
-        "gemini": gemini_status
+        "gemini": gemini_status,
+        "gemini_api_key_set": bool(GEMINI_API_KEY and GEMINI_API_KEY != 'YOUR_GEMINI_API_KEY_HERE' and GEMINI_API_KEY != 'API_GEMINI_KEY')
     })
 
 @app.route('/test-gemini', methods=['GET'])
 def test_gemini():
     """Test Gemini AI connection"""
     try:
-        if GEMINI_API_KEY == 'YOUR_GEMINI_API_KEY_HERE':
+        if not model or not GEMINI_API_KEY or GEMINI_API_KEY == 'YOUR_GEMINI_API_KEY_HERE':
             return jsonify({
                 "success": False,
                 "error": "Gemini API key not configured"
@@ -319,7 +388,7 @@ if __name__ == '__main__':
     print("Process: http://localhost:5000/process-photo")
     print("Test Gemini: http://localhost:5000/test-gemini")
     
-    if GEMINI_API_KEY == 'YOUR_GEMINI_API_KEY_HERE':
+    if not model or not GEMINI_API_KEY or GEMINI_API_KEY == 'YOUR_GEMINI_API_KEY_HERE':
         print("\nWARNING: Set GEMINI_API_KEY environment variable to use Gemini AI")
         print("Example: set GEMINI_API_KEY=your_api_key_here")
     

@@ -1,4 +1,5 @@
 import React from "react";
+import axios from "axios";
 
 function TransactionDetailModal({ transaction, onClose }) {
     const formatPrice = (price) => {
@@ -27,8 +28,32 @@ function TransactionDetailModal({ transaction, onClose }) {
         return methods[method] || method;
     };
 
-    const handlePrint = () => {
-        window.print();
+    const handlePrint = async () => {
+        try {
+            // Fetch receipt HTML from API (struk untuk pelanggan)
+            const response = await axios.get(
+                `/api/transactions/${transaction.id_transaksi}/print`,
+                {
+                    responseType: "text",
+                }
+            );
+
+            // Open HTML in new window for printing
+            const printWindow = window.open("", "_blank");
+            if (printWindow) {
+                printWindow.document.write(response.data);
+                printWindow.document.close();
+                // Auto trigger print dialog
+                setTimeout(() => {
+                    printWindow.print();
+                }, 250);
+            } else {
+                alert("Popup diblokir. Silakan izinkan popup untuk situs ini.");
+            }
+        } catch (err) {
+            console.error("Error printing receipt:", err);
+            alert("Terjadi kesalahan saat mencetak struk. Silakan coba lagi.");
+        }
     };
 
     const handleWhatsApp = () => {

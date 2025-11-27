@@ -63,6 +63,7 @@ Route::middleware('auth:sanctum')->group(function () {
     
     // Stock routes
     Route::apiResource('stocks', StockController::class);
+    Route::post('/stocks/bulk-delete', [StockController::class, 'bulkDelete']);
     Route::get('/stocks/low-stock/alerts', [StockController::class, 'lowStock']);
     Route::get('/stocks/categories/list', [StockController::class, 'categories']);
     Route::get('/stocks/history', [StockController::class, 'history']);
@@ -92,6 +93,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/transactions', [TransactionController::class, 'store']);
     Route::get('/transactions/history', [TransactionController::class, 'getHistory']);
     Route::get('/transactions/{id}', [TransactionController::class, 'show']);
+    Route::get('/transactions/{id}/print', [TransactionController::class, 'printReceipt']);
     Route::get('/transactions/sales/report', [TransactionController::class, 'salesReport']);
     Route::get('/transactions/export/pdf', [TransactionController::class, 'exportPDF']);
     Route::get('/transactions/export/excel', [TransactionController::class, 'exportExcel']);

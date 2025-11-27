@@ -27,13 +27,13 @@ function StockManagement() {
         createStock,
         updateStock,
         deleteStock,
+        bulkDeleteStock,
         refreshData,
     } = useStock();
 
     // Handle tambah stok baru
     const handleAddStock = async (newStock) => {
-        const result =
-         await createStock(newStock);
+        const result = await createStock(newStock);
         if (result.success) {
             setShowFormModal(false);
         } else {
@@ -59,6 +59,30 @@ function StockManagement() {
             if (!result.success) {
                 alert(result.message);
             }
+        }
+    };
+
+    // Handle hapus beberapa stok sekaligus
+    const handleBulkDeleteStock = async (ids) => {
+        try {
+            const result = await bulkDeleteStock(ids);
+            if (result.success) {
+                const message = result.data?.deleted_count
+                    ? `Berhasil menghapus ${result.data.deleted_count} stok${
+                          result.data.failed_count > 0
+                              ? `, ${result.data.failed_count} gagal`
+                              : ""
+                      }`
+                    : result.message;
+                alert(message);
+            } else {
+                alert(
+                    result.message || "Terjadi kesalahan saat menghapus stok"
+                );
+            }
+        } catch (error) {
+            console.error("Error bulk deleting stocks:", error);
+            alert("Terjadi kesalahan saat menghapus stok");
         }
     };
 
@@ -250,9 +274,11 @@ function StockManagement() {
                         )}
 
                         {/* Loading State - Show skeleton if loading and no data */}
-                        {loading && (!stockData || stockData.length === 0) && !error && (
-                            <ManagementPageSkeleton title="Pengelolaan Stok" />
-                        )}
+                        {loading &&
+                            (!stockData || stockData.length === 0) &&
+                            !error && (
+                                <ManagementPageSkeleton title="Pengelolaan Stok" />
+                            )}
 
                         {/* Stock Table */}
                         {!loading && stockData && stockData.length > 0 && (
@@ -262,6 +288,7 @@ function StockManagement() {
                                     onEdit={handleEditStock}
                                     onDelete={handleDeleteStock}
                                     onViewHistory={handleViewHistory}
+                                    onBulkDelete={handleBulkDeleteStock}
                                 />
                             </div>
                         )}

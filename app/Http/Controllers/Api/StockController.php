@@ -490,6 +490,100 @@ class StockController extends Controller
     }
 
     /**
+     * Bulk delete stock items
+     */
+    public function bulkDelete(Request $request)
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'ids' => 'required|array|min:1',
+                'ids.*' => 'required|integer|exists:tbl_bahan,id_bahan'
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Data tidak valid',
+                    'errors' => $validator->errors()
+                ], 422);
+            }
+
+            $ids = $request->ids;
+            $deletedCount = 0;
+            $failedCount = 0;
+            $errors = [];
+
+            DB::beginTransaction();
+
+            try {
+                foreach ($ids as $id) {
+                    try {
+                        $stock = TblBahan::find($id);
+                        
+                        if (!$stock) {
+                            $failedCount++;
+                            $errors[] = "Stok dengan ID {$id} tidak ditemukan";
+                            continue;
+                        }
+
+                        // Simpan data untuk history sebelum delete
+                        $oldData = $stock->toArray();
+                        
+                        // Log history untuk delete
+                        try {
+                            $this->logStockHistory(
+                                $stock->id_bahan,
+                                'delete',
+                                $oldData,
+                                null,
+                                "Menghapus stok: {$stock->nama_bahan}",
+                                auth()->id()
+                            );
+                        } catch (\Exception $e) {
+                            Log::error('Failed to log stock history: ' . $e->getMessage());
+                        }
+                        
+                        $stock->delete();
+                        $deletedCount++;
+                    } catch (\Exception $e) {
+                        $failedCount++;
+                        $errors[] = "Gagal menghapus stok dengan ID {$id}: " . $e->getMessage();
+                        Log::error("Failed to delete stock {$id}: " . $e->getMessage());
+                    }
+                }
+
+                DB::commit();
+
+                $message = "Berhasil menghapus {$deletedCount} stok";
+                if ($failedCount > 0) {
+                    $message .= ", {$failedCount} gagal dihapus";
+                }
+
+                return response()->json([
+                    'success' => true,
+                    'message' => $message,
+                    'data' => [
+                        'deleted_count' => $deletedCount,
+                        'failed_count' => $failedCount,
+                        'errors' => $errors
+                    ]
+                ], 200);
+
+            } catch (\Exception $e) {
+                DB::rollback();
+                throw $e;
+            }
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Terjadi kesalahan saat menghapus stok',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
      * Get low stock alerts
      */
     public function lowStock(Request $request)

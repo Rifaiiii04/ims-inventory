@@ -31,9 +31,32 @@ function TransactionHistory() {
         setShowDetailModal(true);
     };
 
-    const handlePrintReceipt = (transaction) => {
-        // TODO: Implement print receipt
-        console.log("Print receipt for transaction:", transaction);
+    const handlePrintReceipt = async (transaction) => {
+        try {
+            // Fetch receipt HTML from API
+            const response = await axios.get(
+                `/api/transactions/${transaction.id_transaksi}/print`,
+                {
+                    responseType: "text",
+                }
+            );
+
+            // Open HTML in new window for printing
+            const printWindow = window.open("", "_blank");
+            if (printWindow) {
+                printWindow.document.write(response.data);
+                printWindow.document.close();
+                // Auto trigger print dialog
+                setTimeout(() => {
+                    printWindow.print();
+                }, 250);
+            } else {
+                alert("Popup diblokir. Silakan izinkan popup untuk situs ini.");
+            }
+        } catch (err) {
+            console.error("Error printing receipt:", err);
+            alert("Terjadi kesalahan saat mencetak struk. Silakan coba lagi.");
+        }
     };
 
     const handleExportPDF = async () => {

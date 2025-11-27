@@ -9,15 +9,31 @@ import stockImg from "../../assets/stok.png";
 function Login() {
     const navigate = useNavigate();
     const location = useLocation();
-    const { isAuthenticated, loading } = useAuth();
+    const { isAuthenticated, loading, user } = useAuth();
 
     // Redirect to dashboard if already authenticated
     useEffect(() => {
         if (isAuthenticated && !loading) {
-            const from = location.state?.from?.pathname || "/dashboard";
-            navigate(from, { replace: true });
+            // Determine redirect path based on user role
+            let redirectPath = "/dashboard";
+            
+            // Admin should always go to dashboard (ignore saved path from logout)
+            if (user?.level === "admin" || user?.level === "Admin") {
+                redirectPath = "/dashboard";
+            }
+            // Kasir should go to POS transaction page
+            else if (user?.level === "kasir" || user?.level === "Kasir") {
+                redirectPath = "/pos/transaction";
+            }
+            // For other roles, check saved path but prefer dashboard
+            else {
+                const savedPath = location.state?.from?.pathname;
+                redirectPath = savedPath && savedPath !== "/pos/transaction" ? savedPath : "/dashboard";
+            }
+            
+            navigate(redirectPath, { replace: true });
         }
-    }, [isAuthenticated, loading, navigate, location]);
+    }, [isAuthenticated, loading, navigate, location, user]);
 
     // Show loading while checking authentication
     if (loading) {

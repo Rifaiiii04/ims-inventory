@@ -79,7 +79,9 @@ function Sidebar() {
     // Handle logout
     const handleLogout = async () => {
         await logout();
-        navigate("/");
+        // Clear any saved navigation state and redirect to login
+        // Use replace to remove from history and clear state
+        navigate("/", { replace: true, state: {} });
     };
 
     // Icon mapping with memoization
