@@ -198,11 +198,11 @@ function ProductSelector({ products, onAddToCart }) {
                                             </p>
                                             <div className="flex items-center justify-between mt-1">
                                                 <div className="flex-1">
-                                                    <p className="text-xs text-gray-600">
+                                                <p className="text-xs text-gray-600">
                                                         {product.has_variants && product.variants && Array.isArray(product.variants)
-                                                            ? `${product.variants.length} varian tersedia`
-                                                            : "Produk langsung"}
-                                                    </p>
+                                                        ? `${product.variants.length} varian tersedia`
+                                                        : "Produk langsung"}
+                                                </p>
                                                     {isOutOfStock ? (
                                                         <p className="text-xs text-red-600 font-bold mt-0.5">
                                                             ⚠ STOK BAHAN HABIS
@@ -265,7 +265,7 @@ function ProductSelector({ products, onAddToCart }) {
                                         isOutOfStock
                                             ? "border-red-400 bg-red-50 opacity-75 cursor-not-allowed"
                                             : selectedVariant?.id_varian ===
-                                            variant.id_varian
+                                        variant.id_varian
                                                 ? "border-green-500 bg-green-50 cursor-pointer"
                                                 : "border-gray-200 hover:border-gray-300 cursor-pointer"
                                     }`}

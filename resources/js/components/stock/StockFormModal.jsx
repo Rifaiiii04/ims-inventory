@@ -114,7 +114,23 @@ function StockFormModal({ stock, onClose, onSubmit, categories = [] }) {
                 errorMessage = error.response.data?.message || 
                     "OCR service tidak tersedia. Pastikan Python OCR service berjalan di port 5000. Jalankan: cd python_ocr_service && python ocr_service_hybrid.py";
             } else if (error.response?.status === 500) {
-                errorMessage = "Photo processing service error. Check server logs.";
+                // Get detailed error message from response
+                const errorData = error.response?.data;
+                if (errorData?.message) {
+                    errorMessage = errorData.message;
+                } else if (errorData?.error) {
+                    errorMessage = errorData.error;
+                } else {
+                    errorMessage = "Photo processing service error. Check server logs.";
+                }
+                
+                // Add details if available
+                if (errorData?.details) {
+                    console.error("OCR Error Details:", JSON.stringify(errorData.details, null, 2));
+                }
+                
+                // Log full error response for debugging
+                console.error("Full OCR Error Response:", JSON.stringify(errorData, null, 2));
             } else if (error.response?.status === 400) {
                 errorMessage =
                     error.response.data?.message || "Invalid image format.";

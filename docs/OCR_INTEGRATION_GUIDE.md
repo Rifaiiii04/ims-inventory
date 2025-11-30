@@ -19,7 +19,7 @@ StockFormModal → OcrController → EasyOCR + Gemini
 -   **File**: `python_ocr_service/ocr_service_hybrid.py`
 -   **Port**: 5000
 -   **Features**: EasyOCR + Gemini AI
--   **API Key**: `AIzaSyBzb2hZXhceAjTlW1nfiXdlK710-t5TQ20`
+-   **API Key**: Set via `GEMINI_API_KEY` environment variable
 
 ### 2. Laravel API Controller
 
@@ -141,8 +141,8 @@ image: [file]
 ### Python OCR Service
 
 ```python
-# API Key sudah dikonfigurasi
-GEMINI_API_KEY = 'AIzaSyBzb2hZXhceAjTlW1nfiXdlK710-t5TQ20'
+# API Key dari environment variable
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 
 # EasyOCR languages
 reader = easyocr.Reader(['en', 'id'])

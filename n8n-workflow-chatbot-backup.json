@@ -1136,7 +1136,7 @@
         {
             "parameters": {
                 "method": "POST",
-                "url": "=https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=AIzaSyBcXp7KL2rzTiQgqHEkSw-slg27K03vj0s",
+                "url": "=https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={{ $env.GEMINI_API_KEY }}",
                 "authentication": "none",
                 "sendBody": true,
                 "contentType": "json",

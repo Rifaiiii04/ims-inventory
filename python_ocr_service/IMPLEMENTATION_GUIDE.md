@@ -121,10 +121,16 @@ GET http://localhost:5000/test-gemini
 
 ### API Key Gemini
 
-Sudah dikonfigurasi di `ocr_service_hybrid.py`:
+Set environment variable `GEMINI_API_KEY` di file `.env` di root project:
 
-```python
-GEMINI_API_KEY = 'AIzaSyBzb2hZXhceAjTlW1nfiXdlK710-t5TQ20'
+```bash
+GEMINI_API_KEY=your_gemini_api_key_here
+```
+
+Atau set via command line:
+
+```bash
+set GEMINI_API_KEY=your_gemini_api_key_here
 ```
 
 ### Bahasa OCR
