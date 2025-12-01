@@ -3,12 +3,13 @@ import json
 import traceback
 import os
 import re
+import time
 from flask import Flask, request, jsonify, send_file
 import numpy as np
 import cv2
 from datetime import datetime
 import uuid
-import google.generativeai as genai
+import requests
 from PIL import Image
 import io
 import base64
@@ -31,98 +32,73 @@ try:
 except (ImportError, AttributeError) as e:
     print(f"Warning: Could not patch PIL.Image.ANTIALIAS: {e}")
 
-print("Initializing Tesseract OCR (Lightweight & Fast)...")
-tesseract_available = False
+print("Initializing EasyOCR...")
+easyocr_available = False
+easyocr_reader = None
 
 try:
-    import pytesseract
-    from pytesseract import image_to_string, Output
+    import easyocr
     
     try:
-        pytesseract.get_tesseract_version()
-        tesseract_available = True
-        print("✓ Tesseract OCR initialized successfully!")
-        print("  Engine: Tesseract OCR (lightweight, fast)")
-        print("  Memory: Low (~50-100MB)")
+        print("Loading EasyOCR models (first time may take a while)...")
+        easyocr_reader = easyocr.Reader(['en', 'id'], gpu=False)  # English + Indonesian
+        easyocr_available = True
+        print("✓ EasyOCR initialized successfully!")
+        print("  Engine: EasyOCR (high accuracy)")
+        print("  Languages: English, Indonesian")
     except Exception as e:
-        print(f"⚠️  Tesseract not found in PATH: {e}")
-        print("\nPlease install Tesseract OCR:")
-        print("  Windows: Download from https://github.com/UB-Mannheim/tesseract/wiki")
-        print("  Or: choco install tesseract")
-        print("  Linux: sudo apt-get install tesseract-ocr")
-        print("  Mac: brew install tesseract")
-        tesseract_available = False
+        print(f"⚠️  EasyOCR initialization error: {e}")
+        print("\nPlease install EasyOCR:")
+        print("  pip install easyocr")
+        easyocr_available = False
 except ImportError as e:
-    print(f"⚠️  pytesseract not installed: {e}")
-    print("\nPlease install: pip install pytesseract")
-    tesseract_available = False
+    print(f"⚠️  easyocr not installed: {e}")
+    print("\nPlease install: pip install easyocr")
+    easyocr_available = False
 except Exception as e:
-    print(f"⚠️  Tesseract initialization error: {e}")
-    tesseract_available = False
+    print(f"⚠️  EasyOCR initialization error: {e}")
+    easyocr_available = False
 
-if not tesseract_available:
-    print("\n⚠️  Tesseract OCR not available - will use Gemini Vision API as fallback")
+if not easyocr_available:
+    print("\n⚠️  EasyOCR not available - service will not work properly")
 
+# Ollama configuration
+OLLAMA_URL = os.getenv('OLLAMA_URL', 'http://localhost:11434/api/generate')
+OLLAMA_MODEL = os.getenv('OLLAMA_MODEL', 'gemma3:1b')
 
-def mask_api_key(api_key):
-    """Mask API key for logging (show first 10 and last 4 characters)"""
-    if not api_key or len(api_key) <= 14:
-        return "***"
-    return f"{api_key[:10]}...{api_key[-4:]}"
+def get_ollama_config():
+    """Get Ollama configuration"""
+    return {
+        'url': OLLAMA_URL,
+        'model': OLLAMA_MODEL
+    }
 
-def get_gemini_api_key():
-    """
-    Get Gemini API key from environment variable.
-    Returns the API key string or None if not configured.
-    """
-    api_key = os.getenv('GEMINI_API_KEY')
-    if not api_key or api_key.strip() == '':
-        return None
-    api_key = api_key.strip()
-    if len(api_key) < 20:
-        print(f"⚠️  Warning: API key seems too short ({len(api_key)} chars)")
-        return None
-    return api_key
-
-def get_gemini_model():
-    """
-    Initialize and return Gemini GenerativeModel instance.
-    Returns the model instance or None if API key is not configured or initialization fails.
-    """
-    api_key = get_gemini_api_key()
-    if not api_key:
-        print("⚠️  get_gemini_model(): API key not found")
-        return None
-    
+def is_ollama_available():
+    """Check if Ollama is available by calling /api/tags (lebih ringan & cepat)"""
     try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-flash-latest')
-        return model
+        config = get_ollama_config()
+        # Pakai GET ke /api/tags, bukan POST /api/generate (lebih ringan)
+        # Dari http://localhost:11434/api/generate -> http://localhost:11434/api/tags
+        base_url = config['url'].rsplit('/', 1)[0]  # Remove '/generate'
+        tags_url = base_url + '/tags'
+        
+        resp = requests.get(tags_url, timeout=3)
+        return resp.status_code == 200
     except Exception as e:
-        print(f"✗ Error initializing Gemini model: {e}")
-        print(f"  API key length: {len(api_key) if api_key else 0}")
-        print(f"  API key masked: {mask_api_key(api_key) if api_key else 'None'}")
-        import traceback
-        traceback.print_exc()
-        return None
+        print(f"⚠️  Ollama check failed: {e}")
+        return False
 
-def is_gemini_configured():
-    """Check if Gemini is properly configured (API key exists and model can be initialized)"""
-    return get_gemini_model() is not None
-
-print("Initializing Gemini AI...")
-api_key = get_gemini_api_key()
-if api_key:
-    masked = mask_api_key(api_key)
-    print(f"✓ GEMINI_API_KEY loaded: {masked}")
-    test_model = get_gemini_model()
-    if test_model:
-        print("✓ Gemini AI initialized successfully!")
-    else:
-        print("⚠️  Gemini AI initialization failed - will use fallback parsing mode")
+print("Initializing Ollama AI...")
+if is_ollama_available():
+    config = get_ollama_config()
+    print(f"✓ Ollama initialized successfully!")
+    print(f"  URL: {config['url']}")
+    print(f"  Model: {config['model']}")
 else:
-    print("⚠️  GEMINI_API_KEY not found in environment variables")
-    print("⚠️  Gemini AI features will not be available")
+    print("⚠️  Ollama not available at configured URL")
+    print(f"  URL: {OLLAMA_URL}")
+    print(f"  Model: {OLLAMA_MODEL}")
+    print("  Please make sure Ollama is running and the model is installed")
 
 app = Flask(__name__)
 
@@ -267,252 +243,242 @@ def preprocess_method_5(image_file):
         print(f"Preprocess method 5 error: {e}")
         return None
 
-def extract_text_with_tesseract(image_file):
-    """Extract text using Tesseract OCR (lightweight & fast)"""
+def extract_text_with_easyocr(image_file):
+    """Extract text using EasyOCR with preprocessing"""
     try:
-        # Check if Tesseract is available
-        if not tesseract_available:
-            print("ERROR: Tesseract OCR not available!")
+        # Check if EasyOCR is available
+        if not easyocr_available or easyocr_reader is None:
+            print("ERROR: EasyOCR not available!")
             return []
             
         image_file.seek(0)
         
-        print("\n=== Step 1: Tesseract OCR Text Extraction ===")
+        print("\n=== Step 1: EasyOCR Text Extraction with Preprocessing ===")
         
-        # Load image once
+        # Load image
         image_file.seek(0)
         image_bytes = image_file.read()
         image_file.seek(0)
         
-        # Convert to PIL Image
-        try:
-            pil_image = Image.open(io.BytesIO(image_bytes))
-            # Convert to RGB if needed
-            if pil_image.mode != 'RGB':
-                pil_image = pil_image.convert('RGB')
-        except Exception as e:
-            print(f"Failed to load image: {e}")
+        nparr = np.frombuffer(image_bytes, np.uint8)
+        original_img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        
+        if original_img is None:
+            print("Failed to decode image")
             return []
         
         result = []
         best_text = ""
+        best_lines = []
         
-        # Strategy 1: Direct OCR (original image) - FASTEST
-        print("Trying Strategy 1: Direct Tesseract OCR (original image)...")
+        # Strategy 1: Original image (no preprocessing)
+        print("Trying Strategy 1: EasyOCR on original image...")
         try:
-            import pytesseract
-            # Use Tesseract with optimized config for receipts
-            # PSM 6: Assume a single uniform block of text
-            config = '--psm 6'
-            generated_text = pytesseract.image_to_string(pil_image, config=config, lang='eng+ind')
-            
-            if generated_text and generated_text.strip():
-                print(f"  ✓ Direct Tesseract: Text extracted ({len(generated_text)} chars)")
-                print(f"  Raw text preview: {repr(generated_text[:200])}")
-                best_text = generated_text
-                
-                # Try multiple splitting strategies
-                lines = []
-                
-                # Strategy 1: Split by newlines
-                lines_newline = [line.strip() for line in generated_text.split('\n') if line.strip()]
-                if lines_newline and len(lines_newline) > len(lines):
-                    lines = lines_newline
-                    print(f"  Split by newline: {len(lines)} lines")
-                
-                # Strategy 2: If no newlines, try split by common delimiters
-                if len(lines) <= 1:
-                    for delimiter in ['|', ';', '\t', '  ']:  # Try pipe, semicolon, tab, double space
-                        lines_delim = [line.strip() for line in generated_text.split(delimiter) if line.strip() and len(line.strip()) > 2]
-                        if lines_delim and len(lines_delim) > len(lines):
-                            lines = lines_delim
-                            print(f"  Split by '{delimiter}': {len(lines)} lines")
-                            break
-                
-                # Strategy 3: If still single line, try split by spaces (for long text)
-                if len(lines) == 1 and len(generated_text) > 20:
-                    # Split by spaces and group into potential items
-                    words = generated_text.split()
-                    # Group words that might be items (look for patterns like "item price" or numbers)
-                    potential_items = []
-                    current_item = []
-                    for word in words:
-                        if word and len(word) > 1:
-                            current_item.append(word)
-                            # If we hit a number or price-like pattern, might be new item
-                            if re.search(r'\d+', word) and len(current_item) > 2:
-                                potential_items.append(' '.join(current_item[:-1]))
-                                current_item = [current_item[-1]]
-                    if current_item:
-                        potential_items.append(' '.join(current_item))
-                    if potential_items and len(potential_items) > len(lines):
-                        lines = potential_items
-                        print(f"  Split by words: {len(lines)} potential items")
-                
-                if lines and len(lines) >= 1:  # Accept even 1 line if it has content
-                    result = lines
-                    print(f"  ✓ Parsed {len(result)} text segments")
-                    # Early exit if we have good results
-                    if len(result) >= 3:
-                        print("  ✓ Got enough results, skipping other strategies")
-                        print(f"\n=== Hasil OCR (Final) ===")
-                        print(f"Total baris ditemukan: {len(result)}")
-                        for i, text in enumerate(result, 1):
-                            print(f"{i}. {text}")
-                        return result
-            else:
-                print("  ✗ Direct Tesseract: No text found")
+            text_results = easyocr_reader.readtext(original_img)
+            if text_results:
+                lines = [item[1] for item in text_results if item[2] > 0.3]  # Confidence > 0.3
+                if lines:
+                    print(f"  ✓ Original image: {len(lines)} text segments found")
+                    best_lines = lines
+                    best_text = "\n".join(lines)
         except Exception as e:
-            print(f"  ✗ Direct Tesseract error: {e}")
+            print(f"  ✗ Original image error: {e}")
         
-        # Strategy 2: OTSU Thresholding (if Strategy 1 didn't work well)
-        if not result or len(result) < 2:
-            print("Trying Strategy 2: OTSU Thresholding + Tesseract...")
+        # Strategy 2: OTSU Thresholding
+        if not best_lines or len(best_lines) < 2:
+            print("Trying Strategy 2: OTSU Thresholding + EasyOCR...")
             try:
-                image_file.seek(0)
-                image_bytes = image_file.read()
-                image_file.seek(0)
-                nparr = np.frombuffer(image_bytes, np.uint8)
-                img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-                
-                if img is not None:
-                    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-                    _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-                    pil_thresh = Image.fromarray(thresh)
-                    
-                    import pytesseract
-                    config = '--psm 6'
-                    generated_text = pytesseract.image_to_string(pil_thresh, config=config, lang='eng+ind')
-                    
-                    if generated_text and generated_text.strip() and len(generated_text) > len(best_text):
-                        print(f"  ✓ OTSU + Tesseract: Text extracted ({len(generated_text)} chars)")
-                        best_text = generated_text
-                        lines = [line.strip() for line in generated_text.split('\n') if line.strip()]
-                        if lines and len(lines) > len(result):
-                            result = lines
+                gray = cv2.cvtColor(original_img, cv2.COLOR_BGR2GRAY)
+                blur = cv2.GaussianBlur(gray, (5, 5), 0)
+                _, thresh = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+                text_results = easyocr_reader.readtext(thresh)
+                if text_results:
+                    lines = [item[1] for item in text_results if item[2] > 0.3]
+                    if lines and len(lines) > len(best_lines):
+                        print(f"  ✓ OTSU: {len(lines)} text segments found")
+                        best_lines = lines
+                        best_text = "\n".join(lines)
             except Exception as e:
-                print(f"  ✗ OTSU + Tesseract error: {e}")
+                print(f"  ✗ OTSU error: {e}")
         
-        # Strategy 3: Contrast Enhancement if still not good
-        if not result or len(result) < 2:
-            print("Trying Strategy 3: Contrast Enhancement + Tesseract...")
+        # Strategy 3: Adaptive Thresholding
+        if not best_lines or len(best_lines) < 2:
+            print("Trying Strategy 3: Adaptive Thresholding + EasyOCR...")
             try:
-                image_file.seek(0)
-                image_bytes = image_file.read()
-                image_file.seek(0)
-                nparr = np.frombuffer(image_bytes, np.uint8)
-                img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-                
-                if img is not None:
-                    lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
-                    l, a, b = cv2.split(lab)
-                    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
-                    l = clahe.apply(l)
-                    enhanced = cv2.merge([l, a, b])
-                    enhanced = cv2.cvtColor(enhanced, cv2.COLOR_LAB2BGR)
-                    pil_enhanced = Image.fromarray(cv2.cvtColor(enhanced, cv2.COLOR_BGR2RGB))
-                    
-                    import pytesseract
-                    config = '--psm 6'
-                    generated_text = pytesseract.image_to_string(pil_enhanced, config=config, lang='eng+ind')
-                    
-                    if generated_text and generated_text.strip() and len(generated_text) > len(best_text):
-                        print(f"  ✓ Contrast + Tesseract: Text extracted ({len(generated_text)} chars)")
-                        best_text = generated_text
-                        lines = [line.strip() for line in generated_text.split('\n') if line.strip()]
-                        if lines and len(lines) > len(result):
-                            result = lines
+                gray = cv2.cvtColor(original_img, cv2.COLOR_BGR2GRAY)
+                denoised = cv2.fastNlMeansDenoising(gray, None, 10, 7, 21)
+                adaptive = cv2.adaptiveThreshold(denoised, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+                                                  cv2.THRESH_BINARY, 11, 2)
+                text_results = easyocr_reader.readtext(adaptive)
+                if text_results:
+                    lines = [item[1] for item in text_results if item[2] > 0.3]
+                    if lines and len(lines) > len(best_lines):
+                        print(f"  ✓ Adaptive: {len(lines)} text segments found")
+                        best_lines = lines
+                        best_text = "\n".join(lines)
             except Exception as e:
-                print(f"  ✗ Contrast + Tesseract error: {e}")
+                print(f"  ✗ Adaptive error: {e}")
         
-        # If we got text but no lines, split by common delimiters
-        if best_text and not result:
-            # Try splitting by various delimiters
-            for delimiter in ['\n', '|', ';', ',']:
-                lines = [line.strip() for line in best_text.split(delimiter) if line.strip()]
-                if len(lines) > 1:
-                    result = lines
-                    break
-            
-            # If still no lines, treat as single item
-            if not result and best_text.strip():
-                result = [best_text.strip()]
+        # Strategy 4: Contrast Enhancement
+        if not best_lines or len(best_lines) < 2:
+            print("Trying Strategy 4: Contrast Enhancement + EasyOCR...")
+            try:
+                gray = cv2.cvtColor(original_img, cv2.COLOR_BGR2GRAY)
+                clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+                enhanced = clahe.apply(gray)
+                _, thresh = cv2.threshold(enhanced, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+                text_results = easyocr_reader.readtext(thresh)
+                if text_results:
+                    lines = [item[1] for item in text_results if item[2] > 0.3]
+                    if lines and len(lines) > len(best_lines):
+                        print(f"  ✓ Contrast: {len(lines)} text segments found")
+                        best_lines = lines
+                        best_text = "\n".join(lines)
+            except Exception as e:
+                print(f"  ✗ Contrast error: {e}")
         
-        # Remove duplicates while preserving order
-        seen = set()
-        unique_result = []
-        for item in result:
-            item_lower = item.lower().strip()
-            # More lenient filter - accept items with at least 1 character (numbers/short codes are valid)
-            if item_lower and item_lower not in seen:
-                seen.add(item_lower)
-                unique_result.append(item)
+        # Strategy 5: Morphological operations
+        if not best_lines or len(best_lines) < 2:
+            print("Trying Strategy 5: Morphological + EasyOCR...")
+            try:
+                gray = cv2.cvtColor(original_img, cv2.COLOR_BGR2GRAY)
+                denoised = cv2.fastNlMeansDenoising(gray, None, 10, 7, 21)
+                kernel = np.ones((2,2), np.uint8)
+                morph = cv2.morphologyEx(denoised, cv2.MORPH_CLOSE, kernel)
+                _, thresh = cv2.threshold(morph, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+                text_results = easyocr_reader.readtext(thresh)
+                if text_results:
+                    lines = [item[1] for item in text_results if item[2] > 0.3]
+                    if lines and len(lines) > len(best_lines):
+                        print(f"  ✓ Morphological: {len(lines)} text segments found")
+                        best_lines = lines
+                        best_text = "\n".join(lines)
+            except Exception as e:
+                print(f"  ✗ Morphological error: {e}")
         
-        result = unique_result
-        
-        print(f"\n=== Hasil OCR (Final) ===")
-        if result:
+        # Use best result
+        if best_lines:
+            result = best_lines
+            print(f"\n=== Hasil OCR (Final) ===")
             print(f"Total baris ditemukan: {len(result)}")
             for i, text in enumerate(result, 1):
                 print(f"{i}. {text}")
-            print(f"\nBest text extracted: {repr(best_text[:500])}")  # Debug: show what was actually extracted
         else:
             print("Tidak ada text yang ditemukan setelah mencoba semua strategi")
-            if best_text:
-                print(f"\nDebug: Tesseract extracted text but couldn't parse it:")
-                print(f"Raw text: {repr(best_text)}")
-                print(f"Text length: {len(best_text)} chars")
             print("\nSaran:")
             print("- Pastikan foto jelas dan tidak blur")
             print("- Pastikan teks dalam foto cukup besar")
             print("- Pastikan pencahayaan cukup")
-            print("- Coba foto ulang dengan sudut yang lebih baik")
         
         return result if result else []
 
     except Exception as e:
-        print(f"Tesseract OCR error: {e}")
+        print(f"EasyOCR error: {e}")
         import traceback
         traceback.print_exc()
-        print("TrOCR error occurred, will try Gemini Vision API...")
         return []
 
-def classify_with_gemini_vision(image_file):
-    """Use Gemini Vision API directly to extract receipt data from image"""
+def call_ollama_api(prompt, timeout=45):
+    """Call Ollama API with given prompt - optimized for speed"""
     try:
-        api_key = get_gemini_api_key()
-        if not api_key:
+        config = get_ollama_config()
+        print(f"⏱️  Calling Ollama with {timeout}s timeout...")
+        start_time = time.time()
+        
+        response = requests.post(
+            config['url'],
+            json={
+                'model': config['model'],
+                'prompt': prompt,
+                'stream': False,
+                'options': {
+                    'num_predict': 300,  # Reduced for faster response
+                    'temperature': 0.2,  # Lower temperature for faster, more consistent output
+                    'top_p': 0.8,  # Nucleus sampling for faster generation
+                    'top_k': 20,  # Limit vocabulary for faster processing
+                }
+            },
+            timeout=timeout  # Reduced timeout - if too slow, use fallback
+        )
+        
+        elapsed = time.time() - start_time
+        print(f"⏱️  Ollama response received in {elapsed:.2f} seconds")
+        
+        if response.status_code == 200:
+            result = response.json()
+            return result.get('response', '').strip()
+        else:
+            print(f"Ollama API error: {response.status_code} - {response.text}")
+            return None
+    except requests.exceptions.Timeout:
+        try:
+            elapsed = time.time() - start_time
+        except:
+            elapsed = timeout
+        print(f"⚠️  Ollama API timeout after {elapsed:.2f} seconds - using fallback")
+        return None
+    except requests.exceptions.ConnectionError:
+        print(f"⚠️  Ollama connection error - service mungkin tidak berjalan")
+        return None
+    except Exception as e:
+        print(f"Ollama API call error: {e}")
+        traceback.print_exc()
+        return None
+
+def classify_with_ollama(text_list, image_file=None):
+    """Classify and structure text using Ollama AI - SIMPLE seperti contoh user"""
+    try:
+        if not text_list:
             return []
+
+        # Skip health check di sini - langsung coba call API
+        # Jika gagal, akan di-handle di call_ollama_api() dan fallback ke regex parsing
+        # Ini menghindari delay 3-5 detik setiap request
+
+        # Limit text length to prevent very long prompts - lebih agresif
+        max_lines = 30  # Reduced from 50
+        combined_text = "\n".join(text_list[:max_lines])  # Max 30 lines
+        if len(text_list) > max_lines:
+            print(f"⚠️  Text too long ({len(text_list)} lines), using first {max_lines} lines only")
         
-        print("Trying Gemini Vision API directly...")
-        image_file.seek(0)
-        image_bytes = image_file.read()
-        image_file.seek(0)
+        # Improved prompt untuk hasil yang lebih baik
+        prompt = f"""Analisis teks struk belanja berikut dan ekstrak semua item yang ada menjadi format JSON.
+
+Teks struk:
+{combined_text}
+
+Instruksi:
+1. Ekstrak setiap item yang ada dalam struk
+2. Untuk setiap item, identifikasi:
+   - nama_barang: nama produk/item (koreksi typo jika perlu)
+   - jumlah: kuantitas item (jika tidak ada, gunakan "1")
+   - harga: harga item dalam angka saja tanpa simbol (contoh: 5000, bukan Rp 5.000)
+
+3. Format output harus JSON array:
+[
+  {{"nama_barang": "nama item 1", "jumlah": "1", "harga": "5000"}},
+  {{"nama_barang": "nama item 2", "jumlah": "2", "harga": "10000"}}
+]
+
+4. Abaikan baris yang bukan item (seperti header, footer, total, tanggal, dll)
+5. Jika ada data yang tidak jelas, gunakan null untuk field yang tidak diketahui
+6. Hanya kembalikan JSON array, tanpa penjelasan tambahan"""
+
+        config = get_ollama_config()
+        print(f"🔧 Using Ollama: {config['url']}")
+        print(f"📦 Model: {config['model']}")
+        print(f"📝 Text lines: {len(text_list[:max_lines])}")
+        print(f"✓ Calling Ollama API (timeout: 45s)...")
         
-        # Convert to PIL Image
-        img = Image.open(io.BytesIO(image_bytes))
+        ollama_start = time.time()
+        result_text = call_ollama_api(prompt, timeout=45)  # Reduced timeout
+        ollama_elapsed = time.time() - ollama_start
         
-        prompt = """
-        Analisis gambar struk belanja ini dan ekstrak semua item yang ada.
-        Kembalikan dalam format JSON:
-        [
-        {
-            "nama_barang": "...", "jumlah": "...", "harga": "..."
-        }]
+        if not result_text:
+            print(f"⚠️  Ollama API failed after {ollama_elapsed:.2f}s, using fallback parsing...")
+            return parse_receipt_text_fallback(text_list)
         
-        Jika ada data yang tidak jelas, isi null. Hanya ekstrak nama barang, jumlah, dan harga.
-        Kembalikan hanya JSON tanpa penjelasan apapun.
-        Untuk harga, hanya angka saja tanpa simbol (contoh: 5000 bukan Rp 5.000).
-        """
-        
-        print(f"🔑 Using API key: {mask_api_key(api_key)}")
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-flash-latest')
-        print(f"✓ Model created, calling generate_content...")
-        response = model.generate_content([prompt, img])
-        result_text = response.text.strip()
-        
-        print(f"\n=== Output dari Gemini Vision ===")
+        print(f"\n=== Output dari Ollama ===")
         print(result_text)
         
         try:
@@ -547,13 +513,13 @@ def classify_with_gemini_vision(image_file):
                     'category_id': 1,
                     'minStock': 10
                 })
-            
-            print(f"\n=== Parsed {len(items)} items from Gemini Vision ===")
+            print(f"\n=== Parsed {len(items)} items ===")
             for item in items:
                 print(f"- {item['nama_barang']}: {item['harga']}")
             return items
         except json.JSONDecodeError as e:
-            print(f"JSON parse error from Gemini Vision: {e}")
+            print(f"JSON parse error: {e}")
+            print(f"Raw response: {result_text}")
             try:
                 start_idx = result_text.find('[')
                 end_idx = result_text.rfind(']')
@@ -579,187 +545,122 @@ def classify_with_gemini_vision(image_file):
                             'category_id': 1,
                             'minStock': 10
                         })
+                    print(f"\n=== Parsed {len(items)} items (after manual extraction) ===")
+                    for item in items:
+                        print(f"- {item['nama_barang']}: {item['harga']}")
                     return items
             except:
                 pass
-            return []
-    except Exception as e:
-        print(f"Gemini Vision error: {e}")
-        traceback.print_exc()
-        return []
-
-def classify_with_gemini(text_list, image_file=None):
-    """Classify and structure text using Gemini AI - SIMPLE seperti contoh user"""
-    try:
-        if not text_list:
-            return []
-
-        combined_text = "\n".join(text_list)
-        prompt = f"""
-        berikut teks hasil OCR dari struk belanja:
-        {combined_text}
-        tolong ektrak jadi JSON dengan format:
-        [
-        {{
-            "nama_barang": "...", "jumlah": "...", "harga": "..."
-        }}]
-
-        jika ada data yang tidak jelas, isi null. dan jika ada kata yang bukan nama barang, jumlah, atau harga, abaikan saja.
-        cukup kembalikan JSON tanpa penjelasan apapun. dan juga untuk nama barang nya di koreksi lagi penulisannya jika ada yang salah. koreksi penulisan nama barang berdasarkan 
-        nama barang yang relevan dengan text yang berantakan tersebut. untuk harga itu formatnya Rp / Rupiah dan hanya angka saja tanpa simbol apapun.
-        """
-
-        api_key = get_gemini_api_key()
-        if not api_key:
-            print("⚠️  Gemini API key not configured, using fallback parsing...")
-            return parse_receipt_text_fallback(text_list)
-        
-        try:
-            print(f"🔑 Using API key: {mask_api_key(api_key)} (length: {len(api_key)})")
-            genai.configure(api_key=api_key)
-            model = genai.GenerativeModel('gemini-flash-latest')
-            print(f"✓ Model created, calling generate_content...")
-            response = model.generate_content(prompt)
-            result_text = response.text.strip()
-            
-            print(f"\n=== Output dari Gemini ===")
-            print(result_text)
-            
-            try:
-                cleaned_text = result_text.strip()
-                if cleaned_text.startswith('```json'):
-                    cleaned_text = cleaned_text[7:]
-                elif cleaned_text.startswith('```'):
-                    cleaned_text = cleaned_text[3:]
-                
-                if cleaned_text.endswith('```'):
-                    cleaned_text = cleaned_text[:-3]
-                
-                cleaned_text = cleaned_text.strip()
-                
-                result_json = json.loads(cleaned_text)
-                items = []
-                for item in result_json:
-                    harga_value = item.get('harga', None)
-                    if harga_value is None or harga_value == 'null' or harga_value == '':
-                        harga_value = 0
-                    elif isinstance(harga_value, str):
-                        harga_clean = re.sub(r'[^0-9]', '', str(harga_value))
-                        harga_value = int(harga_clean) if harga_clean else 0
-                    else:
-                        harga_value = int(harga_value) if harga_value else 0
-                    
-                    items.append({
-                        'nama_barang': item.get('nama_barang', ''),
-                        'jumlah': item.get('jumlah', '1'),
-                        'harga': harga_value,
-                        'unit': 'pcs',
-                        'category_id': 1,
-                        'minStock': 10
-                    })
-                print(f"\n=== Parsed {len(items)} items ===")
-                for item in items:
-                    print(f"- {item['nama_barang']}: {item['harga']}")
-                return items
-            except json.JSONDecodeError as e:
-                print(f"JSON parse error: {e}")
-                print(f"Raw response: {result_text}")
-                try:
-                    start_idx = result_text.find('[')
-                    end_idx = result_text.rfind(']')
-                    if start_idx != -1 and end_idx != -1:
-                        json_str = result_text[start_idx:end_idx+1]
-                        result_json = json.loads(json_str)
-                        items = []
-                        for item in result_json:
-                            harga_value = item.get('harga', None)
-                            if harga_value is None or harga_value == 'null' or harga_value == '':
-                                harga_value = 0
-                            elif isinstance(harga_value, str):
-                                harga_clean = re.sub(r'[^0-9]', '', str(harga_value))
-                                harga_value = int(harga_clean) if harga_clean else 0
-                            else:
-                                harga_value = int(harga_value) if harga_value else 0
-                            
-                            items.append({
-                                'nama_barang': item.get('nama_barang', ''),
-                                'jumlah': item.get('jumlah', '1'),
-                                'harga': harga_value,
-                                'unit': 'pcs',
-                                'category_id': 1,
-                                'minStock': 10
-                            })
-                        print(f"\n=== Parsed {len(items)} items (after manual extraction) ===")
-                        for item in items:
-                            print(f"- {item['nama_barang']}: {item['harga']}")
-                        return items
-                except:
-                    pass
-                return []
-        except Exception as e:
-            print(f"Error calling Gemini API: {e}")
-            traceback.print_exc()
             return parse_receipt_text_fallback(text_list)
 
     except Exception as e:
-        print(f"Gemini error: {e}")
+        print(f"Ollama error: {e}")
         traceback.print_exc()
         return parse_receipt_text_fallback(text_list)
 
 def parse_receipt_text_fallback(text_list):
-    """Fallback parsing if Gemini fails - SIMPLE"""
+    """Fallback parsing if Ollama fails - Simple regex-based parsing"""
     try:
         if not text_list:
             return []
 
-        print("=== Fallback Parsing (Simple) ===")
+        print("=== Fallback Parsing (Simple Regex) ===")
         items = []
         
-        print("Gemini failed, returning empty array")
+        # Simple pattern matching untuk ekstrak item
+        # Pattern: nama_barang (jumlah) harga atau nama_barang harga
+        price_pattern = r'(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})?|\d+)'
+        
+        for line in text_list[:20]:  # Process max 20 lines
+            line = line.strip()
+            if not line or len(line) < 3:
+                continue
+            
+            # Skip lines that are clearly not items (headers, totals, etc)
+            skip_patterns = [
+                r'^(total|subtotal|jumlah|bayar|kembali|diskon|pajak)',
+                r'^\d{1,2}[/-]\d{1,2}[/-]\d{2,4}',  # Dates
+                r'^[A-Z\s]{2,}$',  # All caps (likely header)
+            ]
+            
+            should_skip = False
+            for pattern in skip_patterns:
+                if re.match(pattern, line, re.IGNORECASE):
+                    should_skip = True
+                    break
+            
+            if should_skip:
+                continue
+            
+            # Try to extract price from line
+            prices = re.findall(price_pattern, line)
+            if prices:
+                # Get last price as item price
+                price_str = prices[-1].replace('.', '').replace(',', '')
+                try:
+                    harga = int(price_str)
+                    # Remove price from line to get item name
+                    item_name = re.sub(price_pattern, '', line).strip()
+                    # Remove common words
+                    item_name = re.sub(r'\b(?:x|pcs|kg|gram|liter|ml|rp|rupiah)\b', '', item_name, flags=re.IGNORECASE).strip()
+                    
+                    if item_name and len(item_name) > 2:
+                        items.append({
+                            'nama_barang': item_name,
+                            'jumlah': '1',
+                            'harga': harga,
+                            'unit': 'pcs',
+                            'category_id': 1,
+                            'minStock': 10
+                        })
+                except ValueError:
+                    continue
+        
+        print(f"✓ Fallback parsing found {len(items)} items")
         return items
 
     except Exception as e:
         print(f"Fallback parse error: {e}")
+        traceback.print_exc()
         return []
 
 def process_image_hybrid(image_file):
-    """Process image with Tesseract OCR + Gemini AI, with Gemini Vision fallback"""
+    """Process image with Tesseract OCR + Ollama AI"""
     try:
+        import time
+        start_time = time.time()
+        
         image_path, saved_filename = save_image(image_file)
         if not image_path:
             return []
 
-        # Use Tesseract OCR (lightweight & fast)
-        if tesseract_available:
-            print("\n=== Step 1: Tesseract OCR Text Extraction ===")
-            text_list = extract_text_with_tesseract(image_file)
+        # Use EasyOCR with preprocessing
+        if easyocr_available:
+            print("\n=== Step 1: EasyOCR Text Extraction with Preprocessing ===")
+            text_list = extract_text_with_easyocr(image_file)
+            ocr_time = time.time() - start_time
+            print(f"⏱️  OCR extraction took {ocr_time:.2f} seconds")
         else:
-            print("\n⚠️  Tesseract OCR not available!")
-            print("=== Trying Fallback: Gemini Vision API ===")
-            result_json = classify_with_gemini_vision(image_file)
-            return result_json if result_json else []
+            print("\n⚠️  EasyOCR not available!")
+            print("⚠️  Cannot process without EasyOCR (Ollama requires text input)")
+            return []
         
         if not text_list:
-            print("\n⚠️  No text found by Tesseract OCR")
-            print("=== Trying Fallback: Gemini Vision API ===")
-            # Fallback to Gemini Vision API
-            result_json = classify_with_gemini_vision(image_file)
-            if result_json:
-                print("✓ Successfully extracted using Gemini Vision API")
-                return result_json
-            else:
-                print("✗ Gemini Vision API also failed")
-                return []
+            print("\n⚠️  No text found by EasyOCR")
+            print("⚠️  Cannot use Ollama without text input")
+            return []
         else:
-            print("\n=== Step 2: Gemini AI Classification ===")
-            result_json = classify_with_gemini(text_list, image_file)
+            print(f"\n=== Step 2: Ollama AI Classification ===")
+            print(f"📝 Processing {len(text_list)} text lines...")
+            ollama_start = time.time()
+            result_json = classify_with_ollama(text_list, image_file)
+            ollama_time = time.time() - ollama_start
+            total_time = time.time() - start_time
             
-            # If Gemini text classification fails but we have text, try Gemini Vision
-            if not result_json and text_list:
-                print("\n⚠️  Gemini text classification failed, trying Gemini Vision API...")
-                result_json = classify_with_gemini_vision(image_file)
+            print(f"⏱️  Ollama processing took {ollama_time:.2f} seconds")
+            print(f"⏱️  Total processing time: {total_time:.2f} seconds")
             
-            return result_json
+            return result_json if result_json else []
 
     except Exception as e:
         print(f"OCR processing error: {e}")
@@ -776,9 +677,9 @@ def process_photo():
         if image_file.filename == '':
             return jsonify({"success": False, "error": "No image file selected"}), 400
         
-        # Check if Tesseract is available
-        if not tesseract_available:
-            print("⚠️  Warning: Tesseract OCR not available, will use Gemini Vision API only")
+        # Check if EasyOCR is available
+        if not easyocr_available:
+            print("⚠️  Warning: EasyOCR not available, cannot process images")
         
         print(f"Processing image: {image_file.filename}")
         
@@ -816,37 +717,44 @@ def process_receipt():
 
 @app.route('/health', methods=['GET'])
 def health():
-    """Health check endpoint - checks Tesseract and Gemini status"""
-    tesseract_status = "ready" if tesseract_available else "not_available"
-    gemini_status = "configured" if is_gemini_configured() else "not_configured"
-    api_key = get_gemini_api_key()
+    """Health check endpoint - checks EasyOCR and Ollama status"""
+    easyocr_status = "ready" if easyocr_available else "not_available"
+    ollama_status = "ready" if is_ollama_available() else "not_available"
+    config = get_ollama_config()
     
     return jsonify({
         "status": "healthy", 
-        "message": "OCR service is running (Tesseract OCR + Gemini AI)",
-        "tesseract": tesseract_status,
-        "tesseract_engine": "Tesseract OCR (lightweight, fast)" if tesseract_status == "ready" else None,
-        "gemini": gemini_status,
-        "gemini_api_key_set": api_key is not None
+        "message": "OCR service is running (EasyOCR + Ollama AI)",
+        "easyocr": easyocr_status,
+        "easyocr_engine": "EasyOCR (high accuracy)" if easyocr_status == "ready" else None,
+        "ollama": ollama_status,
+        "ollama_url": config['url'],
+        "ollama_model": config['model']
     })
 
-@app.route('/test-gemini', methods=['GET'])
-def test_gemini():
-    """Test Gemini AI connection"""
+@app.route('/test-ollama', methods=['GET'])
+def test_ollama():
+    """Test Ollama AI connection"""
     try:
-        model = get_gemini_model()
-        if not model:
+        if not is_ollama_available():
+            config = get_ollama_config()
             return jsonify({
                 "success": False,
-                "error": "Gemini API key not configured. Please set GEMINI_API_KEY environment variable."
+                "error": f"Ollama not available at {config['url']}. Please make sure Ollama is running and model {config['model']} is installed."
             }), 400
         
-        response = model.generate_content("Hello, are you working?")
-        return jsonify({
-            "success": True,
-            "message": "Gemini AI is working",
-            "response": response.text
-        })
+        result_text = call_ollama_api("Hello, are you working? Please respond with 'Yes, I am working!'")
+        if result_text:
+            return jsonify({
+                "success": True,
+                "message": "Ollama AI is working",
+                "response": result_text
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "error": "Ollama API returned no response"
+            }), 500
     except Exception as e:
         return jsonify({
             "success": False,
@@ -854,28 +762,32 @@ def test_gemini():
         }), 500
 
 if __name__ == '__main__':
-    print("Starting OCR Service (Tesseract OCR + Gemini AI)...")
-    print("Using Tesseract OCR (lightweight & fast) - optimized for 8GB RAM systems")
+    print("Starting OCR Service (EasyOCR + Ollama AI)...")
+    print("Using EasyOCR with preprocessing - high accuracy OCR")
     print("Service: http://localhost:5000")
     print("Health: http://localhost:5000/health")
     print("Process: http://localhost:5000/process-photo")
-    print("Test Gemini: http://localhost:5000/test-gemini")
+    print("Test Ollama: http://localhost:5000/test-ollama")
     
-    if not tesseract_available:
-        print("\n⚠️  WARNING: Tesseract OCR not available!")
-        print("Please install Tesseract OCR:")
-        print("  Windows: Download from https://github.com/UB-Mannheim/tesseract/wiki")
-        print("  Or: choco install tesseract")
-        print("  Then: pip install pytesseract")
-        print("The service will use Gemini Vision API as fallback")
+    if not easyocr_available:
+        print("\n⚠️  WARNING: EasyOCR not available!")
+        print("Please install EasyOCR:")
+        print("  pip install easyocr")
+        print("The service requires EasyOCR to extract text from images")
     else:
-        print(f"\n✓ Tesseract OCR initialized successfully")
-        print("Engine: Tesseract OCR (lightweight, fast, optimized for 8GB RAM)")
+        print(f"\n✓ EasyOCR initialized successfully")
+        print("Engine: EasyOCR (high accuracy, supports English + Indonesian)")
     
-    if not is_gemini_configured():
-        print("\n⚠️  WARNING: GEMINI_API_KEY not configured - Gemini AI features will not be available")
-        print("Please set GEMINI_API_KEY environment variable in .env file")
-        print("Example: GEMINI_API_KEY=your_api_key_here")
+    config = get_ollama_config()
+    if not is_ollama_available():
+        print(f"\n⚠️  WARNING: Ollama not available at {config['url']}")
+        print(f"Please make sure Ollama is running and model '{config['model']}' is installed")
+        print("  Install Ollama: https://ollama.ai")
+        print(f"  Install model: ollama pull {config['model']}")
+    else:
+        print(f"\n✓ Ollama initialized successfully")
+        print(f"  URL: {config['url']}")
+        print(f"  Model: {config['model']}")
     
     app.run(host='0.0.0.0', port=5000, debug=False)
 

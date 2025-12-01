@@ -27,8 +27,8 @@ class OcrController extends Controller
     public function processPhoto(Request $request): JsonResponse
     {
         try {
-            // Set maximum execution time to 90 seconds for OCR processing (reduced for faster response)
-            set_time_limit(90);
+            // Set maximum execution time to 120 seconds for OCR processing (increased for Ollama)
+            set_time_limit(120);
             
             // Validate request
             $validator = Validator::make($request->all(), [
@@ -66,9 +66,9 @@ class OcrController extends Controller
                 ], 400);
             }
             
-            // Send request to OCR service with timeout (90 seconds maximum - optimized)
+            // Send request to OCR service with timeout (120 seconds maximum for Ollama processing)
             try {
-                $response = Http::timeout(90)->attach(
+                $response = Http::timeout(120)->attach(
                 'image', 
                 file_get_contents($imageFile->getPathname()),
                 $imageFile->getClientOriginalName()
@@ -90,7 +90,7 @@ class OcrController extends Controller
                     return response()->json([
                         'success' => false,
                         'error' => 'OCR processing timeout',
-                        'message' => 'Proses OCR memakan waktu terlalu lama (lebih dari 90 detik). Pastikan Python OCR service berjalan di port 5000. Silakan coba lagi dengan foto yang lebih kecil atau jelas.'
+                        'message' => 'Proses OCR memakan waktu terlalu lama (lebih dari 120 detik). Pastikan Python OCR service dan Ollama berjalan dengan baik. Silakan coba lagi dengan foto yang lebih kecil atau jelas.'
                     ], 504);
                 }
                 
@@ -173,7 +173,7 @@ class OcrController extends Controller
                 return response()->json([
                     'success' => false,
                     'error' => 'OCR processing timeout',
-                    'message' => 'Proses OCR memakan waktu terlalu lama (lebih dari 90 detik). Silakan coba lagi dengan foto yang lebih kecil atau jelas.'
+                    'message' => 'Proses OCR memakan waktu terlalu lama (lebih dari 120 detik). Pastikan Python OCR service dan Ollama berjalan dengan baik. Silakan coba lagi dengan foto yang lebih kecil atau jelas.'
                 ], 504);
             }
             

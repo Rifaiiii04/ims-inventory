@@ -2,14 +2,14 @@
 
 ## 📋 Overview
 
-Sistem OCR terintegrasi menggunakan kombinasi **EasyOCR + Gemini AI** untuk memproses foto struk belanja dan mengekstrak informasi barang yang dibeli.
+Sistem OCR terintegrasi menggunakan kombinasi **Tesseract OCR + Ollama AI** untuk memproses foto struk belanja dan mengekstrak informasi barang yang dibeli.
 
 ## 🏗️ Architecture
 
 ```
 Frontend (React) → Laravel API → Python OCR Service
      ↓                ↓              ↓
-StockFormModal → OcrController → EasyOCR + Gemini
+StockFormModal → OcrController → Tesseract OCR + Ollama AI
 ```
 
 ## 🔧 Components
@@ -18,8 +18,9 @@ StockFormModal → OcrController → EasyOCR + Gemini
 
 -   **File**: `python_ocr_service/ocr_service_hybrid.py`
 -   **Port**: 5000
--   **Features**: EasyOCR + Gemini AI
--   **API Key**: Set via `GEMINI_API_KEY` environment variable
+-   **Features**: Tesseract OCR + Ollama AI
+-   **Ollama URL**: Set via `OLLAMA_URL` environment variable (default: http://localhost:11434/api/generate)
+-   **Ollama Model**: Set via `OLLAMA_MODEL` environment variable (default: gemma3:1b)
 
 ### 2. Laravel API Controller
 
@@ -73,7 +74,7 @@ GET /api/ocr/health
     "ocr_service": {
         "status": "healthy",
         "easyocr": "ready",
-        "gemini": "configured"
+        "ollama": "ready"
     },
     "laravel_api": "healthy"
 }
@@ -132,7 +133,7 @@ image: [file]
 2. **Laravel Validation**: `OcrController` validates image file
 3. **OCR Service Call**: Laravel calls Python OCR service
 4. **EasyOCR Processing**: Python service extracts text using EasyOCR
-5. **Gemini AI Analysis**: Gemini AI classifies and structures data
+5. **Ollama AI Analysis**: Ollama AI classifies and structures data
 6. **Data Validation**: Laravel validates and cleans OCR data
 7. **Response**: Clean data returned to frontend
 
@@ -141,14 +142,12 @@ image: [file]
 ### Python OCR Service
 
 ```python
-# API Key dari environment variable
-GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
+# Ollama configuration dari environment variable
+OLLAMA_URL = os.getenv('OLLAMA_URL', 'http://localhost:11434/api/generate')
+OLLAMA_MODEL = os.getenv('OLLAMA_MODEL', 'gemma3:1b')
 
-# EasyOCR languages
-reader = easyocr.Reader(['en', 'id'])
-
-# Gemini model
-model = genai.GenerativeModel('gemini-1.5-flash')
+# Tesseract OCR languages
+# Lang: eng+ind (English + Indonesian)
 ```
 
 ### Laravel Controller
@@ -192,7 +191,7 @@ private $ocrServiceUrl = 'http://127.0.0.1:5000';
 
 3. **OCR Processing Failed (500)**
     - Check EasyOCR installation
-    - Check Gemini API key
+    - Check Ollama service (make sure it's running and model is installed)
     - Check image quality
 
 ### Debug Steps
@@ -217,10 +216,10 @@ private $ocrServiceUrl = 'http://127.0.0.1:5000';
 ## 🚀 Performance
 
 -   **EasyOCR**: ~2-5 detik per gambar
--   **Gemini AI**: ~1-3 detik per request
+-   **Ollama AI**: ~5-30 detik per request (tergantung model dan hardware)
 -   **Total Processing**: ~3-8 detik per struk
 -   **File Size Limit**: 10MB
--   **Timeout**: 30 detik
+-   **Timeout**: 120 detik (ditingkatkan untuk Ollama processing)
 
 ## 🔒 Security
 
@@ -248,13 +247,22 @@ private $ocrServiceUrl = 'http://127.0.0.1:5000';
 ### OCR Service Issues
 
 -   **EasyOCR not working**: Check internet connection for model download
--   **Gemini API error**: Verify API key and quota
+-   **Ollama API error**:
+    -   Pastikan Ollama service berjalan: `ollama serve`
+    -   Pastikan model sudah terinstall: `ollama pull gemma3:1b`
+    -   Cek koneksi ke http://localhost:11434/api/generate
 -   **Memory issues**: Ensure sufficient RAM (min 2GB)
 
 ### Laravel API Issues
 
 -   **Connection refused**: Check if OCR service is running
--   **Timeout errors**: Increase timeout in controller
+-   **Timeout errors**:
+    -   Timeout sudah ditingkatkan menjadi 120 detik
+    -   Jika masih timeout, coba:
+        1. Gunakan foto yang lebih kecil dan jelas
+        2. Pastikan Ollama berjalan dengan baik
+        3. Pertimbangkan menggunakan model Ollama yang lebih cepat
+        4. Cek log Python service untuk melihat di mana bottleneck terjadi
 -   **Validation errors**: Check image file format and size
 
 ### Frontend Issues
@@ -275,7 +283,7 @@ private $ocrServiceUrl = 'http://127.0.0.1:5000';
 ### Regular Tasks
 
 -   Monitor OCR service health
--   Check API key validity
+-   Check Ollama service status
 -   Update dependencies
 -   Clean upload folder
 
