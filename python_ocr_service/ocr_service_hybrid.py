@@ -243,8 +243,54 @@ def preprocess_method_5(image_file):
         print(f"Preprocess method 5 error: {e}")
         return None
 
+def clean_ocr_text(text):
+    """Clean and normalize OCR text"""
+    if not text:
+        return ""
+    
+    # Remove extra spaces
+    text = re.sub(r'\s+', ' ', text.strip())
+    
+    return text
+
+def group_text_by_rows(text_results, tolerance=10):
+    """Group text segments by their Y position (same row)"""
+    if not text_results:
+        return []
+    
+    # Sort by Y position (top to bottom)
+    sorted_results = sorted(text_results, key=lambda x: (x[0][0][1] + x[0][2][1]) / 2)
+    
+    rows = []
+    current_row = []
+    current_y = None
+    
+    for result in sorted_results:
+        bbox = result[0]
+        text = result[1]
+        confidence = result[2]
+        
+        # Calculate center Y
+        center_y = (bbox[0][1] + bbox[2][1]) / 2
+        
+        if current_y is None or abs(center_y - current_y) <= tolerance:
+            # Same row
+            current_row.append((bbox, text, confidence, center_y))
+            current_y = center_y
+        else:
+            # New row
+            if current_row:
+                rows.append(current_row)
+            current_row = [(bbox, text, confidence, center_y)]
+            current_y = center_y
+    
+    if current_row:
+        rows.append(current_row)
+    
+    return rows
+
 def extract_text_with_easyocr(image_file):
-    """Extract text using EasyOCR with preprocessing"""
+    """Extract text using EasyOCR with preprocessing and post-processing"""
     try:
         # Check if EasyOCR is available
         if not easyocr_available or easyocr_reader is None:
@@ -270,19 +316,47 @@ def extract_text_with_easyocr(image_file):
         result = []
         best_text = ""
         best_lines = []
+        best_raw_results = None
         
         # Strategy 1: Original image (no preprocessing)
         print("Trying Strategy 1: EasyOCR on original image...")
         try:
-            text_results = easyocr_reader.readtext(original_img)
+            # Extract all text with lower confidence to get everything
+            text_results = easyocr_reader.readtext(
+                original_img,
+                detail=1,  # Get bounding boxes
+                paragraph=False,  # Don't group into paragraphs
+                width_ths=0.7,  # Width threshold for text grouping
+                height_ths=0.7  # Height threshold
+            )
+            
             if text_results:
-                lines = [item[1] for item in text_results if item[2] > 0.3]  # Confidence > 0.3
-                if lines:
-                    print(f"  ✓ Original image: {len(lines)} text segments found")
-                    best_lines = lines
-                    best_text = "\n".join(lines)
+                # Lower confidence threshold to get all text (0.2 instead of 0.5)
+                filtered_results = [item for item in text_results if item[2] > 0.2]
+                
+                if filtered_results:
+                    # Group text by rows
+                    rows = group_text_by_rows(filtered_results, tolerance=15)
+                    
+                    # Combine text in each row
+                    lines = []
+                    for row in rows:
+                        # Sort by X position (left to right)
+                        row_sorted = sorted(row, key=lambda x: x[0][0][0])
+                        # Combine text in row
+                        row_text = " ".join([clean_ocr_text(item[1]) for item in row_sorted])
+                        if row_text.strip() and len(row_text.strip()) > 1:  # At least 2 chars
+                            lines.append(row_text.strip())
+                    
+                    if lines:
+                        print(f"  ✓ Original image: {len(lines)} text lines found (from {len(filtered_results)} segments)")
+                        best_lines = lines
+                        best_text = "\n".join(lines)
+                        best_raw_results = filtered_results
         except Exception as e:
             print(f"  ✗ Original image error: {e}")
+            import traceback
+            traceback.print_exc()
         
         # Strategy 2: OTSU Thresholding
         if not best_lines or len(best_lines) < 2:
@@ -291,15 +365,25 @@ def extract_text_with_easyocr(image_file):
                 gray = cv2.cvtColor(original_img, cv2.COLOR_BGR2GRAY)
                 blur = cv2.GaussianBlur(gray, (5, 5), 0)
                 _, thresh = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-                text_results = easyocr_reader.readtext(thresh)
+                text_results = easyocr_reader.readtext(thresh, detail=1, paragraph=False)
                 if text_results:
-                    lines = [item[1] for item in text_results if item[2] > 0.3]
-                    if lines and len(lines) > len(best_lines):
-                        print(f"  ✓ OTSU: {len(lines)} text segments found")
-                        best_lines = lines
-                        best_text = "\n".join(lines)
+                    filtered_results = [item for item in text_results if item[2] > 0.2]
+                    if filtered_results:
+                        rows = group_text_by_rows(filtered_results, tolerance=15)
+                        lines = []
+                        for row in rows:
+                            row_sorted = sorted(row, key=lambda x: x[0][0][0])
+                            row_text = " ".join([clean_ocr_text(item[1]) for item in row_sorted])
+                            if row_text.strip() and len(row_text.strip()) > 1:
+                                lines.append(row_text.strip())
+                        if lines and len(lines) > len(best_lines):
+                            print(f"  ✓ OTSU: {len(lines)} text lines found")
+                            best_lines = lines
+                            best_text = "\n".join(lines)
             except Exception as e:
                 print(f"  ✗ OTSU error: {e}")
+                import traceback
+                traceback.print_exc()
         
         # Strategy 3: Adaptive Thresholding
         if not best_lines or len(best_lines) < 2:
@@ -309,15 +393,25 @@ def extract_text_with_easyocr(image_file):
                 denoised = cv2.fastNlMeansDenoising(gray, None, 10, 7, 21)
                 adaptive = cv2.adaptiveThreshold(denoised, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
                                                   cv2.THRESH_BINARY, 11, 2)
-                text_results = easyocr_reader.readtext(adaptive)
+                text_results = easyocr_reader.readtext(adaptive, detail=1, paragraph=False)
                 if text_results:
-                    lines = [item[1] for item in text_results if item[2] > 0.3]
-                    if lines and len(lines) > len(best_lines):
-                        print(f"  ✓ Adaptive: {len(lines)} text segments found")
-                        best_lines = lines
-                        best_text = "\n".join(lines)
+                    filtered_results = [item for item in text_results if item[2] > 0.2]
+                    if filtered_results:
+                        rows = group_text_by_rows(filtered_results, tolerance=15)
+                        lines = []
+                        for row in rows:
+                            row_sorted = sorted(row, key=lambda x: x[0][0][0])
+                            row_text = " ".join([clean_ocr_text(item[1]) for item in row_sorted])
+                            if row_text.strip() and len(row_text.strip()) > 1:
+                                lines.append(row_text.strip())
+                        if lines and len(lines) > len(best_lines):
+                            print(f"  ✓ Adaptive: {len(lines)} text lines found")
+                            best_lines = lines
+                            best_text = "\n".join(lines)
             except Exception as e:
                 print(f"  ✗ Adaptive error: {e}")
+                import traceback
+                traceback.print_exc()
         
         # Strategy 4: Contrast Enhancement
         if not best_lines or len(best_lines) < 2:
@@ -327,15 +421,25 @@ def extract_text_with_easyocr(image_file):
                 clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
                 enhanced = clahe.apply(gray)
                 _, thresh = cv2.threshold(enhanced, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-                text_results = easyocr_reader.readtext(thresh)
+                text_results = easyocr_reader.readtext(thresh, detail=1, paragraph=False)
                 if text_results:
-                    lines = [item[1] for item in text_results if item[2] > 0.3]
-                    if lines and len(lines) > len(best_lines):
-                        print(f"  ✓ Contrast: {len(lines)} text segments found")
-                        best_lines = lines
-                        best_text = "\n".join(lines)
+                    filtered_results = [item for item in text_results if item[2] > 0.2]
+                    if filtered_results:
+                        rows = group_text_by_rows(filtered_results, tolerance=15)
+                        lines = []
+                        for row in rows:
+                            row_sorted = sorted(row, key=lambda x: x[0][0][0])
+                            row_text = " ".join([clean_ocr_text(item[1]) for item in row_sorted])
+                            if row_text.strip() and len(row_text.strip()) > 1:
+                                lines.append(row_text.strip())
+                        if lines and len(lines) > len(best_lines):
+                            print(f"  ✓ Contrast: {len(lines)} text lines found")
+                            best_lines = lines
+                            best_text = "\n".join(lines)
             except Exception as e:
                 print(f"  ✗ Contrast error: {e}")
+                import traceback
+                traceback.print_exc()
         
         # Strategy 5: Morphological operations
         if not best_lines or len(best_lines) < 2:
@@ -346,15 +450,25 @@ def extract_text_with_easyocr(image_file):
                 kernel = np.ones((2,2), np.uint8)
                 morph = cv2.morphologyEx(denoised, cv2.MORPH_CLOSE, kernel)
                 _, thresh = cv2.threshold(morph, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-                text_results = easyocr_reader.readtext(thresh)
+                text_results = easyocr_reader.readtext(thresh, detail=1, paragraph=False)
                 if text_results:
-                    lines = [item[1] for item in text_results if item[2] > 0.3]
-                    if lines and len(lines) > len(best_lines):
-                        print(f"  ✓ Morphological: {len(lines)} text segments found")
-                        best_lines = lines
-                        best_text = "\n".join(lines)
+                    filtered_results = [item for item in text_results if item[2] > 0.2]
+                    if filtered_results:
+                        rows = group_text_by_rows(filtered_results, tolerance=15)
+                        lines = []
+                        for row in rows:
+                            row_sorted = sorted(row, key=lambda x: x[0][0][0])
+                            row_text = " ".join([clean_ocr_text(item[1]) for item in row_sorted])
+                            if row_text.strip() and len(row_text.strip()) > 1:
+                                lines.append(row_text.strip())
+                        if lines and len(lines) > len(best_lines):
+                            print(f"  ✓ Morphological: {len(lines)} text lines found")
+                            best_lines = lines
+                            best_text = "\n".join(lines)
             except Exception as e:
                 print(f"  ✗ Morphological error: {e}")
+                import traceback
+                traceback.print_exc()
         
         # Use best result
         if best_lines:
@@ -392,10 +506,10 @@ def call_ollama_api(prompt, timeout=45):
                 'prompt': prompt,
                 'stream': False,
                 'options': {
-                    'num_predict': 300,  # Reduced for faster response
-                    'temperature': 0.2,  # Lower temperature for faster, more consistent output
-                    'top_p': 0.8,  # Nucleus sampling for faster generation
-                    'top_k': 20,  # Limit vocabulary for faster processing
+                    'num_predict': 800,  # Increased to prevent truncation
+                    'temperature': 0.1,  # Lower temperature for more consistent output
+                    'top_p': 0.9,  # Nucleus sampling
+                    'top_k': 40,  # Limit vocabulary
                 }
             },
             timeout=timeout  # Reduced timeout - if too slow, use fallback
@@ -435,39 +549,72 @@ def classify_with_ollama(text_list, image_file=None):
         # Jika gagal, akan di-handle di call_ollama_api() dan fallback ke regex parsing
         # Ini menghindari delay 3-5 detik setiap request
 
-        # Limit text length to prevent very long prompts - lebih agresif
-        max_lines = 30  # Reduced from 50
-        combined_text = "\n".join(text_list[:max_lines])  # Max 30 lines
-        if len(text_list) > max_lines:
-            print(f"⚠️  Text too long ({len(text_list)} lines), using first {max_lines} lines only")
+        # Use all text - let Ollama handle filtering
+        combined_text = "\n".join(text_list)
+        print(f"📝 Sending {len(text_list)} text lines to Ollama for processing")
         
-        # Improved prompt untuk hasil yang lebih baik
-        prompt = f"""Analisis teks struk belanja berikut dan ekstrak semua item yang ada menjadi format JSON.
+        # Improved prompt - STRICT: hanya return JSON, tidak ada penjelasan
+        prompt = f"""Ekstrak item belanja dari teks struk berikut. Kembalikan HANYA JSON array, tanpa penjelasan apapun.
 
 Teks struk:
 {combined_text}
 
-Instruksi:
-1. Ekstrak setiap item yang ada dalam struk
-2. Untuk setiap item, identifikasi:
-   - nama_barang: nama produk/item (koreksi typo jika perlu)
-   - jumlah: kuantitas item (jika tidak ada, gunakan "1")
-   - harga: harga item dalam angka saja tanpa simbol (contoh: 5000, bukan Rp 5.000)
+STRUK BELANJA TIPIKAL MEMILIKI FORMAT:
+- Kolom BANYAK-NYA (Quantity): jumlah item
+- Kolom NAMA BARANG (Item Name): nama produk
+- Kolom HARGA (Price): harga per item (format: Rp. X.XXX atau Rp XXXX)
+- Kolom JUMLAH (Total): total harga (opsional)
 
-3. Format output harus JSON array:
+INSTRUKSI EKSTRAKSI:
+1. IDENTIFIKASI ITEM:
+   - Cari pola: [jumlah] [nama_barang] [harga]
+   - Contoh: "1 Kg Semangka Rp. 7.500" → jumlah: "1", nama: "Semangka", harga: "7500"
+   - Contoh: "1 Ikat Rambutan Rp. 5.000" → jumlah: "1", nama: "Rambutan", harga: "5000"
+
+2. KOREKSI TYPO OCR:
+   - "Melcn" → "Melon"
+   - "Naungka" → "Nangka"
+   - "Jambu" → "Jambu" (sudah benar)
+   - "1-50d" atau "Rp. 1-50d" → "7500" (perbaiki format harga)
+   - "28 .000" → "28000"
+   - "12-00" → "12000"
+   - "5.0" → "5000"
+
+3. PARSING HARGA:
+   - Hapus "Rp", "Rp.", "RP", "RP."
+   - Hapus titik (.) dan koma (,) yang digunakan sebagai pemisah ribuan
+   - Contoh: "Rp. 7.500" → "7500"
+   - Contoh: "Rp 10.000" → "10000"
+   - Contoh: "28.000" → "28000"
+   - Jika harga tidak jelas atau tidak ada, gunakan "0"
+
+4. EKSTRAKSI SEMUA ITEM:
+   - Ekstrak SEMUA item yang terlihat dalam teks
+   - Jangan skip item apapun yang terlihat
+   - Jika ada text yang mirip item (ada nama + harga), ekstrak sebagai item
+   - Abaikan hanya: header/footer murni seperti "Tuan Toko", "NOTA NO", "TANDA TERIMA", "PERHATIAN", "Hormat Kami"
+   - Total keseluruhan (bukan per item) bisa diabaikan
+
+5. FORMAT OUTPUT (JSON array):
 [
-  {{"nama_barang": "nama item 1", "jumlah": "1", "harga": "5000"}},
-  {{"nama_barang": "nama item 2", "jumlah": "2", "harga": "10000"}}
+  {{"nama_barang": "Semangka", "jumlah": "1", "harga": "7500"}},
+  {{"nama_barang": "Melon", "jumlah": "1", "harga": "10000"}},
+  {{"nama_barang": "Nangka", "jumlah": "1", "harga": "10000"}}
 ]
 
-4. Abaikan baris yang bukan item (seperti header, footer, total, tanggal, dll)
-5. Jika ada data yang tidak jelas, gunakan null untuk field yang tidak diketahui
-6. Hanya kembalikan JSON array, tanpa penjelasan tambahan"""
+ATURAN PENTING:
+- nama_barang: koreksi typo (contoh: "Melcn" → "Melon", "Naungka" → "Nangka", "K9" → "Kg")
+- jumlah: angka saja (contoh: "1", "2")
+- harga: angka saja tanpa simbol (contoh: "7500", bukan "Rp. 7.500")
+- Parsing harga: "1-50d" → "7500", "28 .000" → "28000", "12-00" → "12000", "5.0" → "5000"
+
+OUTPUT: Hanya kembalikan JSON array saja, TANPA penjelasan, TANPA teks sebelum/sesudah JSON.
+Format: [{{"nama_barang":"...","jumlah":"...","harga":"..."}}]"""
 
         config = get_ollama_config()
         print(f"🔧 Using Ollama: {config['url']}")
         print(f"📦 Model: {config['model']}")
-        print(f"📝 Text lines: {len(text_list[:max_lines])}")
+        print(f"📝 Text lines: {len(text_list)}")
         print(f"✓ Calling Ollama API (timeout: 45s)...")
         
         ollama_start = time.time()
@@ -482,16 +629,41 @@ Instruksi:
         print(result_text)
         
         try:
+            # Remove any text before JSON
             cleaned_text = result_text.strip()
-            if cleaned_text.startswith('```json'):
-                cleaned_text = cleaned_text[7:]
-            elif cleaned_text.startswith('```'):
-                cleaned_text = cleaned_text[3:]
             
-            if cleaned_text.endswith('```'):
-                cleaned_text = cleaned_text[:-3]
+            # Remove markdown code blocks
+            if '```json' in cleaned_text:
+                start = cleaned_text.find('```json') + 7
+                end = cleaned_text.rfind('```')
+                if end > start:
+                    cleaned_text = cleaned_text[start:end].strip()
+            elif '```' in cleaned_text:
+                start = cleaned_text.find('```') + 3
+                end = cleaned_text.rfind('```')
+                if end > start:
+                    cleaned_text = cleaned_text[start:end].strip()
+            
+            # Remove any text before first [
+            first_bracket = cleaned_text.find('[')
+            if first_bracket > 0:
+                cleaned_text = cleaned_text[first_bracket:]
+            
+            # Remove any text after last ]
+            last_bracket = cleaned_text.rfind(']')
+            if last_bracket > 0:
+                cleaned_text = cleaned_text[:last_bracket + 1]
             
             cleaned_text = cleaned_text.strip()
+            
+            # Try to fix incomplete JSON (if cut off)
+            if not cleaned_text.endswith(']'):
+                # Try to close the JSON array
+                if cleaned_text.count('[') > cleaned_text.count(']'):
+                    # Find last complete item
+                    last_complete = cleaned_text.rfind('}')
+                    if last_complete > 0:
+                        cleaned_text = cleaned_text[:last_complete + 1] + '\n]'
             
             result_json = json.loads(cleaned_text)
             items = []
