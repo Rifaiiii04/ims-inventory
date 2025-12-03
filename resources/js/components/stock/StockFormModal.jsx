@@ -164,17 +164,24 @@ function StockFormModal({ stock, onClose, onSubmit, categories = [] }) {
         try {
             // Add each item to stock
             for (const item of itemsToAdd) {
+                // Ensure data types are correct for backend validation
                 const stockData = {
-                    name: item.nama_barang,
-                    category_id: item.category_id,
-                    buyPrice: item.harga,
-                    quantity: item.jumlah,
-                    unit: item.unit,
-                    minStock: item.minStock,
+                    name: String(item.nama_barang || '').trim(),
+                    category_id: item.category_id || (categories.length > 0 ? categories[0].id : 1),
+                    buyPrice: parseFloat(item.harga) || 0,
+                    quantity: parseFloat(item.jumlah) || 1,
+                    unit: String(item.unit || 'pcs').trim(),
+                    minStock: parseFloat(item.minStock) || 10,
                     is_divisible: false,
-                    max_divisions: "",
-                    division_description: "",
+                    max_divisions: null,
+                    division_description: null,
                 };
+
+                // Validate required fields
+                if (!stockData.name) {
+                    console.warn('Skipping item with empty name:', item);
+                    continue;
+                }
 
                 await onSubmit(stockData);
             }

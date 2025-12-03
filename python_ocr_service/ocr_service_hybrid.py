@@ -4,101 +4,133 @@ import traceback
 import os
 import re
 import time
-from flask import Flask, request, jsonify, send_file
+import logging
+from typing import List, Dict, Optional, Tuple
+from flask import Flask, request, jsonify
 import numpy as np
 import cv2
 from datetime import datetime
 import uuid
 import requests
 from PIL import Image
-import io
-import base64
-
 from dotenv import load_dotenv
 import pathlib
+
+try:
+    from rapidfuzz import process, fuzz
+    rapidfuzz_available = True
+except ImportError:
+    rapidfuzz_available = False
+    logging.warning("rapidfuzz not installed; fuzzy matching disabled")
 
 env_path = pathlib.Path(__file__).parent.parent / '.env'
 if env_path.exists():
     load_dotenv(env_path)
-    print(f"✓ Loaded .env from: {env_path}")
 else:
     load_dotenv()
-    print("✓ Loaded .env from current directory (or using system environment variables)")
+
+log_level = os.getenv('LOG_LEVEL', 'INFO').upper()
+logging.basicConfig(
+    level=getattr(logging, log_level, logging.INFO),
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger("ocr_service")
+logger.info("Environment variables loaded")
+LOG_OCR_OUTPUT = os.getenv('LOG_OCR_OUTPUT', 'true').lower() == 'true'
+
 try:
     from PIL import Image
     if not hasattr(Image, 'ANTIALIAS'):
         Image.ANTIALIAS = Image.LANCZOS
-        print("Pillow 10+ detected: Patched ANTIALIAS to LANCZOS")
+        logger.info("Pillow 10+ detected: Patched ANTIALIAS to LANCZOS")
 except (ImportError, AttributeError) as e:
-    print(f"Warning: Could not patch PIL.Image.ANTIALIAS: {e}")
+    logger.warning("Could not patch PIL.Image.ANTIALIAS: %s", e)
 
-print("Initializing EasyOCR...")
+logger.info("Initializing EasyOCR...")
 easyocr_available = False
 easyocr_reader = None
 
 try:
     import easyocr
-    
     try:
-        print("Loading EasyOCR models (first time may take a while)...")
-        easyocr_reader = easyocr.Reader(['en', 'id'], gpu=False)  # English + Indonesian
+        logger.info("Loading EasyOCR models...")
+        easyocr_reader = easyocr.Reader(['en', 'id'], gpu=False)
         easyocr_available = True
-        print("✓ EasyOCR initialized successfully!")
-        print("  Engine: EasyOCR (high accuracy)")
-        print("  Languages: English, Indonesian")
+        logger.info("EasyOCR initialized successfully")
     except Exception as e:
-        print(f"⚠️  EasyOCR initialization error: {e}")
-        print("\nPlease install EasyOCR:")
-        print("  pip install easyocr")
+        logger.error("EasyOCR initialization error: %s", e)
         easyocr_available = False
 except ImportError as e:
-    print(f"⚠️  easyocr not installed: {e}")
-    print("\nPlease install: pip install easyocr")
+    logger.error("easyocr not installed: %s", e)
     easyocr_available = False
 except Exception as e:
-    print(f"⚠️  EasyOCR initialization error: {e}")
+    logger.error("EasyOCR initialization error: %s", e)
     easyocr_available = False
 
 if not easyocr_available:
-    print("\n⚠️  EasyOCR not available - service will not work properly")
+    logger.warning("EasyOCR not available - service will not work properly")
 
-# Ollama configuration
 OLLAMA_URL = os.getenv('OLLAMA_URL', 'http://localhost:11434/api/generate')
 OLLAMA_MODEL = os.getenv('OLLAMA_MODEL', 'gemma3:1b')
+AUTO_ACCEPT_THRESHOLD = float(os.getenv('AUTO_ACCEPT_THRESHOLD', '85'))
+ASK_LLM_THRESHOLD = float(os.getenv('ASK_LLM_THRESHOLD', '60'))
+RAPIDFUZZ_TOPK = int(os.getenv('RAPIDFUZZ_TOPK', '5'))
+MAX_LLM_CALLS = int(os.getenv('MAX_LLM_CALLS', '8'))
+PRODUCT_CATALOG_PATH = os.getenv('PRODUCT_CATALOG_PATH')
+USE_FULLTEXT_CLASSIFIER = os.getenv('USE_FULLTEXT_CLASSIFIER', 'true').lower() == 'true'
+
+DEFAULT_CATALOG = [
+    "Semangka", "Melon", "Nangka", "Jambu", "Mangga", "Apel", "Salak",
+    "Lengkeng", "Pisang", "Nanas", "Rambutan", "Masako", "Ketumbar",
+    "Kecap", "Saos", "Cuka", "Kerupuk", "Mie Instan", "Minyak Goreng",
+    "Tepung Kanji", "Indofood", "Hot Lava", "ABC Kecap", "ABC Saos"
+]
+PRODUCT_CATALOG: List[str] = []
+
+
+def load_catalog():
+    global PRODUCT_CATALOG
+    if PRODUCT_CATALOG_PATH and os.path.exists(PRODUCT_CATALOG_PATH):
+        try:
+            with open(PRODUCT_CATALOG_PATH, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            if isinstance(data, list):
+                PRODUCT_CATALOG = [str(item) for item in data if item]
+            else:
+                PRODUCT_CATALOG = DEFAULT_CATALOG
+            logger.info("Loaded %s products from %s", len(PRODUCT_CATALOG), PRODUCT_CATALOG_PATH)
+            return
+        except Exception as exc:
+            logger.warning("Failed to load catalog from %s: %s", PRODUCT_CATALOG_PATH, exc)
+    PRODUCT_CATALOG = DEFAULT_CATALOG
+    logger.info("Using default catalog with %s entries", len(PRODUCT_CATALOG))
+
+
+load_catalog()
 
 def get_ollama_config():
-    """Get Ollama configuration"""
     return {
         'url': OLLAMA_URL,
         'model': OLLAMA_MODEL
     }
 
 def is_ollama_available():
-    """Check if Ollama is available by calling /api/tags (lebih ringan & cepat)"""
     try:
         config = get_ollama_config()
-        # Pakai GET ke /api/tags, bukan POST /api/generate (lebih ringan)
-        # Dari http://localhost:11434/api/generate -> http://localhost:11434/api/tags
-        base_url = config['url'].rsplit('/', 1)[0]  # Remove '/generate'
+        base_url = config['url'].rsplit('/', 1)[0]
         tags_url = base_url + '/tags'
-        
         resp = requests.get(tags_url, timeout=3)
         return resp.status_code == 200
     except Exception as e:
-        print(f"⚠️  Ollama check failed: {e}")
+        logger.warning("Ollama check failed: %s", e)
         return False
 
-print("Initializing Ollama AI...")
+logger.info("Initializing Ollama AI...")
 if is_ollama_available():
     config = get_ollama_config()
-    print(f"✓ Ollama initialized successfully!")
-    print(f"  URL: {config['url']}")
-    print(f"  Model: {config['model']}")
+    logger.info("Ollama initialized successfully at %s (model %s)", config['url'], config['model'])
 else:
-    print("⚠️  Ollama not available at configured URL")
-    print(f"  URL: {OLLAMA_URL}")
-    print(f"  Model: {OLLAMA_MODEL}")
-    print("  Please make sure Ollama is running and the model is installed")
+    logger.warning("Ollama not available at configured URL %s model %s", OLLAMA_URL, OLLAMA_MODEL)
 
 app = Flask(__name__)
 
@@ -107,7 +139,6 @@ if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
 
 def save_image(image_file):
-    """Save uploaded image"""
     try:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         unique_id = str(uuid.uuid4())[:8]
@@ -115,152 +146,293 @@ def save_image(image_file):
         image_path = os.path.join(UPLOAD_FOLDER, filename)
         image_file.seek(0)
         image_file.save(image_path)
-        print(f"Image saved: {image_path}")
+        logger.info("Image saved: %s", image_path)
         return image_path, filename
     except Exception as e:
-        print(f"Error saving image: {e}")
+        logger.error("Error saving image: %s", e)
         return None, None
 
-def preprocess_method_1(image_file):
-    """Preprocess method 1: OTSU Thresholding"""
-    try:
-        image_file.seek(0)
-        image_bytes = image_file.read()
-        image_file.seek(0)
-        
-        nparr = np.frombuffer(image_bytes, np.uint8)
-        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        
-        if img is None:
-            return None
-        
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        blur = cv2.GaussianBlur(gray, (5, 5), 0)
-        _, thresh = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        return thresh
-    except Exception as e:
-        print(f"Preprocess method 1 error: {e}")
-        return None
-
-def preprocess_method_2(image_file):
-    """Preprocess method 2: Adaptive Thresholding"""
-    try:
-        image_file.seek(0)
-        image_bytes = image_file.read()
-        image_file.seek(0)
-        
-        nparr = np.frombuffer(image_bytes, np.uint8)
-        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        
-        if img is None:
-            return None
-        
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        # Denoise first
-        denoised = cv2.fastNlMeansDenoising(gray, None, 10, 7, 21)
-        # Adaptive threshold
-        adaptive = cv2.adaptiveThreshold(denoised, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-                                        cv2.THRESH_BINARY, 11, 2)
-        return adaptive
-    except Exception as e:
-        print(f"Preprocess method 2 error: {e}")
-        return None
-
-def preprocess_method_3(image_file):
-    """Preprocess method 3: Contrast Enhancement + OTSU"""
-    try:
-        image_file.seek(0)
-        image_bytes = image_file.read()
-        image_file.seek(0)
-        
-        nparr = np.frombuffer(image_bytes, np.uint8)
-        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        
-        if img is None:
-            return None
-        
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        # CLAHE (Contrast Limited Adaptive Histogram Equalization)
-        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
-        enhanced = clahe.apply(gray)
-        # OTSU threshold
-        _, thresh = cv2.threshold(enhanced, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        return thresh
-    except Exception as e:
-        print(f"Preprocess method 3 error: {e}")
-        return None
-
-def preprocess_method_4(image_file):
-    """Preprocess method 4: Morphological operations"""
-    try:
-        image_file.seek(0)
-        image_bytes = image_file.read()
-        image_file.seek(0)
-        
-        nparr = np.frombuffer(image_bytes, np.uint8)
-        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        
-        if img is None:
-            return None
-        
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        # Denoise
-        denoised = cv2.fastNlMeansDenoising(gray, None, 10, 7, 21)
-        # Morphological operations to enhance text
-        kernel = np.ones((2,2), np.uint8)
-        morph = cv2.morphologyEx(denoised, cv2.MORPH_CLOSE, kernel)
-        # OTSU
-        _, thresh = cv2.threshold(morph, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        return thresh
-    except Exception as e:
-        print(f"Preprocess method 4 error: {e}")
-        return None
-
-def preprocess_method_5(image_file):
-    """Preprocess method 5: Inverted image (for dark text on light background)"""
-    try:
-        image_file.seek(0)
-        image_bytes = image_file.read()
-        image_file.seek(0)
-        
-        nparr = np.frombuffer(image_bytes, np.uint8)
-        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        
-        if img is None:
-            return None
-        
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        # Invert if needed (light text on dark background)
-        # Check if image is mostly dark
-        mean_intensity = np.mean(gray)
-        if mean_intensity < 127:
-            gray = cv2.bitwise_not(gray)
-        
-        blur = cv2.GaussianBlur(gray, (3, 3), 0)
-        _, thresh = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        return thresh
-    except Exception as e:
-        print(f"Preprocess method 5 error: {e}")
-        return None
-
 def clean_ocr_text(text):
-    """Clean and normalize OCR text"""
     if not text:
         return ""
-    
-    # Remove extra spaces
-    text = re.sub(r'\s+', ' ', text.strip())
-    
-    return text
+    return re.sub(r'\s+', ' ', text.strip())
 
-def group_text_by_rows(text_results, tolerance=10):
-    """Group text segments by their Y position (same row)"""
+
+def generic_cleanup(text: str) -> str:
+    if not text:
+        return ""
+    cleaned = text
+    replacements = {
+        'Ouu': '000',
+        '0uv': '000',
+        'Ouv': '000',
+        'Ooo': '000',
+        'Bks.': 'Bks',
+        'Klg': 'Kg',
+        'K9': 'Kg',
+        'kg': 'Kg'
+    }
+    for needle, repl in replacements.items():
+        cleaned = re.sub(needle, repl, cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r'(?<=\d)[lI](?=\d)', '1', cleaned)
+    cleaned = cleaned.replace('_', ' ').replace('-', ' - ')
+    cleaned = cleaned.replace("(", " ").replace(")", " ")
+    cleaned = cleaned.replace("'", "")
+    cleaned = cleaned.replace("`", "")
+    cleaned = re.sub(r'\s+', ' ', cleaned)
+    return cleaned.strip()
+
+
+def strip_price_tokens(text: str) -> str:
+    if not text:
+        return ""
+    cleaned = re.sub(r'(Rp|RP)\s*[\.:]?\s*\d[\d\s\.,-]*', ' ', text, flags=re.IGNORECASE)
+    cleaned = re.sub(r'\d+\s?-\s?\d+d', ' ', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r'\d+\s?(?:000|00|0uv|Ouu)\b', ' ', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r'\d+(?:[.,]\d+)*', ' ', cleaned)
+    cleaned = re.sub(r'\s+', ' ', cleaned)
+    return cleaned.strip()
+
+
+def _normalize_price_digits(value: str) -> Optional[int]:
+    digits = re.sub(r'[^0-9]', '', value.replace('O', '0').replace('o', '0'))
+    if not digits:
+        return None
+    try:
+        amount = int(digits)
+        if amount < 100 and len(digits) <= 2:
+            return amount * 1000
+        return amount
+    except ValueError:
+        return None
+
+
+PRICE_PATTERNS = [
+    ("rp", re.compile(r'(?:Rp|RP)\s*[\.:]?\s*([\d\.\,\s]+)', re.IGNORECASE)),
+    ("range_d", re.compile(r'(\d+)\s?-\s?(\d+)d', re.IGNORECASE)),
+    ("suffix_thousand", re.compile(r'(\d+)[\s\-]?(?:Ouu|0uv|000)', re.IGNORECASE)),
+    ("plain", re.compile(r'(\d{4,})'))
+]
+
+
+def extract_harga_from_text(text: str) -> Optional[int]:
+    if not text:
+        return None
+    for key, pattern in PRICE_PATTERNS:
+        match = pattern.search(text)
+        if match:
+            if key == "range_d":
+                left, right = match.groups()
+                zeros = 2 if len(right) <= 2 else 0
+                merged = f"{left}{right}{'0' * zeros}"
+                amount = _normalize_price_digits(merged)
+            elif key == "suffix_thousand":
+                digits = match.group(1) + "000"
+                amount = _normalize_price_digits(digits)
+            else:
+                amount = _normalize_price_digits(match.group(1))
+            if amount and amount >= 100:
+                return amount
+    digits = re.findall(r'\d{3,}', text)
+    if digits:
+        candidate = _normalize_price_digits(digits[-1])
+        if candidate and candidate >= 100:
+            return candidate
+    return None
+
+
+UNIT_KEYWORDS = [
+    'kg', 'g', 'gr', 'ons', 'liter', 'ltr', 'ml', 'bks', 'btl', 'pcs',
+    'pack', 'pak', 'dus', 'box', 'ikat', 'sachet', 'sct', 'bal', 'karung'
+]
+
+DIGIT_PATTERN = re.compile(r'\d')
+
+
+def extract_qty_from_text(text: str) -> int:
+    if not text:
+        return 1
+    pattern = re.compile(r'(\d+)\s*(%s)\b' % "|".join(UNIT_KEYWORDS), re.IGNORECASE)
+    match = pattern.search(text)
+    if match:
+        try:
+            qty = int(match.group(1))
+            if 1 <= qty <= 100:
+                return qty
+        except ValueError:
+            pass
+    leading = re.match(r'^\s*(\d+)\b', text)
+    if leading:
+        try:
+            qty = int(leading.group(1))
+            if 1 <= qty <= 100:
+                return qty
+        except ValueError:
+            pass
+    return 1
+
+
+def extract_unit_from_text(text: str, qty: int) -> str:
+    if not text:
+        return f"{qty} pcs"
+    pattern = re.compile(r'(\d+)\s*(%s)\b' % "|".join(UNIT_KEYWORDS), re.IGNORECASE)
+    match = pattern.search(text)
+    if match:
+        unit = match.group(2).lower()
+        value = match.group(1)
+        return f"{value} {unit}"
+    return f"{qty} pcs"
+
+
+SKIP_LINE_PREFIXES = [
+    'total', 'tuan', 'toko', 'nota', 'banyak', 'nama', 'barang', 'harga',
+    'jumlah', 'lemon8', '@maisaspb', 'kokobit', 'odinala', 'warning',
+    'torch', 'userwarning', 'perhatian', 'barang-barang', 'hormat kami'
+]
+
+
+def resolve_line(line: str,
+                 llm_state: Dict[str, int],
+                 cleaned_line: Optional[str] = None,
+                 harga_override: Optional[int] = None) -> Optional[Dict]:
+    if not line:
+        return None
+    original = line.strip()
+    if len(original) < 3:
+        return None
+    lower = original.lower()
+    if any(lower.startswith(prefix) for prefix in SKIP_LINE_PREFIXES):
+        return None
+
+    cleaned_line = cleaned_line or generic_cleanup(original)
+    harga = harga_override if harga_override is not None else extract_harga_from_text(cleaned_line)
+    if harga is None or harga < 100:
+        return None
+    qty = extract_qty_from_text(cleaned_line)
+    unit = extract_unit_from_text(cleaned_line, qty)
+    nama_candidate = clean_nama_barang(cleaned_line)
+
+    if not nama_candidate or len(nama_candidate) < 2 or nama_candidate.isdigit():
+        return None
+
+    candidates = match_product_to_catalog(nama_candidate)
+    result_candidates = [
+        {'name': cand['name'], 'score': round(cand['score'], 2)}
+        for cand in candidates[:3]
+    ]
+
+    resolved_name = nama_candidate
+    resolved_by = 'user'
+    confidence = 0.4
+
+    if candidates:
+        top = candidates[0]
+        if top['score'] >= AUTO_ACCEPT_THRESHOLD:
+            resolved_name = top['name']
+            resolved_by = 'auto'
+            confidence = round(top['score'] / 100.0, 2)
+        elif top['score'] >= ASK_LLM_THRESHOLD:
+            idx = llm_select_candidate(original, candidates[:RAPIDFUZZ_TOPK], llm_state)
+            if idx is not None:
+                chosen = candidates[idx]
+                resolved_name = chosen['name']
+                resolved_by = 'llm'
+                confidence = round(0.7 * (chosen['score'] / 100.0) + 0.3, 2)
+            else:
+                resolved_by = 'user'
+                confidence = 0.4
+        else:
+            resolved_name = nama_candidate
+
+    result = {
+        'nama_barang': resolved_name,
+        'jumlah': qty,
+        'harga': harga,
+        'unit': unit,
+        'category_id': 1,
+        'minStock': 10,
+        'confidence': confidence,
+        'resolved_by': resolved_by
+    }
+
+    if result_candidates:
+        result['candidates'] = result_candidates
+    return result
+
+
+def match_product_to_catalog(name: str, top_k: Optional[int] = None) -> List[Dict]:
+    if not rapidfuzz_available or not PRODUCT_CATALOG:
+        return []
+    if not name:
+        return []
+    limit = top_k or RAPIDFUZZ_TOPK
+    try:
+        results = process.extract(name, PRODUCT_CATALOG, scorer=fuzz.WRatio, limit=limit)
+        return [
+            {"name": result[0], "score": float(result[1])}
+            for result in results
+        ]
+    except Exception as exc:
+        logger.warning("Fuzzy matching error: %s", exc)
+        return []
+
+
+def llm_select_candidate(noisy_input: str, candidates: List[Dict], llm_state: Dict[str, int]) -> Optional[int]:
+    if llm_state.get('count', 0) >= MAX_LLM_CALLS:
+        logger.warning("LLM call limit (%s) reached; skipping LLM selection", MAX_LLM_CALLS)
+        return None
+    if not candidates:
+        return None
+
+    candidate_lines = "\n".join(
+        f"{idx + 1}. {cand['name']}"
+        for idx, cand in enumerate(candidates)
+    )
+    prompt = f"""Tugasmu memilih kandidat terbaik yang cocok dengan teks OCR.
+
+Noisy line:
+\"\"\"{noisy_input}\"\"\"
+
+Kandidat:
+{candidate_lines}
+
+Instruksi:
+- Jawab SATU ANGKA saja (1..{len(candidates)}) yang paling cocok.
+- Jawab 0 jika tidak ada yang cocok.
+- Jangan tambahkan kata lain, penjelasan, atau tanda baca."""
+
+    response = call_ollama_api(
+        prompt,
+        timeout=25,
+        options={'temperature': 0.0, 'top_p': 0.1, 'top_k': 10, 'num_predict': 128}
+    )
+    if response is None:
+        return None
+
+    match = re.search(r'-?\d+', response)
+    if not match:
+        return None
+    choice = int(match.group())
+    if choice == 0:
+        return None
+    if 1 <= choice <= len(candidates):
+        llm_state['count'] = llm_state.get('count', 0) + 1
+        return choice - 1
+    return None
+
+def clean_nama_barang(name: str) -> str:
+    cleaned = strip_price_tokens(generic_cleanup(name))
+    cleaned = re.sub(r'\b(?:rr|rp|total|jumlah|nota|tuan|toko)\b', '', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r'^\b(?:bks|btl|bt|pkt|pcs|slop|dus|pack)\b', '', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r'[^\w\s\-]', ' ', cleaned)
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+    return cleaned.title()
+
+def group_text_by_rows(text_results, tolerance=15):
     if not text_results:
         return []
     
-    # Sort by Y position (top to bottom)
     sorted_results = sorted(text_results, key=lambda x: (x[0][0][1] + x[0][2][1]) / 2)
-    
     rows = []
     current_row = []
     current_y = None
@@ -268,20 +440,15 @@ def group_text_by_rows(text_results, tolerance=10):
     for result in sorted_results:
         bbox = result[0]
         text = result[1]
-        confidence = result[2]
-        
-        # Calculate center Y
         center_y = (bbox[0][1] + bbox[2][1]) / 2
         
         if current_y is None or abs(center_y - current_y) <= tolerance:
-            # Same row
-            current_row.append((bbox, text, confidence, center_y))
+            current_row.append((bbox, text, result[2], center_y))
             current_y = center_y
         else:
-            # New row
             if current_row:
                 rows.append(current_row)
-            current_row = [(bbox, text, confidence, center_y)]
+            current_row = [(bbox, text, result[2], center_y)]
             current_y = center_y
     
     if current_row:
@@ -289,19 +456,40 @@ def group_text_by_rows(text_results, tolerance=10):
     
     return rows
 
+
+def build_lines_from_results(text_results, tolerance=15):
+    filtered_results = [item for item in text_results if item[2] > 0.2]
+    if not filtered_results:
+        return []
+    rows = group_text_by_rows(filtered_results, tolerance=tolerance)
+    lines = []
+    for row in rows:
+        row_sorted = sorted(row, key=lambda x: x[0][0][0])
+        row_text = " ".join([clean_ocr_text(item[1]) for item in row_sorted])
+        if row_text.strip() and len(row_text.strip()) > 1:
+            lines.append(row_text.strip())
+    return lines
+
+
+def generate_preprocessed_variants(original_img):
+    variants = [('original', original_img)]
+    gray = cv2.cvtColor(original_img, cv2.COLOR_BGR2GRAY)
+    gray_bgr = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+    variants.append(('gray', gray_bgr))
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(gray)
+    variants.append(('clahe', cv2.cvtColor(clahe, cv2.COLOR_GRAY2BGR)))
+    thresh = cv2.adaptiveThreshold(
+        gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 25, 6
+    )
+    variants.append(('thresh', cv2.cvtColor(thresh, cv2.COLOR_GRAY2BGR)))
+    return variants
+
 def extract_text_with_easyocr(image_file):
-    """Extract text using EasyOCR with preprocessing and post-processing"""
     try:
-        # Check if EasyOCR is available
         if not easyocr_available or easyocr_reader is None:
-            print("ERROR: EasyOCR not available!")
+            logger.error("EasyOCR not available")
             return []
-            
-        image_file.seek(0)
         
-        print("\n=== Step 1: EasyOCR Text Extraction with Preprocessing ===")
-        
-        # Load image
         image_file.seek(0)
         image_bytes = image_file.read()
         image_file.seek(0)
@@ -310,532 +498,435 @@ def extract_text_with_easyocr(image_file):
         original_img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         
         if original_img is None:
-            print("Failed to decode image")
+            logger.error("Failed to decode image for OCR")
             return []
         
-        result = []
-        best_text = ""
         best_lines = []
-        best_raw_results = None
-        
-        # Strategy 1: Original image (no preprocessing)
-        print("Trying Strategy 1: EasyOCR on original image...")
-        try:
-            # Extract all text with lower confidence to get everything
+        best_digit_lines = -1
+        selected_variant = None
+        for variant_name, variant_img in generate_preprocessed_variants(original_img):
+            logger.info("EasyOCR text extraction running (%s)", variant_name)
             text_results = easyocr_reader.readtext(
-                original_img,
-                detail=1,  # Get bounding boxes
-                paragraph=False,  # Don't group into paragraphs
-                width_ths=0.7,  # Width threshold for text grouping
-                height_ths=0.7  # Height threshold
+                variant_img,
+                detail=1,
+                paragraph=False,
+                width_ths=0.7,
+                height_ths=0.7
             )
-            
-            if text_results:
-                # Lower confidence threshold to get all text (0.2 instead of 0.5)
-                filtered_results = [item for item in text_results if item[2] > 0.2]
-                
-                if filtered_results:
-                    # Group text by rows
-                    rows = group_text_by_rows(filtered_results, tolerance=15)
-                    
-                    # Combine text in each row
-                    lines = []
-                    for row in rows:
-                        # Sort by X position (left to right)
-                        row_sorted = sorted(row, key=lambda x: x[0][0][0])
-                        # Combine text in row
-                        row_text = " ".join([clean_ocr_text(item[1]) for item in row_sorted])
-                        if row_text.strip() and len(row_text.strip()) > 1:  # At least 2 chars
-                            lines.append(row_text.strip())
-                    
-                    if lines:
-                        print(f"  ✓ Original image: {len(lines)} text lines found (from {len(filtered_results)} segments)")
-                        best_lines = lines
-                        best_text = "\n".join(lines)
-                        best_raw_results = filtered_results
-        except Exception as e:
-            print(f"  ✗ Original image error: {e}")
-            import traceback
-            traceback.print_exc()
+            if not text_results:
+                continue
+            variant_lines = build_lines_from_results(text_results, tolerance=18)
+            digit_lines = sum(1 for line in variant_lines if DIGIT_PATTERN.search(line))
+            logger.info(
+                "Variant %s produced %s lines (%s with digits)",
+                variant_name, len(variant_lines), digit_lines
+            )
+            if digit_lines > best_digit_lines or (digit_lines == best_digit_lines and len(variant_lines) > len(best_lines)):
+                best_digit_lines = digit_lines
+                best_lines = variant_lines
+                selected_variant = variant_name
+            if digit_lines >= 6:
+                break
         
-        # Strategy 2: OTSU Thresholding
-        if not best_lines or len(best_lines) < 2:
-            print("Trying Strategy 2: OTSU Thresholding + EasyOCR...")
-            try:
-                gray = cv2.cvtColor(original_img, cv2.COLOR_BGR2GRAY)
-                blur = cv2.GaussianBlur(gray, (5, 5), 0)
-                _, thresh = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-                text_results = easyocr_reader.readtext(thresh, detail=1, paragraph=False)
-                if text_results:
-                    filtered_results = [item for item in text_results if item[2] > 0.2]
-                    if filtered_results:
-                        rows = group_text_by_rows(filtered_results, tolerance=15)
-                        lines = []
-                        for row in rows:
-                            row_sorted = sorted(row, key=lambda x: x[0][0][0])
-                            row_text = " ".join([clean_ocr_text(item[1]) for item in row_sorted])
-                            if row_text.strip() and len(row_text.strip()) > 1:
-                                lines.append(row_text.strip())
-                        if lines and len(lines) > len(best_lines):
-                            print(f"  ✓ OTSU: {len(lines)} text lines found")
-                            best_lines = lines
-                            best_text = "\n".join(lines)
-            except Exception as e:
-                print(f"  ✗ OTSU error: {e}")
-                import traceback
-                traceback.print_exc()
+        if not best_lines:
+            logger.warning("EasyOCR returned no usable text")
+            return []
+
+        logger.info(
+            "EasyOCR produced %s text lines using variant %s",
+            len(best_lines),
+            selected_variant
+        )
+        if LOG_OCR_OUTPUT:
+            logger.info("=== EasyOCR Lines ===")
+            for i, text in enumerate(best_lines, 1):
+                logger.info("%s. %s", i, text)
+            logger.info("=== End of EasyOCR Lines ===")
         
-        # Strategy 3: Adaptive Thresholding
-        if not best_lines or len(best_lines) < 2:
-            print("Trying Strategy 3: Adaptive Thresholding + EasyOCR...")
-            try:
-                gray = cv2.cvtColor(original_img, cv2.COLOR_BGR2GRAY)
-                denoised = cv2.fastNlMeansDenoising(gray, None, 10, 7, 21)
-                adaptive = cv2.adaptiveThreshold(denoised, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-                                                  cv2.THRESH_BINARY, 11, 2)
-                text_results = easyocr_reader.readtext(adaptive, detail=1, paragraph=False)
-                if text_results:
-                    filtered_results = [item for item in text_results if item[2] > 0.2]
-                    if filtered_results:
-                        rows = group_text_by_rows(filtered_results, tolerance=15)
-                        lines = []
-                        for row in rows:
-                            row_sorted = sorted(row, key=lambda x: x[0][0][0])
-                            row_text = " ".join([clean_ocr_text(item[1]) for item in row_sorted])
-                            if row_text.strip() and len(row_text.strip()) > 1:
-                                lines.append(row_text.strip())
-                        if lines and len(lines) > len(best_lines):
-                            print(f"  ✓ Adaptive: {len(lines)} text lines found")
-                            best_lines = lines
-                            best_text = "\n".join(lines)
-            except Exception as e:
-                print(f"  ✗ Adaptive error: {e}")
-                import traceback
-                traceback.print_exc()
-        
-        # Strategy 4: Contrast Enhancement
-        if not best_lines or len(best_lines) < 2:
-            print("Trying Strategy 4: Contrast Enhancement + EasyOCR...")
-            try:
-                gray = cv2.cvtColor(original_img, cv2.COLOR_BGR2GRAY)
-                clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
-                enhanced = clahe.apply(gray)
-                _, thresh = cv2.threshold(enhanced, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-                text_results = easyocr_reader.readtext(thresh, detail=1, paragraph=False)
-                if text_results:
-                    filtered_results = [item for item in text_results if item[2] > 0.2]
-                    if filtered_results:
-                        rows = group_text_by_rows(filtered_results, tolerance=15)
-                        lines = []
-                        for row in rows:
-                            row_sorted = sorted(row, key=lambda x: x[0][0][0])
-                            row_text = " ".join([clean_ocr_text(item[1]) for item in row_sorted])
-                            if row_text.strip() and len(row_text.strip()) > 1:
-                                lines.append(row_text.strip())
-                        if lines and len(lines) > len(best_lines):
-                            print(f"  ✓ Contrast: {len(lines)} text lines found")
-                            best_lines = lines
-                            best_text = "\n".join(lines)
-            except Exception as e:
-                print(f"  ✗ Contrast error: {e}")
-                import traceback
-                traceback.print_exc()
-        
-        # Strategy 5: Morphological operations
-        if not best_lines or len(best_lines) < 2:
-            print("Trying Strategy 5: Morphological + EasyOCR...")
-            try:
-                gray = cv2.cvtColor(original_img, cv2.COLOR_BGR2GRAY)
-                denoised = cv2.fastNlMeansDenoising(gray, None, 10, 7, 21)
-                kernel = np.ones((2,2), np.uint8)
-                morph = cv2.morphologyEx(denoised, cv2.MORPH_CLOSE, kernel)
-                _, thresh = cv2.threshold(morph, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-                text_results = easyocr_reader.readtext(thresh, detail=1, paragraph=False)
-                if text_results:
-                    filtered_results = [item for item in text_results if item[2] > 0.2]
-                    if filtered_results:
-                        rows = group_text_by_rows(filtered_results, tolerance=15)
-                        lines = []
-                        for row in rows:
-                            row_sorted = sorted(row, key=lambda x: x[0][0][0])
-                            row_text = " ".join([clean_ocr_text(item[1]) for item in row_sorted])
-                            if row_text.strip() and len(row_text.strip()) > 1:
-                                lines.append(row_text.strip())
-                        if lines and len(lines) > len(best_lines):
-                            print(f"  ✓ Morphological: {len(lines)} text lines found")
-                            best_lines = lines
-                            best_text = "\n".join(lines)
-            except Exception as e:
-                print(f"  ✗ Morphological error: {e}")
-                import traceback
-                traceback.print_exc()
-        
-        # Use best result
-        if best_lines:
-            result = best_lines
-            print(f"\n=== Hasil OCR (Final) ===")
-            print(f"Total baris ditemukan: {len(result)}")
-            for i, text in enumerate(result, 1):
-                print(f"{i}. {text}")
-        else:
-            print("Tidak ada text yang ditemukan setelah mencoba semua strategi")
-            print("\nSaran:")
-            print("- Pastikan foto jelas dan tidak blur")
-            print("- Pastikan teks dalam foto cukup besar")
-            print("- Pastikan pencahayaan cukup")
-        
-        return result if result else []
+        return best_lines
 
     except Exception as e:
-        print(f"EasyOCR error: {e}")
-        import traceback
+        logger.error("EasyOCR error: %s", e)
         traceback.print_exc()
         return []
 
-def call_ollama_api(prompt, timeout=45):
-    """Call Ollama API with given prompt - optimized for speed"""
+def call_ollama_api(prompt: str, timeout: int = 30, options: Optional[Dict] = None) -> Optional[str]:
     try:
         config = get_ollama_config()
-        print(f"⏱️  Calling Ollama with {timeout}s timeout...")
+        logger.debug("Calling Ollama (timeout %ss)", timeout)
         start_time = time.time()
-        
+
+        base_options = {
+            'num_predict': 1000,
+            'temperature': 0.2,
+            'top_p': 0.9,
+            'top_k': 40,
+        }
+        if options:
+            base_options.update(options)
+
         response = requests.post(
             config['url'],
             json={
                 'model': config['model'],
                 'prompt': prompt,
                 'stream': False,
-                'options': {
-                    'num_predict': 800,  # Increased to prevent truncation
-                    'temperature': 0.1,  # Lower temperature for more consistent output
-                    'top_p': 0.9,  # Nucleus sampling
-                    'top_k': 40,  # Limit vocabulary
-                }
+                'options': base_options
             },
-            timeout=timeout  # Reduced timeout - if too slow, use fallback
+            timeout=timeout
         )
-        
+
         elapsed = time.time() - start_time
-        print(f"⏱️  Ollama response received in {elapsed:.2f} seconds")
-        
+        logger.debug("Ollama response received in %.2fs", elapsed)
+
         if response.status_code == 200:
             result = response.json()
             return result.get('response', '').strip()
         else:
-            print(f"Ollama API error: {response.status_code} - {response.text}")
+            error_text = response.text
+            logger.error("Ollama API error %s: %s", response.status_code, error_text)
+            if "memory" in error_text.lower() or "GiB" in error_text:
+                logger.warning("Memory error detected from Ollama response")
             return None
     except requests.exceptions.Timeout:
-        try:
-            elapsed = time.time() - start_time
-        except:
-            elapsed = timeout
-        print(f"⚠️  Ollama API timeout after {elapsed:.2f} seconds - using fallback")
+        logger.warning("Ollama API timeout after %ss", timeout)
         return None
     except requests.exceptions.ConnectionError:
-        print(f"⚠️  Ollama connection error - service mungkin tidak berjalan")
+        logger.error("Ollama connection error")
         return None
     except Exception as e:
-        print(f"Ollama API call error: {e}")
-        traceback.print_exc()
+        logger.error("Ollama API call error: %s", e)
         return None
 
-def classify_with_ollama(text_list, image_file=None):
-    """Classify and structure text using Ollama AI - SIMPLE seperti contoh user"""
+
+def extract_json_block(text: str) -> Optional[str]:
+    if not text:
+        return None
+    cleaned = text.strip()
+    if '```json' in cleaned:
+        start = cleaned.find('```json') + 7
+        end = cleaned.rfind('```')
+        cleaned = cleaned[start:end].strip() if end > start else cleaned
+    elif '```' in cleaned:
+        start = cleaned.find('```') + 3
+        end = cleaned.rfind('```')
+        cleaned = cleaned[start:end].strip() if end > start else cleaned
+    first = cleaned.find('[')
+    last = cleaned.rfind(']')
+    if first != -1 and last != -1 and last > first:
+        return cleaned[first:last + 1]
+    return None
+
+
+def classify_fulltext_with_ollama(text_list: List[str]) -> List[Dict]:
+    if not text_list:
+        return []
     try:
-        if not text_list:
-            return []
-
-        # Skip health check di sini - langsung coba call API
-        # Jika gagal, akan di-handle di call_ollama_api() dan fallback ke regex parsing
-        # Ini menghindari delay 3-5 detik setiap request
-
-        # Use all text - let Ollama handle filtering
-        combined_text = "\n".join(text_list)
-        print(f"📝 Sending {len(text_list)} text lines to Ollama for processing")
+        combined_text = "\n".join(f"{idx + 1}. {line}" for idx, line in enumerate(text_list))
         
-        # Improved prompt - STRICT: hanya return JSON, tidak ada penjelasan
-        prompt = f"""Ekstrak item belanja dari teks struk berikut. Kembalikan HANYA JSON array, tanpa penjelasan apapun.
+        # Tahap 1: Rapihkan text OCR
+        prompt_clean = f"""Tugas: Rapihkan dan normalisasi hasil OCR struk belanja berikut.
 
-Teks struk:
+Instruksi:
+- Perbaiki typo dan karakter terpecah menjadi kata yang benar (bahasa Indonesia)
+- Hapus karakter acak, simbol tidak perlu, dan watermark
+- Gabungkan baris yang terpisah jika merupakan 1 item yang sama
+- Normalisasi format angka (O→0, titik/koma dihapus untuk harga)
+- Output: Text yang sudah rapih, baris per baris, tanpa penjelasan tambahan
+
+DATA OCR:
 {combined_text}
 
-STRUK BELANJA TIPIKAL MEMILIKI FORMAT:
-- Kolom BANYAK-NYA (Quantity): jumlah item
-- Kolom NAMA BARANG (Item Name): nama produk
-- Kolom HARGA (Price): harga per item (format: Rp. X.XXX atau Rp XXXX)
-- Kolom JUMLAH (Total): total harga (opsional)
+Output text yang sudah rapih:"""
+        
+        logger.info("Tahap 1: Normalisasi text OCR (%s lines)", len(text_list))
+        cleaned_response = call_ollama_api(
+            prompt_clean,
+            timeout=50,
+            options={'num_predict': 1200, 'temperature': 0.1, 'top_p': 0.3, 'top_k': 20}
+        )
+        if not cleaned_response:
+            logger.warning("Tahap 1 (normalisasi) gagal, menggunakan text asli")
+            cleaned_text = combined_text
+        else:
+            cleaned_text = cleaned_response.strip()
+            logger.debug("Text setelah normalisasi: %s", cleaned_text[:200])
+        
+        # Tahap 2: Ekstrak JSON dari text yang sudah rapih
+        prompt_json = f"""Tugas: Ekstrak semua item belanja dari text struk yang sudah rapih menjadi JSON array.
 
-INSTRUKSI EKSTRAKSI:
-1. IDENTIFIKASI ITEM:
-   - Cari pola: [jumlah] [nama_barang] [harga]
-   - Contoh: "1 Kg Semangka Rp. 7.500" → jumlah: "1", nama: "Semangka", harga: "7500"
-   - Contoh: "1 Ikat Rambutan Rp. 5.000" → jumlah: "1", nama: "Rambutan", harga: "5000"
+Instruksi:
+- Identifikasi SEMUA item yang memiliki harga (minimal 100)
+- Untuk setiap item, ekstrak: nama_barang, jumlah, satuan, harga
+- Harga harus integer rupiah (tanpa titik/koma)
+- Jumlah minimal 1, satuan default "1 pcs" jika tidak jelas
+- Output HANYA JSON array, tanpa penjelasan apapun
 
-2. KOREKSI TYPO OCR:
-   - "Melcn" → "Melon"
-   - "Naungka" → "Nangka"
-   - "Jambu" → "Jambu" (sudah benar)
-   - "1-50d" atau "Rp. 1-50d" → "7500" (perbaiki format harga)
-   - "28 .000" → "28000"
-   - "12-00" → "12000"
-   - "5.0" → "5000"
-
-3. PARSING HARGA:
-   - Hapus "Rp", "Rp.", "RP", "RP."
-   - Hapus titik (.) dan koma (,) yang digunakan sebagai pemisah ribuan
-   - Contoh: "Rp. 7.500" → "7500"
-   - Contoh: "Rp 10.000" → "10000"
-   - Contoh: "28.000" → "28000"
-   - Jika harga tidak jelas atau tidak ada, gunakan "0"
-
-4. EKSTRAKSI SEMUA ITEM:
-   - Ekstrak SEMUA item yang terlihat dalam teks
-   - Jangan skip item apapun yang terlihat
-   - Jika ada text yang mirip item (ada nama + harga), ekstrak sebagai item
-   - Abaikan hanya: header/footer murni seperti "Tuan Toko", "NOTA NO", "TANDA TERIMA", "PERHATIAN", "Hormat Kami"
-   - Total keseluruhan (bukan per item) bisa diabaikan
-
-5. FORMAT OUTPUT (JSON array):
+Format output:
 [
-  {{"nama_barang": "Semangka", "jumlah": "1", "harga": "7500"}},
-  {{"nama_barang": "Melon", "jumlah": "1", "harga": "10000"}},
-  {{"nama_barang": "Nangka", "jumlah": "1", "harga": "10000"}}
+  {{"nama_barang":"Nama item","jumlah":1,"satuan":"1 kg","harga":12000}},
+  ...
 ]
 
-ATURAN PENTING:
-- nama_barang: koreksi typo (contoh: "Melcn" → "Melon", "Naungka" → "Nangka", "K9" → "Kg")
-- jumlah: angka saja (contoh: "1", "2")
-- harga: angka saja tanpa simbol (contoh: "7500", bukan "Rp. 7.500")
-- Parsing harga: "1-50d" → "7500", "28 .000" → "28000", "12-00" → "12000", "5.0" → "5000"
+TEXT YANG SUDAH RAPIH:
+{cleaned_text}
 
-OUTPUT: Hanya kembalikan JSON array saja, TANPA penjelasan, TANPA teks sebelum/sesudah JSON.
-Format: [{{"nama_barang":"...","jumlah":"...","harga":"..."}}]"""
-
-        config = get_ollama_config()
-        print(f"🔧 Using Ollama: {config['url']}")
-        print(f"📦 Model: {config['model']}")
-        print(f"📝 Text lines: {len(text_list)}")
-        print(f"✓ Calling Ollama API (timeout: 45s)...")
+JSON array:"""
         
-        ollama_start = time.time()
-        result_text = call_ollama_api(prompt, timeout=45)  # Reduced timeout
-        ollama_elapsed = time.time() - ollama_start
+        logger.info("Tahap 2: Ekstraksi JSON dari text normalisasi")
+        response = call_ollama_api(
+            prompt_json,
+            timeout=50,
+            options={'num_predict': 1200, 'temperature': 0.0, 'top_p': 0.2, 'top_k': 10}
+        )
+        if not response:
+            logger.warning("Tahap 2 (ekstraksi JSON) gagal")
+            return []
         
-        if not result_text:
-            print(f"⚠️  Ollama API failed after {ollama_elapsed:.2f}s, using fallback parsing...")
-            return parse_receipt_text_fallback(text_list)
-        
-        print(f"\n=== Output dari Ollama ===")
-        print(result_text)
-        
+        json_block = extract_json_block(response)
+        if not json_block:
+            logger.warning("Response tahap 2 tidak mengandung JSON block")
+            return []
         try:
-            # Remove any text before JSON
-            cleaned_text = result_text.strip()
-            
-            # Remove markdown code blocks
-            if '```json' in cleaned_text:
-                start = cleaned_text.find('```json') + 7
-                end = cleaned_text.rfind('```')
-                if end > start:
-                    cleaned_text = cleaned_text[start:end].strip()
-            elif '```' in cleaned_text:
-                start = cleaned_text.find('```') + 3
-                end = cleaned_text.rfind('```')
-                if end > start:
-                    cleaned_text = cleaned_text[start:end].strip()
-            
-            # Remove any text before first [
-            first_bracket = cleaned_text.find('[')
-            if first_bracket > 0:
-                cleaned_text = cleaned_text[first_bracket:]
-            
-            # Remove any text after last ]
-            last_bracket = cleaned_text.rfind(']')
-            if last_bracket > 0:
-                cleaned_text = cleaned_text[:last_bracket + 1]
-            
-            cleaned_text = cleaned_text.strip()
-            
-            # Try to fix incomplete JSON (if cut off)
-            if not cleaned_text.endswith(']'):
-                # Try to close the JSON array
-                if cleaned_text.count('[') > cleaned_text.count(']'):
-                    # Find last complete item
-                    last_complete = cleaned_text.rfind('}')
-                    if last_complete > 0:
-                        cleaned_text = cleaned_text[:last_complete + 1] + '\n]'
-            
-            result_json = json.loads(cleaned_text)
-            items = []
-            for item in result_json:
-                harga_value = item.get('harga', None)
-                if harga_value is None or harga_value == 'null' or harga_value == '':
-                    harga_value = 0
-                elif isinstance(harga_value, str):
-                    harga_clean = re.sub(r'[^0-9]', '', str(harga_value))
-                    harga_value = int(harga_clean) if harga_clean else 0
-                else:
-                    harga_value = int(harga_value) if harga_value else 0
-                
-                items.append({
-                    'nama_barang': item.get('nama_barang', ''),
-                    'jumlah': item.get('jumlah', '1'),
-                    'harga': harga_value,
-                    'unit': 'pcs',
-                    'category_id': 1,
-                    'minStock': 10
-                })
-            print(f"\n=== Parsed {len(items)} items ===")
-            for item in items:
-                print(f"- {item['nama_barang']}: {item['harga']}")
-            return items
-        except json.JSONDecodeError as e:
-            print(f"JSON parse error: {e}")
-            print(f"Raw response: {result_text}")
-            try:
-                start_idx = result_text.find('[')
-                end_idx = result_text.rfind(']')
-                if start_idx != -1 and end_idx != -1:
-                    json_str = result_text[start_idx:end_idx+1]
-                    result_json = json.loads(json_str)
-                    items = []
-                    for item in result_json:
-                        harga_value = item.get('harga', None)
-                        if harga_value is None or harga_value == 'null' or harga_value == '':
-                            harga_value = 0
-                        elif isinstance(harga_value, str):
-                            harga_clean = re.sub(r'[^0-9]', '', str(harga_value))
-                            harga_value = int(harga_clean) if harga_clean else 0
-                        else:
-                            harga_value = int(harga_value) if harga_value else 0
-                        
-                        items.append({
-                            'nama_barang': item.get('nama_barang', ''),
-                            'jumlah': item.get('jumlah', '1'),
-                            'harga': harga_value,
-                            'unit': 'pcs',
-                            'category_id': 1,
-                            'minStock': 10
-                        })
-                    print(f"\n=== Parsed {len(items)} items (after manual extraction) ===")
-                    for item in items:
-                        print(f"- {item['nama_barang']}: {item['harga']}")
-                    return items
-            except:
-                pass
-            return parse_receipt_text_fallback(text_list)
-
-    except Exception as e:
-        print(f"Ollama error: {e}")
-        traceback.print_exc()
-        return parse_receipt_text_fallback(text_list)
-
-def parse_receipt_text_fallback(text_list):
-    """Fallback parsing if Ollama fails - Simple regex-based parsing"""
-    try:
-        if not text_list:
+            parsed = json.loads(json_block)
+        except json.JSONDecodeError as exc:
+            logger.error("Failed to parse fulltext LLM JSON: %s", exc)
             return []
 
-        print("=== Fallback Parsing (Simple Regex) ===")
         items = []
-        
-        # Simple pattern matching untuk ekstrak item
-        # Pattern: nama_barang (jumlah) harga atau nama_barang harga
-        price_pattern = r'(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})?|\d+)'
-        
-        for line in text_list[:20]:  # Process max 20 lines
-            line = line.strip()
-            if not line or len(line) < 3:
+        for entry in parsed:
+            nama_raw = entry.get('nama_barang') or entry.get('nama_bahan_baku') or entry.get('nama') or ''
+            nama = clean_nama_barang(str(nama_raw))
+            if not nama or len(nama) < 2:
                 continue
-            
-            # Skip lines that are clearly not items (headers, totals, etc)
-            skip_patterns = [
-                r'^(total|subtotal|jumlah|bayar|kembali|diskon|pajak)',
-                r'^\d{1,2}[/-]\d{1,2}[/-]\d{2,4}',  # Dates
-                r'^[A-Z\s]{2,}$',  # All caps (likely header)
-            ]
-            
-            should_skip = False
-            for pattern in skip_patterns:
-                if re.match(pattern, line, re.IGNORECASE):
-                    should_skip = True
-                    break
-            
-            if should_skip:
-                continue
-            
-            # Try to extract price from line
-            prices = re.findall(price_pattern, line)
-            if prices:
-                # Get last price as item price
-                price_str = prices[-1].replace('.', '').replace(',', '')
-                try:
-                    harga = int(price_str)
-                    # Remove price from line to get item name
-                    item_name = re.sub(price_pattern, '', line).strip()
-                    # Remove common words
-                    item_name = re.sub(r'\b(?:x|pcs|kg|gram|liter|ml|rp|rupiah)\b', '', item_name, flags=re.IGNORECASE).strip()
-                    
-                    if item_name and len(item_name) > 2:
-                        items.append({
-                            'nama_barang': item_name,
-                            'jumlah': '1',
-                            'harga': harga,
-                            'unit': 'pcs',
-                            'category_id': 1,
-                            'minStock': 10
-                        })
-                except ValueError:
-                    continue
-        
-        print(f"✓ Fallback parsing found {len(items)} items")
-        return items
 
-    except Exception as e:
-        print(f"Fallback parse error: {e}")
+            harga_value = entry.get('harga')
+            if isinstance(harga_value, str):
+                harga_value = _normalize_price_digits(harga_value)
+            elif isinstance(harga_value, (int, float)):
+                harga_value = int(harga_value)
+            else:
+                harga_value = extract_harga_from_text(str(harga_value))
+            if not harga_value or harga_value < 100:
+                continue
+
+            jumlah_value = entry.get('jumlah', 1)
+            if isinstance(jumlah_value, str):
+                digits = re.findall(r'\d+', jumlah_value)
+                jumlah_value = int(digits[0]) if digits else 1
+            elif isinstance(jumlah_value, (int, float)):
+                jumlah_value = int(jumlah_value)
+            else:
+                jumlah_value = 1
+            jumlah_value = max(1, min(jumlah_value, 999))
+
+            satuan_raw = entry.get('satuan') or entry.get('unit')
+            satuan_clean = ""
+            if satuan_raw:
+                unit_match = re.match(r'(\d+)\s*(\w+)', str(satuan_raw))
+                if unit_match:
+                    satuan_clean = f"{unit_match.group(1)} {unit_match.group(2)}"
+            if not satuan_clean:
+                satuan_clean = f"{jumlah_value} pcs"
+
+            candidates = match_product_to_catalog(nama)
+            resolved_name = nama
+            resolved_by = 'llm_fulltext'
+            confidence = 0.85
+            if candidates:
+                top = candidates[0]
+                if top['score'] >= AUTO_ACCEPT_THRESHOLD:
+                    resolved_name = top['name']
+                    resolved_by = 'auto'
+                    confidence = min(0.95, top['score'] / 100.0)
+                elif top['score'] >= ASK_LLM_THRESHOLD:
+                    resolved_name = top['name']
+                    resolved_by = 'llm_fulltext'
+                    confidence = 0.7 * (top['score'] / 100.0) + 0.2
+
+            item = {
+                'nama_barang': resolved_name,
+                'jumlah': jumlah_value,
+                'harga': harga_value,
+                'unit': satuan_clean,
+                'category_id': 1,
+                'minStock': 10,
+                'confidence': round(confidence, 2),
+                'resolved_by': resolved_by
+            }
+            if candidates:
+                item['candidates'] = [
+                    {'name': cand['name'], 'score': round(cand['score'], 2)}
+                    for cand in candidates[:3]
+                ]
+            items.append(item)
+
+        if LOG_OCR_OUTPUT and items:
+            logger.info("=== Fulltext LLM Items ===")
+            for item in items:
+                logger.info(
+                    "- %s | harga=%s | qty=%s | unit=%s",
+                    item['nama_barang'], item['harga'], item['jumlah'], item['unit']
+                )
+            logger.info("=== End of Fulltext LLM Items ===")
+        return items
+    except Exception as exc:
+        logger.error("Fulltext classification error: %s", exc)
         traceback.print_exc()
         return []
 
-def process_image_hybrid(image_file):
-    """Process image with Tesseract OCR + Ollama AI"""
+def classify_per_line(text_list: List[str]) -> List[Dict]:
+    llm_state = {'count': 0}
+    items = []
+    pending_price = None
+    for line in text_list:
+        if not line or len(line.strip()) < 2:
+            continue
+        cleaned_line = generic_cleanup(line)
+        lower_line = cleaned_line.lower()
+        if any(lower_line.startswith(prefix) for prefix in SKIP_LINE_PREFIXES):
+            continue
+
+        price_in_line = extract_harga_from_text(cleaned_line)
+        stripped = strip_price_tokens(cleaned_line)
+        if price_in_line and len(stripped) <= 2:
+            pending_price = price_in_line
+            continue
+
+        item = resolve_line(
+            line,
+            llm_state,
+            cleaned_line=cleaned_line,
+            harga_override=pending_price if pending_price is not None else price_in_line
+        )
+        pending_price = None
+        if not item:
+            continue
+        items.append(item)
+
+    logger.info("Resolved %s items (%s LLM calls)", len(items), llm_state.get('count', 0))
+    if LOG_OCR_OUTPUT:
+        if items:
+            logger.info("=== Resolved Items ===")
+            for item in items:
+                logger.info(
+                    "- %s | harga=%s | qty=%s | unit=%s | by=%s | conf=%.2f",
+                    item['nama_barang'],
+                    item['harga'],
+                    item['jumlah'],
+                    item['unit'],
+                    item.get('resolved_by'),
+                    item.get('confidence', 0.0)
+                )
+            logger.info("=== End of Resolved Items ===")
+        else:
+            logger.warning("No items resolved from per-line pipeline")
+    return items
+
+
+def classify_with_ollama(text_list):
     try:
-        import time
+        if not text_list:
+            return []
+        if USE_FULLTEXT_CLASSIFIER:
+            fulltext_items = classify_fulltext_with_ollama(text_list)
+            if fulltext_items:
+                return fulltext_items
+            logger.warning("Fulltext classifier returned no items, falling back to per-line mode")
+        return classify_per_line(text_list)
+    except Exception as exc:
+        logger.error("Classification error: %s", exc)
+        traceback.print_exc()
+        return []
+
+def parse_receipt_text_fallback(text_list):
+    try:
+        if not text_list:
+            return []
+
+        logger.info("Running fallback parsing")
+        items = []
+
+        pending_price = None
+        for line in text_list:
+            if not line or len(line.strip()) < 3:
+                continue
+            cleaned_line = generic_cleanup(line)
+            lower_line = cleaned_line.lower()
+            if any(lower_line.startswith(prefix) for prefix in SKIP_LINE_PREFIXES):
+                continue
+
+            price_in_line = extract_harga_from_text(cleaned_line)
+            stripped = strip_price_tokens(cleaned_line)
+            if price_in_line and len(stripped) <= 2:
+                pending_price = price_in_line
+                continue
+
+            harga = pending_price if pending_price is not None else price_in_line
+            pending_price = None
+            if harga is None or harga < 100:
+                continue
+
+            qty = extract_qty_from_text(cleaned_line)
+            unit = extract_unit_from_text(cleaned_line, qty)
+            nama = clean_nama_barang(cleaned_line)
+            if not nama or len(nama) < 2:
+                continue
+
+            items.append({
+                'nama_barang': nama,
+                'jumlah': qty,
+                'harga': harga,
+                'unit': unit,
+                'category_id': 1,
+                'minStock': 10,
+                'confidence': 0.3,
+                'resolved_by': 'fallback'
+            })
+
+        logger.info("Fallback parsing found %s items", len(items))
+        return items
+
+    except Exception as e:
+        logger.error("Fallback parse error: %s", e)
+        return []
+
+def process_image_hybrid(image_file):
+    try:
         start_time = time.time()
         
         image_path, saved_filename = save_image(image_file)
         if not image_path:
             return []
 
-        # Use EasyOCR with preprocessing
-        if easyocr_available:
-            print("\n=== Step 1: EasyOCR Text Extraction with Preprocessing ===")
-            text_list = extract_text_with_easyocr(image_file)
-            ocr_time = time.time() - start_time
-            print(f"⏱️  OCR extraction took {ocr_time:.2f} seconds")
-        else:
-            print("\n⚠️  EasyOCR not available!")
-            print("⚠️  Cannot process without EasyOCR (Ollama requires text input)")
+        if not easyocr_available:
+            logger.error("EasyOCR not available")
             return []
         
+        logger.info("Step 1: EasyOCR text extraction")
+        text_list = extract_text_with_easyocr(image_file)
+        ocr_time = time.time() - start_time
+        logger.info("OCR extraction took %.2fs", ocr_time)
+        
         if not text_list:
-            print("\n⚠️  No text found by EasyOCR")
-            print("⚠️  Cannot use Ollama without text input")
+            logger.warning("No text found by EasyOCR")
             return []
-        else:
-            print(f"\n=== Step 2: Ollama AI Classification ===")
-            print(f"📝 Processing {len(text_list)} text lines...")
-            ollama_start = time.time()
-            result_json = classify_with_ollama(text_list, image_file)
-            ollama_time = time.time() - ollama_start
-            total_time = time.time() - start_time
-            
-            print(f"⏱️  Ollama processing took {ollama_time:.2f} seconds")
-            print(f"⏱️  Total processing time: {total_time:.2f} seconds")
-            
-            return result_json if result_json else []
+        
+        logger.info("Step 2: classification on %s lines", len(text_list))
+        ollama_start = time.time()
+        result_json = classify_with_ollama(text_list)
+        if not result_json:
+            logger.warning("Classifier returned no items, running fallback parser")
+            result_json = parse_receipt_text_fallback(text_list)
+        ollama_time = time.time() - ollama_start
+        total_time = time.time() - start_time
+        
+        logger.info("Classification time %.2fs, total processing %.2fs", ollama_time, total_time)
+        
+        return result_json if result_json else []
 
     except Exception as e:
-        print(f"OCR processing error: {e}")
+        logger.error("OCR processing error: %s", e)
         traceback.print_exc()
         return []
 
@@ -849,22 +940,19 @@ def process_photo():
         if image_file.filename == '':
             return jsonify({"success": False, "error": "No image file selected"}), 400
         
-        # Check if EasyOCR is available
         if not easyocr_available:
-            print("⚠️  Warning: EasyOCR not available, cannot process images")
+            logger.warning("EasyOCR not available for incoming request")
         
-        print(f"Processing image: {image_file.filename}")
-        
+        logger.info("Processing uploaded image %s", image_file.filename)
         result = process_image_hybrid(image_file)
-        
-        print(f"Extracted {len(result)} items")
+        logger.info("Extracted %s items", len(result))
         
         if not result:
             return jsonify({
                 "success": False,
                 "error": "No items found",
-                "message": "Tidak ada item yang ditemukan dalam foto. Pastikan foto jelas dan teks terbaca dengan baik."
-            }), 200  # Return 200 but with success: false
+                "message": "Tidak ada item yang ditemukan dalam foto."
+            }), 200
         
         return jsonify({
             "success": True,
@@ -874,22 +962,20 @@ def process_photo():
         })
         
     except Exception as e:
-        print(f"Error: {str(e)}")
+        logger.error("process_photo error: %s", e)
         traceback.print_exc()
         return jsonify({
             "success": False, 
             "error": str(e),
-            "message": "Terjadi kesalahan saat memproses gambar. Pastikan OCR service berjalan dengan benar."
+            "message": "Terjadi kesalahan saat memproses gambar."
         }), 500
 
 @app.route('/process-receipt', methods=['POST'])
 def process_receipt():
-    """Alias for process-photo for backward compatibility"""
     return process_photo()
 
 @app.route('/health', methods=['GET'])
 def health():
-    """Health check endpoint - checks EasyOCR and Ollama status"""
     easyocr_status = "ready" if easyocr_available else "not_available"
     ollama_status = "ready" if is_ollama_available() else "not_available"
     config = get_ollama_config()
@@ -906,16 +992,15 @@ def health():
 
 @app.route('/test-ollama', methods=['GET'])
 def test_ollama():
-    """Test Ollama AI connection"""
     try:
         if not is_ollama_available():
             config = get_ollama_config()
             return jsonify({
                 "success": False,
-                "error": f"Ollama not available at {config['url']}. Please make sure Ollama is running and model {config['model']} is installed."
+                "error": f"Ollama not available at {config['url']}"
             }), 400
         
-        result_text = call_ollama_api("Hello, are you working? Please respond with 'Yes, I am working!'")
+        result_text = call_ollama_api("Hello, are you working?")
         if result_text:
             return jsonify({
                 "success": True,
@@ -934,33 +1019,18 @@ def test_ollama():
         }), 500
 
 if __name__ == '__main__':
-    print("Starting OCR Service (EasyOCR + Ollama AI)...")
-    print("Using EasyOCR with preprocessing - high accuracy OCR")
-    print("Service: http://localhost:5000")
-    print("Health: http://localhost:5000/health")
-    print("Process: http://localhost:5000/process-photo")
-    print("Test Ollama: http://localhost:5000/test-ollama")
-    
+    logger.info("Starting OCR Service (EasyOCR + Ollama AI)")
+    logger.info("Service endpoints: process-photo, health, test-ollama")
+
     if not easyocr_available:
-        print("\n⚠️  WARNING: EasyOCR not available!")
-        print("Please install EasyOCR:")
-        print("  pip install easyocr")
-        print("The service requires EasyOCR to extract text from images")
+        logger.warning("EasyOCR not available! Install via pip install easyocr")
     else:
-        print(f"\n✓ EasyOCR initialized successfully")
-        print("Engine: EasyOCR (high accuracy, supports English + Indonesian)")
-    
+        logger.info("EasyOCR initialized successfully")
+
     config = get_ollama_config()
     if not is_ollama_available():
-        print(f"\n⚠️  WARNING: Ollama not available at {config['url']}")
-        print(f"Please make sure Ollama is running and model '{config['model']}' is installed")
-        print("  Install Ollama: https://ollama.ai")
-        print(f"  Install model: ollama pull {config['model']}")
+        logger.warning("Ollama not available at %s (model %s)", config['url'], config['model'])
     else:
-        print(f"\n✓ Ollama initialized successfully")
-        print(f"  URL: {config['url']}")
-        print(f"  Model: {config['model']}")
-    
+        logger.info("Ollama ready at %s with model %s", config['url'], config['model'])
+
     app.run(host='0.0.0.0', port=5000, debug=False)
-
-

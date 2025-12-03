@@ -50,7 +50,7 @@ function PhotoInputForm({ onImageUpload, isProcessing, error }) {
                 </h3>
                 <p className="text-sm text-gray-600">
                     Upload foto struk belanja untuk diproses dengan Hybrid OCR
-                    (EasyOCR + Gemini)
+                    (EasyOCR + Ollama AI)
                 </p>
             </div>
 
@@ -121,7 +121,7 @@ function PhotoInputForm({ onImageUpload, isProcessing, error }) {
                         <div>
                             <p className="text-sm font-medium text-blue-800">
                                 Memproses foto dengan Hybrid OCR (EasyOCR +
-                                Gemini)...
+                                Ollama AI)...
                             </p>
                             <p className="text-xs text-blue-600">
                                 Mohon tunggu sebentar
