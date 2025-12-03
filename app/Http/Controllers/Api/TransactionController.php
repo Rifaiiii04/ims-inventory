@@ -20,10 +20,13 @@ class TransactionController extends Controller
 {
     /**
      * Get products with variants for POS
+     * BUAT ULANG: Logika sederhana dan jelas
+     * ATURAN: Produk dengan bahan baku utama habis TIDAK BOLEH muncul di POS
      */
     public function getProducts()
     {
         try {
+            // Ambil semua produk
             $products = DB::table('tbl_produk')
                 ->leftJoin('tbl_kategori', 'tbl_produk.id_kategori', '=', 'tbl_kategori.id_kategori')
                 ->select(
@@ -37,205 +40,135 @@ class TransactionController extends Controller
                 ->get();
 
             $productsWithVariants = $products->map(function($product) {
-                // Hapus filter stok_varian > 0 karena variant dengan komposisi bisa dibuat dari bahan
+                // Ambil semua variant untuk produk ini
                 $variants = DB::table('tbl_varian')
                     ->where('id_produk', $product->id_produk)
                     ->select('id_varian', 'nama_varian', 'stok_varian', 'id_produk', 'unit')
-                    ->get()
-                    ->map(function($variant) use ($product) {
-                        // Cek apakah stok bahan cukup untuk membuat minimal 1 porsi
-                        $compositions = $this->getVariantCompositions($variant->id_varian);
-                        $canProduce = $this->canProduceVariantWithCompositions($compositions, 1);
-                        
-                        // Hitung stok prediksi berdasarkan stok bahan
-                        $predictedStock = $this->calculatePredictedStock($compositions);
-                        
-                        // PENTING: Hanya cek stok BAHAN BAKU UTAMA (is_bahan_baku_utama = true)
-                        // Ketersediaan produk bergantung pada stok bahan baku utama saja
-                        $hasOutOfStockIngredient = false;
-                        $mainIngredient = null;
-                        if (!$compositions->isEmpty()) {
-                            // Cari bahan baku utama
-                            foreach ($compositions as $composition) {
-                                // Cek dengan berbagai format: true, 1, '1', 'true'
-                                $isMain = $composition->is_bahan_baku_utama;
+                    ->get();
+                
+                Log::info("Product {$product->nama_produk}: Found {$variants->count()} variants");
+                
+                $variants = $variants->map(function($variant) use ($product) {
+                        try {
+                            // Ambil komposisi variant
+                            $compositions = $this->getVariantCompositions($variant->id_varian);
+                            $hasComposition = !$compositions->isEmpty();
+                            
+                            Log::info("Variant {$variant->nama_varian}: Has composition = {$hasComposition}, Count = {$compositions->count()}");
+                            
+                            // LOGIKA: SEMUA PRODUK HARUS PUNYA KOMPOSISI
+                            // 1. Jika tidak punya komposisi, SKIP variant ini (return null)
+                            // 2. Jika punya komposisi, cek bahan baku utama
+                            // 3. Jika bahan baku utama stok <= 0, SKIP variant ini (return null)
+                            
+                            // PENTING: Jika tidak punya komposisi, SKIP variant ini
+                            if (!$hasComposition) {
+                                Log::info("Variant {$variant->nama_varian} SKIPPED: No composition found. All products must have compositions.");
+                                return null; // SKIP variant ini
+                            }
+                            
+                            // Cari bahan baku utama yang di-set (is_bahan_baku_utama = 1)
+                            $mainIngredient = null;
+                            foreach ($compositions as $comp) {
+                                $isMain = $comp->is_bahan_baku_utama ?? false;
                                 if ($isMain === true || $isMain === 1 || $isMain === '1' || $isMain === 'true' || (is_numeric($isMain) && (int)$isMain === 1)) {
-                                    $mainIngredient = $composition;
-                                    Log::info("Found main ingredient for variant {$variant->nama_varian}: {$mainIngredient->nama_bahan} (stok: {$mainIngredient->stok_bahan}, is_main: {$isMain})");
+                                    $mainIngredient = $comp;
                                     break;
                                 }
                             }
                             
-                            // Jika ada bahan baku utama, cek stoknya
-                            if ($mainIngredient) {
-                                $stokBahan = (float)$mainIngredient->stok_bahan;
-                                $jumlahPerPorsi = (float)$mainIngredient->jumlah_per_porsi;
-                                $namaBahan = $mainIngredient->nama_bahan ?? 'Unknown';
-                                
-                                // PENTING: Jika bahan baku utama habis (stok <= 0), produk TIDAK BISA DIPRODUKSI
-                                if ($stokBahan <= 0) {
-                                    $hasOutOfStockIngredient = true;
-                                    $canProduce = false;
-                                    $canSell = false; // PASTI tidak bisa dijual
-                                    Log::info("Variant {$variant->nama_varian} has out of stock MAIN ingredient: {$namaBahan} (stok: {$stokBahan}) - CANNOT SELL");
-                                }
-                                
-                                // Cek juga apakah stok cukup untuk membuat 1 porsi
-                                if ($jumlahPerPorsi > 0 && $stokBahan < $jumlahPerPorsi) {
-                                    $hasOutOfStockIngredient = true;
-                                    $canProduce = false;
-                                    $canSell = false; // PASTI tidak bisa dijual
-                                    Log::info("Variant {$variant->nama_varian} has insufficient MAIN ingredient: {$namaBahan} (stok: {$stokBahan}, needed: {$jumlahPerPorsi}) - CANNOT SELL");
-                                }
-                            } else {
-                                // Jika tidak ada bahan baku utama yang dipilih, gunakan logika lama (cek semua bahan)
-                                // Ini untuk backward compatibility
-                                foreach ($compositions as $composition) {
-                                    $stokBahan = (float)$composition->stok_bahan;
-                                    $jumlahPerPorsi = (float)$composition->jumlah_per_porsi;
-                                    $namaBahan = $composition->nama_bahan ?? 'Unknown';
-                                    
-                                    if ($stokBahan <= 0) {
-                                        $hasOutOfStockIngredient = true;
-                                        $canProduce = false;
-                                        $canSell = false; // PASTI tidak bisa dijual
-                                        Log::info("Variant {$variant->nama_varian} has out of stock ingredient (no main ingredient set): {$namaBahan} (stok: {$stokBahan}) - CANNOT SELL");
-                                        break;
-                                    }
-                                    
-                                    if ($jumlahPerPorsi > 0 && $stokBahan < $jumlahPerPorsi) {
-                                        $hasOutOfStockIngredient = true;
-                                        $canProduce = false;
-                                        $canSell = false; // PASTI tidak bisa dijual
-                                        Log::info("Variant {$variant->nama_varian} has insufficient ingredient (no main ingredient set): {$namaBahan} (stok: {$stokBahan}, needed: {$jumlahPerPorsi}) - CANNOT SELL");
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                        
-                        // Jika variant punya komposisi tapi stok_prediksi = 0 atau ada bahan habis, tidak bisa diproduksi
-                        if (!$compositions->isEmpty() && ($predictedStock <= 0 || $hasOutOfStockIngredient)) {
-                            $canProduce = false;
-                        }
-                        
-                        // Variant bisa dijual jika:
-                        // 1. Punya komposisi: 
-                        //    - HARUS tidak ada bahan baku utama habis (PENTING!)
-                        //    - DAN (stok_varian > 0 ATAU stok_prediksi > 0)
-                        // 2. Tidak punya komposisi: bisa dijual jika stok_varian > 0
-                        $hasComposition = !$compositions->isEmpty();
-                        
-                        // PENTING: Jika ada bahan baku utama habis, TIDAK BISA DIJUAL (sudah di-set di atas)
-                        if ($hasComposition && !$hasOutOfStockIngredient) {
-                            // Variant dengan komposisi: 
-                            // - Bisa dijual jika ada stok_varian (produk jadi), ATAU
-                            // - Bisa dibuat dari bahan (stok_prediksi > 0)
-                            $canSell = ($variant->stok_varian > 0) || ($predictedStock > 0);
-                        } else if (!$hasComposition) {
-                            // Variant tanpa komposisi: bisa dijual jika stok_varian > 0
-                            $canSell = $variant->stok_varian > 0;
-                        }
-                        // Jika hasOutOfStockIngredient = true, canSell sudah di-set false di atas
-                        
-                        // Gunakan harga dari produk sebagai harga varian jika varian tidak punya harga sendiri
-                        // Konversi compositions collection ke array untuk memastikan konsistensi di frontend
-                        $compositionsArray = $compositions->map(function($comp) {
-                            return [
-                                'id_bahan' => $comp->id_bahan,
-                                'nama_bahan' => $comp->nama_bahan,
-                                'jumlah_per_porsi' => (float)$comp->jumlah_per_porsi,
-                                'satuan' => $comp->satuan,
-                                'stok_bahan' => (float)$comp->stok_bahan,
-                                'min_stok' => (float)$comp->min_stok,
-                                'is_bahan_baku_utama' => (bool)($comp->is_bahan_baku_utama ?? false)
-                            ];
-                        })->values()->toArray();
-                        
-                        // Debug logging
-                        if ($hasOutOfStockIngredient) {
-                            Log::info("Variant {$variant->nama_varian} CANNOT SELL - hasOutOfStockIngredient: true, canSell: false");
-                        }
-                        
-                        return [
-                            'id_varian' => $variant->id_varian,
-                            'nama_varian' => $variant->nama_varian,
-                            'harga' => $product->harga_produk, // Harga dari produk
-                            'stok_varian' => $variant->stok_varian,
-                            'stok_prediksi' => $predictedStock, // Stok prediksi berdasarkan bahan
-                            'id_produk' => $variant->id_produk,
-                            'unit' => $variant->unit,
-                            'compositions' => $compositionsArray, // Pastikan array, bukan collection
-                            'is_available' => $canProduce, // Flag untuk menandai apakah bisa diproduksi
-                            'is_direct_product' => $compositions->isEmpty(), // Flag untuk produk langsung (tanpa komposisi)
-                            'can_sell' => $canSell, // Flag untuk menandai apakah bisa dijual
-                            'has_out_of_stock_ingredient' => $hasOutOfStockIngredient // Flag untuk menandai apakah ada bahan habis
-                        ];
-                    })
-                    ->filter(function($variant) {
-                        // PENTING: Filter variant yang bisa dijual dengan ketat
-                        // PRIORITAS UTAMA: Cek bahan baku utama terlebih dahulu
-                        
-                        // Cek flag has_out_of_stock_ingredient TERLEBIH DAHULU
-                        if (isset($variant['has_out_of_stock_ingredient']) && $variant['has_out_of_stock_ingredient'] === true) {
-                            Log::info("Variant {$variant['nama_varian']} filtered out: has_out_of_stock_ingredient = true");
-                            return false; // Hapus variant dengan bahan habis
-                        }
-                        
-                        // Cek can_sell flag
-                        if (!isset($variant['can_sell']) || $variant['can_sell'] !== true) {
-                            Log::info("Variant {$variant['nama_varian']} filtered out: can_sell = false");
-                            return false; // Hapus variant yang tidak bisa dijual
-                        }
-                        
-                        // Jika punya komposisi, WAJIB cek bahan baku utama
-                        if (!empty($variant['compositions']) && is_array($variant['compositions']) && count($variant['compositions']) > 0) {
-                            // Cari bahan baku utama
-                            $mainIngredient = null;
-                            foreach ($variant['compositions'] as $comp) {
-                                if (isset($comp['is_bahan_baku_utama'])) {
-                                    $isMain = $comp['is_bahan_baku_utama'];
-                                    // Cek dengan berbagai format: true, 1, '1', 'true'
-                                    if ($isMain === true || $isMain === 1 || $isMain === '1' || $isMain === 'true' || (is_numeric($isMain) && (int)$isMain === 1)) {
+                            // Jika tidak ada bahan baku utama yang di-set, cari bahan dengan stok > 0
+                            if (!$mainIngredient && $compositions->count() > 0) {
+                                // Cari bahan pertama yang stoknya > 0
+                                foreach ($compositions as $comp) {
+                                    $stok = (float)($comp->stok_bahan ?? 0);
+                                    if ($stok > 0) {
                                         $mainIngredient = $comp;
+                                        Log::info("Variant {$variant->nama_varian}: No main ingredient set, using first available ingredient with stock > 0: {$mainIngredient->nama_bahan} (stok: {$stok})");
                                         break;
                                     }
+                                }
+                                
+                                // Jika semua bahan stoknya <= 0, gunakan bahan pertama (untuk logging)
+                                if (!$mainIngredient) {
+                                    $mainIngredient = $compositions->first();
+                                    Log::info("Variant {$variant->nama_varian}: No ingredient with stock > 0, using first ingredient: {$mainIngredient->nama_bahan} (stok: {$mainIngredient->stok_bahan})");
                                 }
                             }
                             
-                            // PENTING: Jika ada bahan baku utama, cek stoknya
-                            if ($mainIngredient) {
-                                $stokBahan = (float)($mainIngredient['stok_bahan'] ?? 0);
-                                $jumlahPerPorsi = (float)($mainIngredient['jumlah_per_porsi'] ?? 0);
-                                
-                                // PENTING: Jika bahan baku utama stok <= 0, variant TIDAK BISA DIJUAL
-                                if ($stokBahan <= 0) {
-                                    Log::info("Variant {$variant['nama_varian']} filtered out: Main ingredient '{$mainIngredient['nama_bahan']}' has stock 0");
-                                    return false; // Hapus variant ini dari hasil
-                                }
-                                
-                                // Cek juga apakah stok cukup untuk 1 porsi
-                                if ($jumlahPerPorsi > 0 && $stokBahan < $jumlahPerPorsi) {
-                                    Log::info("Variant {$variant['nama_varian']} filtered out: Main ingredient '{$mainIngredient['nama_bahan']}' stock ({$stokBahan}) insufficient for 1 portion ({$jumlahPerPorsi})");
-                                    return false; // Hapus variant ini dari hasil
-                                }
-                            } else {
-                                // Jika tidak ada bahan baku utama yang dipilih, gunakan logika lama (cek semua bahan)
-                                // Ini untuk backward compatibility
-                                foreach ($variant['compositions'] as $comp) {
-                                    $stokBahan = (float)($comp['stok_bahan'] ?? 0);
-                                    $jumlahPerPorsi = (float)($comp['jumlah_per_porsi'] ?? 0);
-                                    
-                                    // Jika ada SATU SAJA bahan yang habis, variant TIDAK BISA DIJUAL
-                                    if ($stokBahan <= 0 || ($jumlahPerPorsi > 0 && $stokBahan < $jumlahPerPorsi)) {
-                                        Log::info("Variant {$variant['nama_varian']} filtered out: Ingredient '{$comp['nama_bahan']}' has stock 0 (no main ingredient set)");
-                                        return false; // Hapus variant ini dari hasil
-                                    }
-                                }
+                            // PENTING: Jika tidak ada mainIngredient sama sekali (tidak ada komposisi), SKIP
+                            if (!$mainIngredient) {
+                                Log::info("Variant {$variant->nama_varian} SKIPPED: No main ingredient found (compositions empty)");
+                                return null;
                             }
+                            
+                            // Cek stok bahan baku utama
+                            $stokBahan = (float)($mainIngredient->stok_bahan ?? 0);
+                            $jumlahPerPorsi = (float)($mainIngredient->jumlah_per_porsi ?? 0);
+                            
+                            Log::info("Variant {$variant->nama_varian} stock check:", [
+                                'main_ingredient' => $mainIngredient->nama_bahan ?? 'Unknown',
+                                'stok_bahan' => $stokBahan,
+                                'jumlah_per_porsi' => $jumlahPerPorsi,
+                                'is_bahan_baku_utama_set' => $mainIngredient->is_bahan_baku_utama ?? false
+                            ]);
+                            
+                            // Cek apakah bahan baku utama habis atau tidak cukup
+                            $isOutOfStock = false;
+                            if ($stokBahan <= 0) {
+                                $isOutOfStock = true;
+                                Log::info("Variant {$variant->nama_varian}: Main ingredient '{$mainIngredient->nama_bahan}' stock is 0 - will show as unavailable");
+                            } else if ($jumlahPerPorsi > 0 && $stokBahan < $jumlahPerPorsi) {
+                                $isOutOfStock = true;
+                                Log::info("Variant {$variant->nama_varian}: Main ingredient '{$mainIngredient->nama_bahan}' stock ({$stokBahan}) insufficient for 1 portion ({$jumlahPerPorsi}) - will show as unavailable");
+                            }
+                            
+                            // Hitung stok prediksi berdasarkan bahan baku utama
+                            if ($jumlahPerPorsi > 0) {
+                                $predictedStock = floor($stokBahan / $jumlahPerPorsi);
+                            } else {
+                                $predictedStock = 0;
+                            }
+                            
+                            Log::info("Variant {$variant->nama_varian} APPROVED:", [
+                                'predicted_stock' => $predictedStock,
+                                'variant_stock' => $variant->stok_varian
+                            ]);
+                            
+                            // Konversi compositions ke array (selalu ada karena sudah di-check di atas)
+                            $compositionsArray = $compositions->map(function($comp) {
+                                return [
+                                    'id_bahan' => $comp->id_bahan ?? null,
+                                    'nama_bahan' => $comp->nama_bahan ?? '',
+                                    'jumlah_per_porsi' => (float)($comp->jumlah_per_porsi ?? 0),
+                                    'satuan' => $comp->satuan ?? '',
+                                    'stok_bahan' => (float)($comp->stok_bahan ?? 0),
+                                    'min_stok' => (float)($comp->min_stok ?? 0),
+                                    'is_bahan_baku_utama' => (bool)($comp->is_bahan_baku_utama ?? false)
+                                ];
+                            })->values()->toArray();
+                            
+                            return [
+                                'id_varian' => $variant->id_varian,
+                                'nama_varian' => $variant->nama_varian ?? '',
+                                'harga' => $product->harga_produk ?? 0,
+                                'stok_varian' => $variant->stok_varian ?? 0,
+                                'stok_prediksi' => $predictedStock,
+                                'id_produk' => $variant->id_produk ?? $product->id_produk,
+                                'unit' => $variant->unit ?? 'pcs',
+                                'compositions' => $compositionsArray,
+                                'is_direct_product' => false, // Semua produk punya komposisi
+                                'can_sell' => !$isOutOfStock, // Tidak bisa dijual jika bahan baku utama habis
+                                'has_out_of_stock_ingredient' => $isOutOfStock // Flag untuk frontend
+                            ];
+                        } catch (\Exception $e) {
+                            Log::error("Error processing variant {$variant->nama_varian}: " . $e->getMessage());
+                            return null;
                         }
-                        
-                        return true; // Variant OK, tetap kembalikan
+                    })
+                    // Filter variant yang null (dilewati karena bahan baku utama habis)
+                    ->filter(function($variant) {
+                        return $variant !== null;
                     });
 
                 // Jika produk tidak punya variant, cek apakah punya komposisi langsung ke produk
@@ -260,105 +193,98 @@ class TransactionController extends Controller
                     
                     // Jika punya komposisi, proses seperti variant
                     if ($hasDirectComposition) {
-                        $canProduce = $this->canProduceVariantWithCompositions($directCompositions, 1);
-                        $predictedStock = $this->calculatePredictedStock($directCompositions);
-                        
-                        // PENTING: Hanya cek stok BAHAN BAKU UTAMA
-                        $hasOutOfStockIngredient = false;
+                        // Cari bahan baku utama yang di-set (is_bahan_baku_utama = 1)
                         $mainIngredient = null;
-                        foreach ($directCompositions as $composition) {
-                            // Cek dengan berbagai format: true, 1, '1', 'true'
-                            $isMain = $composition->is_bahan_baku_utama;
+                        foreach ($directCompositions as $comp) {
+                            $isMain = $comp->is_bahan_baku_utama ?? false;
                             if ($isMain === true || $isMain === 1 || $isMain === '1' || $isMain === 'true' || (is_numeric($isMain) && (int)$isMain === 1)) {
-                                $mainIngredient = $composition;
-                                Log::info("Found main ingredient for product {$product->nama_produk} (direct): {$mainIngredient->nama_bahan} (stok: {$mainIngredient->stok_bahan}, is_main: {$isMain})");
+                                $mainIngredient = $comp;
                                 break;
                             }
                         }
                         
-                        if ($mainIngredient) {
-                            $stokBahan = (float)$mainIngredient->stok_bahan;
-                            $jumlahPerPorsi = (float)$mainIngredient->jumlah_per_porsi;
-                            $namaBahan = $mainIngredient->nama_bahan ?? 'Unknown';
-                            
-                            // PENTING: Jika bahan baku utama habis (stok <= 0), produk TIDAK BISA DIPRODUKSI
-                            if ($stokBahan <= 0) {
-                                $hasOutOfStockIngredient = true;
-                                $canProduce = false;
-                                $canSell = false; // PASTI tidak bisa dijual
-                                Log::info("Product {$product->nama_produk} (direct) has out of stock MAIN ingredient: {$namaBahan} (stok: {$stokBahan})");
-                            } else if ($jumlahPerPorsi > 0 && $stokBahan < $jumlahPerPorsi) {
-                                // Cek juga apakah stok cukup untuk membuat 1 porsi
-                                $hasOutOfStockIngredient = true;
-                                $canProduce = false;
-                                $canSell = false; // PASTI tidak bisa dijual
-                                Log::info("Product {$product->nama_produk} (direct) has insufficient MAIN ingredient: {$namaBahan} (stok: {$stokBahan}, needed: {$jumlahPerPorsi})");
-                            }
-                        } else {
-                            // Jika tidak ada bahan baku utama, cek semua bahan (backward compatibility)
-                            foreach ($directCompositions as $composition) {
-                                $stokBahan = (float)$composition->stok_bahan;
-                                $jumlahPerPorsi = (float)$composition->jumlah_per_porsi;
-                                
-                                if ($stokBahan <= 0 || ($jumlahPerPorsi > 0 && $stokBahan < $jumlahPerPorsi)) {
-                                    $hasOutOfStockIngredient = true;
-                                    $canProduce = false;
-                                    $canSell = false;
+                        // Jika tidak ada bahan baku utama yang di-set, cari bahan dengan stok > 0
+                        if (!$mainIngredient && $directCompositions->count() > 0) {
+                            // Cari bahan pertama yang stoknya > 0
+                            foreach ($directCompositions as $comp) {
+                                $stok = (float)($comp->stok_bahan ?? 0);
+                                if ($stok > 0) {
+                                    $mainIngredient = $comp;
+                                    Log::info("Product {$product->nama_produk} (direct): No main ingredient set, using first available ingredient with stock > 0: {$mainIngredient->nama_bahan} (stok: {$stok})");
                                     break;
                                 }
                             }
+                            
+                            // Jika semua bahan stoknya <= 0, gunakan bahan pertama (untuk logging)
+                            if (!$mainIngredient) {
+                                $mainIngredient = $directCompositions->first();
+                                Log::info("Product {$product->nama_produk} (direct): No ingredient with stock > 0, using first ingredient: {$mainIngredient->nama_bahan} (stok: {$mainIngredient->stok_bahan})");
+                            }
                         }
                         
-                        $hasComposition = !$directCompositions->isEmpty();
-                        
-                        // PENTING: Jika ada bahan baku utama habis, TIDAK BISA DIJUAL (sudah di-set di atas)
-                        if ($hasComposition && !$hasOutOfStockIngredient) {
-                            $canSell = $predictedStock > 0;
+                        // PENTING: Jika bahan baku utama stok <= 0, SKIP produk ini
+                        if ($mainIngredient) {
+                            $stokBahan = (float)($mainIngredient->stok_bahan ?? 0);
+                            $jumlahPerPorsi = (float)($mainIngredient->jumlah_per_porsi ?? 0);
+                            
+                            Log::info("Product {$product->nama_produk} (direct) stock check:", [
+                                'main_ingredient' => $mainIngredient->nama_bahan ?? 'Unknown',
+                                'stok_bahan' => $stokBahan,
+                                'jumlah_per_porsi' => $jumlahPerPorsi
+                            ]);
+                            
+                            // Cek apakah bahan baku utama habis atau tidak cukup
+                            $isOutOfStock = false;
+                            if ($stokBahan <= 0) {
+                                $isOutOfStock = true;
+                                Log::info("Product {$product->nama_produk} (direct): Main ingredient '{$mainIngredient->nama_bahan}' stock is 0 - will show as unavailable");
+                            } else if ($jumlahPerPorsi > 0 && $stokBahan < $jumlahPerPorsi) {
+                                $isOutOfStock = true;
+                                Log::info("Product {$product->nama_produk} (direct): Main ingredient '{$mainIngredient->nama_bahan}' stock ({$stokBahan}) insufficient for 1 portion ({$jumlahPerPorsi}) - will show as unavailable");
+                            }
+                            
+                            // Hitung stok prediksi
+                            if ($jumlahPerPorsi > 0 && $stokBahan > 0) {
+                                $predictedStock = floor($stokBahan / $jumlahPerPorsi);
+                            } else {
+                                $predictedStock = 0;
+                            }
+                            
+                            $compositionsArray = $directCompositions->map(function($comp) {
+                                return [
+                                    'id_bahan' => $comp->id_bahan,
+                                    'nama_bahan' => $comp->nama_bahan,
+                                    'jumlah_per_porsi' => (float)$comp->jumlah_per_porsi,
+                                    'satuan' => $comp->satuan,
+                                    'stok_bahan' => (float)$comp->stok_bahan,
+                                    'min_stok' => (float)$comp->min_stok,
+                                    'is_bahan_baku_utama' => (bool)($comp->is_bahan_baku_utama ?? false)
+                                ];
+                            })->values()->toArray();
+                            
+                            // Buat variant (baik tersedia maupun tidak tersedia)
+                            $variants = collect([[
+                                'id_varian' => 'product_' . $product->id_produk,
+                                'nama_varian' => $product->nama_produk,
+                                'harga' => $product->harga_produk,
+                                'stok_varian' => 0,
+                                'stok_prediksi' => $predictedStock,
+                                'id_produk' => $product->id_produk,
+                                'unit' => 'pcs',
+                                'compositions' => $compositionsArray,
+                                'is_direct_product' => false,
+                                'can_sell' => !$isOutOfStock, // Tidak bisa dijual jika bahan baku utama habis
+                                'has_out_of_stock_ingredient' => $isOutOfStock // Flag untuk frontend
+                            ]]);
+                        } else {
+                            // Produk tanpa komposisi: SKIP (semua produk harus punya komposisi)
+                            Log::info("Product {$product->nama_produk} SKIPPED: No composition found. All products must have compositions.");
+                            $variants = collect([]);
                         }
-                        // Jika hasOutOfStockIngredient = true, canSell sudah di-set false di atas
-                        
-                        $compositionsArray = $directCompositions->map(function($comp) {
-                            return [
-                                'id_bahan' => $comp->id_bahan,
-                                'nama_bahan' => $comp->nama_bahan,
-                                'jumlah_per_porsi' => (float)$comp->jumlah_per_porsi,
-                                'satuan' => $comp->satuan,
-                                'stok_bahan' => (float)$comp->stok_bahan,
-                                'min_stok' => (float)$comp->min_stok,
-                                'is_bahan_baku_utama' => (bool)($comp->is_bahan_baku_utama ?? false)
-                            ];
-                        })->values()->toArray();
-                        
-                        $variants = collect([[
-                            'id_varian' => 'product_' . $product->id_produk,
-                            'nama_varian' => $product->nama_produk,
-                            'harga' => $product->harga_produk,
-                            'stok_varian' => 0,
-                            'stok_prediksi' => $predictedStock,
-                            'id_produk' => $product->id_produk,
-                            'unit' => 'pcs',
-                            'compositions' => $compositionsArray,
-                            'is_direct_product' => false, // Punya komposisi, bukan produk langsung
-                            'is_available' => $canProduce,
-                            'can_sell' => $canSell,
-                            'has_out_of_stock_ingredient' => $hasOutOfStockIngredient
-                        ]]);
                     } else {
-                        // Produk benar-benar langsung (tanpa komposisi)
-                        $variants = collect([[
-                            'id_varian' => 'product_' . $product->id_produk,
-                            'nama_varian' => $product->nama_produk,
-                            'harga' => $product->harga_produk,
-                            'stok_varian' => 999,
-                            'stok_prediksi' => 999,
-                            'id_produk' => $product->id_produk,
-                            'unit' => 'pcs',
-                            'compositions' => [],
-                            'is_direct_product' => true,
-                            'is_available' => true,
-                            'can_sell' => true,
-                            'has_out_of_stock_ingredient' => false
-                        ]]);
+                        // Produk tanpa komposisi: SKIP (semua produk harus punya komposisi)
+                        Log::info("Product {$product->nama_produk} SKIPPED: No composition found. All products must have compositions.");
+                        $variants = collect([]);
                     }
                 }
 
@@ -386,12 +312,24 @@ class TransactionController extends Controller
                 return is_object($variants) && method_exists($variants, 'count') ? $variants->count() > 0 : false;
             });
 
+            // Convert collection ke array dan reset keys untuk memastikan array indexed, bukan object
+            $productsArray = $productsWithVariants->values()->toArray();
+            
+            Log::info("Total products returned: " . count($productsArray));
+            
             return response()->json([
                 'success' => true,
-                'data' => $productsWithVariants
+                'data' => $productsArray
             ], 200);
 
         } catch (\Exception $e) {
+            Log::error('Error in getProducts:', [
+                'message' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine()
+            ]);
+            
             return response()->json([
                 'success' => false,
                 'message' => 'Terjadi kesalahan saat mengambil data produk',
@@ -1466,12 +1404,75 @@ class TransactionController extends Controller
                         $hasComposition = !$compositions->isEmpty();
                         
                         if ($hasComposition) {
-                            // Variant dibuat dari bahan: restore stok bahan saja
+                            // Variant dengan komposisi: restore stok bahan DAN stok_varian
+                            // Karena saat transaksi dibuat, kedua stok bisa dikurangi
+                            
+                            // 1. Restore stok bahan
                             foreach ($compositions as $composition) {
                                 $ingredientUsage = $composition->jumlah_per_porsi * $detail->jumlah;
                                 DB::table('tbl_bahan')
                                     ->where('id_bahan', $composition->id_bahan)
                                     ->increment('stok_bahan', $ingredientUsage);
+                                
+                                Log::info('Restored ingredient stock:', [
+                                    'ingredient_id' => $composition->id_bahan,
+                                    'restored_quantity' => $ingredientUsage
+                                ]);
+                            }
+                            
+                            // 2. Restore stok_varian (jika ada yang dikurangi saat transaksi dibuat)
+                            // PENTING: Saat transaksi dibuat, stok_varian dikurangi sebesar:
+                            // min(current_stock, quantity) = fulfilledFromStock
+                            // Namun, kita tidak menyimpan nilai fulfilledFromStock di database.
+                            // Untuk keamanan, kita restore sebesar jumlah yang dibeli (detail->jumlah)
+                            // karena ini adalah jumlah maksimal yang mungkin dikurangi dari stok_varian.
+                            // Restoring full quantity is safer than under-restoring.
+                            try {
+                                $variant = DB::table('tbl_varian')
+                                    ->where('id_varian', $detail->id_varian)
+                                    ->first();
+                                
+                                if ($variant) {
+                                    // Restore stok_varian sebesar jumlah yang dibeli
+                                    // Ini mengembalikan stok_varian yang mungkin dikurangi saat transaksi dibuat
+                                    DB::table('tbl_varian')
+                                        ->where('id_varian', $detail->id_varian)
+                                        ->increment('stok_varian', $detail->jumlah);
+                                    
+                                    Log::info('Restored variant stock for composed variant:', [
+                                        'variant_id' => $detail->id_varian,
+                                        'variant_name' => $variant->nama_varian ?? 'Unknown',
+                                        'restored_quantity' => $detail->jumlah,
+                                        'transaction_detail_id' => $detail->id_transaksi_detail ?? null
+                                    ]);
+                                } else {
+                                    // Variant tidak ditemukan, tapi tetap coba restore untuk keamanan
+                                    // (mungkin variant dihapus setelah transaksi dibuat)
+                                    $restored = DB::table('tbl_varian')
+                                        ->where('id_varian', $detail->id_varian)
+                                        ->increment('stok_varian', $detail->jumlah);
+                                    
+                                    if ($restored > 0) {
+                                        Log::info('Restored variant stock (variant was missing but restored anyway):', [
+                                            'variant_id' => $detail->id_varian,
+                                            'restored_quantity' => $detail->jumlah
+                                        ]);
+                                    } else {
+                                        Log::warning('Variant not found when restoring stock (no rows affected):', [
+                                            'variant_id' => $detail->id_varian,
+                                            'transaction_detail_id' => $detail->id_transaksi_detail ?? null
+                                        ]);
+                                    }
+                                }
+                            } catch (\Exception $e) {
+                                // Log error but don't fail the entire deletion
+                                // Stock restoration is important but shouldn't block transaction deletion
+                                Log::error('Error restoring variant stock for composed variant:', [
+                                    'variant_id' => $detail->id_varian,
+                                    'error' => $e->getMessage(),
+                                    'transaction_detail_id' => $detail->id_transaksi_detail ?? null
+                                ]);
+                                // Continue with other items
                             }
                         } else {
                             // Variant tanpa komposisi: restore stok variant saja

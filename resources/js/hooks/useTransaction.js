@@ -139,7 +139,9 @@ export const useTransaction = () => {
 
         const cachedProducts = getCachedData(`${CACHE_KEY}_products`);
         if (cachedProducts) {
-            setProducts(cachedProducts);
+            // Pastikan cachedProducts adalah array
+            const productsArray = Array.isArray(cachedProducts) ? cachedProducts : [];
+            setProducts(productsArray);
             hasInitialData.current = true;
             setLoading(false);
         }
@@ -161,10 +163,12 @@ export const useTransaction = () => {
                         "/api/transactions/products"
                     );
                     if (response.data.success) {
-                        setProducts(response.data.data);
+                        // Pastikan response.data.data adalah array
+                        const productsArray = Array.isArray(response.data.data) ? response.data.data : [];
+                        setProducts(productsArray);
                         setCachedData(
                             `${CACHE_KEY}_products`,
-                            response.data.data
+                            productsArray
                         );
                     }
                 } catch (err) {
@@ -179,11 +183,14 @@ export const useTransaction = () => {
             try {
                 const response = await axios.get("/api/transactions/products");
                 if (response.data.success) {
-                    setProducts(response.data.data);
-                    setCachedData(`${CACHE_KEY}_products`, response.data.data);
+                    // Pastikan response.data.data adalah array
+                    const productsArray = Array.isArray(response.data.data) ? response.data.data : [];
+                    setProducts(productsArray);
+                    setCachedData(`${CACHE_KEY}_products`, productsArray);
                     hasInitialData.current = true;
                 } else {
                     setError(response.data.message);
+                    setProducts([]); // Set empty array jika error
                 }
             } catch (err) {
                 console.error("Error fetching products:", err);
@@ -217,13 +224,14 @@ export const useTransaction = () => {
         // Pastikan quantity selalu integer
         quantity = Math.floor(quantity);
         
-        // Validasi stok berdasarkan jenis variant:
-        // 1. Variant dengan komposisi: bisa dijual jika stok_varian > 0 (produk jadi) ATAU stok_prediksi > 0 (bisa dibuat dari bahan)
-        // 2. Variant tanpa komposisi: cek stok_varian
-        const isDirectProduct = variant.is_direct_product === true || variant.id_varian?.toString().startsWith('product_');
-        const predictedStock = variant.stok_prediksi;
-        const variantStock = variant.stok_varian ?? 0;
-        const hasComposition = variant.compositions && variant.compositions.length > 0;
+        // LOGIKA KETERSEDIAAN PRODUK:
+        // SEMUA PRODUK HARUS PUNYA KOMPOSISI
+        // 1. Cek bahan baku utama dari komposisi
+        // 2. Total stok = stok_varian (produk jadi) + stok_prediksi (bisa dibuat dari bahan)
+        // 3. Backend sudah menghitung stok_prediksi dengan benar, gunakan langsung dari backend
+        
+        const predictedStock = parseFloat(variant.stok_prediksi) || 0;
+        const variantStock = parseFloat(variant.stok_varian) || 0;
         
         // PENTING: Cek flag dari backend terlebih dahulu
         if (variant.has_out_of_stock_ingredient === true) {
@@ -238,45 +246,25 @@ export const useTransaction = () => {
         }
         
         // PENTING: Cek bahan baku utama yang habis dari frontend juga (double check)
-        // Jika bahan baku utama habis, produk TIDAK BISA ditambahkan ke cart
+        // SEMUA produk harus punya komposisi, jadi selalu cek bahan baku utama
         const outOfStockMainIngredient = getOutOfStockMainIngredient(variant);
         if (outOfStockMainIngredient) {
             alert(`⚠ Bahan baku utama habis!\n\nProduk "${variant.nama_varian || 'produk ini'}" tidak bisa ditambahkan karena bahan baku utama "${outOfStockMainIngredient.nama}" habis (stok: ${outOfStockMainIngredient.stok}).\n\nSilakan restock bahan baku utama terlebih dahulu.`);
             return;
         }
         
-        // Untuk produk langsung (stok_prediksi = 999), selalu bisa ditambahkan
-        if (isDirectProduct || predictedStock === 999) {
-            // Produk langsung selalu bisa ditambahkan
-            } else if (hasComposition) {
-                // Variant dengan komposisi: total stok = stok_varian (produk jadi) + stok_prediksi (bisa dibuat dari bahan)
-                const totalAvailable = variantStock + (predictedStock || 0);
-                
-                if (totalAvailable <= 0) {
-                    alert(`⚠ Stok bahan tidak mencukupi untuk membuat ${variant.nama_varian || 'produk ini'}.`);
-                    return;
-                }
-                
-                if (quantity > totalAvailable) {
-                    // Untuk angkringan, fokus pada stok yang bisa dibuat dari bahan
-                    if (predictedStock > 0) {
-                        alert(`⚠ Stok hanya cukup untuk ${Math.floor(totalAvailable)} porsi. Tidak bisa menambahkan ${quantity} porsi.`);
-                    } else {
-                        alert(`⚠ Stok ${variant.nama_varian || 'produk ini'} tidak mencukupi.`);
-                    }
-                    return;
-                }
-        } else {
-            // Variant tanpa komposisi: cek stok_varian
-            if (variantStock <= 0) {
-                alert(`Stok ${variant.nama_varian || 'produk ini'} tidak mencukupi.`);
-                return;
-            }
-            
-            if (quantity > variantStock) {
-                alert(`Stok hanya cukup untuk ${variantStock} porsi. Tidak bisa menambahkan ${quantity} porsi.`);
-                return;
-            }
+        // Hitung total stok yang tersedia (selalu = stok_varian + stok_prediksi)
+        const totalAvailable = variantStock + predictedStock;
+        
+        // Validasi stok (semua produk punya komposisi)
+        if (totalAvailable <= 0) {
+            alert(`⚠ Stok bahan tidak mencukupi untuk membuat ${variant.nama_varian || 'produk ini'}.`);
+            return;
+        }
+        
+        if (quantity > totalAvailable) {
+            alert(`⚠ Stok hanya cukup untuk ${Math.floor(totalAvailable)} porsi. Tidak bisa menambahkan ${quantity} porsi.`);
+            return;
         }
 
         const existingItem = cart.find(
@@ -297,31 +285,24 @@ export const useTransaction = () => {
             // Cek total quantity setelah ditambahkan
             const newQuantity = existingItem.quantity + quantity;
             
-            // Validasi stok untuk existing item berdasarkan jenis variant
-            if (!isDirectProduct && predictedStock !== 999) {
-                let maxStock = 0;
-                if (hasComposition) {
-                    // Variant dengan komposisi: total = stok_varian + stok_prediksi
-                    maxStock = variantStock + (predictedStock || 0);
-                } else {
-                    maxStock = variantStock;
-                }
-                
-                // Cek apakah stok habis
-                if (maxStock <= 0) {
-                    alert(`⚠ Stok ${variant.nama_varian || 'produk ini'} sudah habis. Tidak bisa menambahkan lagi.`);
+            // Validasi stok untuk existing item (semua produk punya komposisi)
+            // Hitung total stok yang tersedia (selalu = stok_varian + stok_prediksi)
+            const maxStock = variantStock + predictedStock;
+            
+            // Cek apakah stok habis
+            if (maxStock <= 0) {
+                alert(`⚠ Stok ${variant.nama_varian || 'produk ini'} sudah habis. Tidak bisa menambahkan lagi.`);
+                return;
+            }
+            
+            if (newQuantity > maxStock) {
+                const maxCanAdd = Math.floor(maxStock - existingItem.quantity);
+                if (maxCanAdd <= 0) {
+                    alert(`⚠ Stok tidak mencukupi. Maksimal yang bisa ditambahkan: ${Math.floor(existingItem.quantity)} porsi.`);
                     return;
                 }
-                
-                if (newQuantity > maxStock) {
-                    const maxCanAdd = Math.floor(maxStock - existingItem.quantity);
-                    if (maxCanAdd <= 0) {
-                        alert(`⚠ Stok tidak mencukupi. Maksimal yang bisa ditambahkan: ${Math.floor(existingItem.quantity)} porsi.`);
-                        return;
-                    }
-                    alert(`⚠ Stok hanya cukup untuk ${Math.floor(maxStock)} porsi. Hanya bisa menambahkan ${maxCanAdd} porsi lagi.`);
-                    quantity = maxCanAdd;
-                }
+                alert(`⚠ Stok hanya cukup untuk ${Math.floor(maxStock)} porsi. Hanya bisa menambahkan ${maxCanAdd} porsi lagi.`);
+                quantity = maxCanAdd;
             }
             
             // Pastikan quantity selalu integer
@@ -371,31 +352,31 @@ export const useTransaction = () => {
             return;
         }
 
-        // Validasi stok berdasarkan jenis variant
-        const variant = item.variant;
-        const isDirectProduct = variant.is_direct_product || variant.id_varian?.toString().startsWith('product_');
-        const predictedStock = variant.stok_prediksi;
-        const variantStock = variant.stok_varian ?? 0;
-        const hasComposition = variant.compositions && variant.compositions.length > 0;
+        // LOGIKA KETERSEDIAAN PRODUK:
+        // SEMUA PRODUK HARUS PUNYA KOMPOSISI
+        // Total stok = stok_varian (produk jadi) + stok_prediksi (bisa dibuat dari bahan)
         
-        // Untuk variant dengan komposisi atau tanpa komposisi, cek stok yang sesuai
-        if (!isDirectProduct && predictedStock !== 999) {
-            let maxStock = 0;
-            if (hasComposition) {
-                // Variant dengan komposisi: total = stok_varian + stok_prediksi
-                maxStock = variantStock + (predictedStock || 0);
-            } else {
-                maxStock = variantStock;
-            }
-            
-            // Pastikan maxStock juga integer untuk perbandingan
-            const maxStockInt = Math.floor(maxStock);
-            
-            if (maxStock !== undefined && maxStock !== null && quantity > maxStockInt) {
-                alert(`⚠ Stok hanya cukup untuk ${maxStockInt} porsi.`);
-                // Set quantity ke maksimal yang tersedia (integer)
-                quantity = maxStockInt;
-            }
+        const variant = item.variant;
+        const predictedStock = parseFloat(variant.stok_prediksi) || 0;
+        const variantStock = parseFloat(variant.stok_varian) || 0;
+        
+        // Hitung total stok yang tersedia (selalu = stok_varian + stok_prediksi)
+        const maxStock = variantStock + predictedStock;
+        
+        // Pastikan maxStock juga integer untuk perbandingan
+        const maxStockInt = Math.floor(maxStock);
+        
+        if (maxStock !== undefined && maxStock !== null && quantity > maxStockInt) {
+            alert(`⚠ Stok hanya cukup untuk ${maxStockInt} porsi.`);
+            // Set quantity ke maksimal yang tersedia (integer)
+            quantity = maxStockInt;
+        }
+        
+        // Cek apakah stok habis
+        if (maxStock <= 0) {
+            alert(`⚠ Stok ${variant.nama_varian || 'produk ini'} tidak mencukupi.`);
+            removeFromCart(variantId);
+            return;
         }
 
         // Pastikan quantity final adalah integer
@@ -478,8 +459,10 @@ export const useTransaction = () => {
                 try {
                     const refreshResponse = await axios.get("/api/transactions/products");
                     if (refreshResponse.data.success) {
-                        setProducts(refreshResponse.data.data);
-                        setCachedData(`${CACHE_KEY}_products`, refreshResponse.data.data);
+                        // Pastikan response.data.data adalah array
+                        const productsArray = Array.isArray(refreshResponse.data.data) ? refreshResponse.data.data : [];
+                        setProducts(productsArray);
+                        setCachedData(`${CACHE_KEY}_products`, productsArray);
                         console.log("Products refreshed after transaction");
                     }
                 } catch (err) {
@@ -490,8 +473,10 @@ export const useTransaction = () => {
                         axios.get("/api/transactions/products")
                             .then((retryResponse) => {
                                 if (retryResponse.data.success) {
-                                    setProducts(retryResponse.data.data);
-                                    setCachedData(`${CACHE_KEY}_products`, retryResponse.data.data);
+                                    // Pastikan response.data.data adalah array
+                                    const productsArray = Array.isArray(retryResponse.data.data) ? retryResponse.data.data : [];
+                                    setProducts(productsArray);
+                                    setCachedData(`${CACHE_KEY}_products`, productsArray);
                                 }
                             })
                             .catch(() => {
