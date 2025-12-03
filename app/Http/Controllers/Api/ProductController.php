@@ -10,6 +10,7 @@ use App\Models\TblVarian;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class ProductController extends Controller
 {
@@ -328,16 +329,20 @@ class ProductController extends Controller
                 ], 404);
             }
 
-            // Check if product is used in transactions
-            $transactionsCount = \App\Models\TblTransaksiDetail::where('id_produk', $id)->count();
+            // Tidak perlu cek transaksi karena transaksi adalah riwayat yang tidak menghalangi penghapusan
             
-            if ($transactionsCount > 0) {
+            // Check if product has direct compositions (komposisi langsung ke produk tanpa varian)
+            $directCompositionsCount = \App\Models\TblKomposisi::where('id_produk', $id)
+                ->whereNull('id_varian')
+                ->count();
+            
+            if ($directCompositionsCount > 0) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Produk tidak dapat dihapus karena masih digunakan dalam transaksi.'
+                    'message' => 'Produk tidak dapat dihapus karena masih memiliki komposisi langsung. Hapus komposisi terlebih dahulu.'
                 ], 400);
             }
-
+            
             // Check if product has variants that are used in compositions
             $variants = $product->varian;
             
@@ -351,10 +356,39 @@ class ProductController extends Controller
                     ], 400);
                 }
             }
+            
+            // Check if product is used in konversi_produk
+            $konversiCount = DB::table('tbl_konversi_produk')->where('id_produk_hasil', $id)->count();
+            if ($konversiCount > 0) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Produk tidak dapat dihapus karena masih digunakan dalam konversi produk. Hapus konversi produk terlebih dahulu.'
+                ], 400);
+            }
 
             DB::beginTransaction();
 
             try {
+                // Hapus detail transaksi yang terkait (jika ada)
+                // Karena id_produk di tbl_transaksi_detail adalah NOT NULL dan foreign key constraint,
+                // kita perlu hapus detail transaksi yang terkait sebelum menghapus product
+                // HATI-HATI: Ini akan menghapus riwayat transaksi yang terkait dengan product ini
+                $transactionDetailsCount = DB::table('tbl_transaksi_detail')->where('id_produk', $id)->count();
+                if ($transactionDetailsCount > 0) {
+                    \Log::warning("Deleting product with transaction history. Product ID: {$id}, Transaction details count: {$transactionDetailsCount}");
+                    // Hapus detail transaksi yang terkait
+                    DB::table('tbl_transaksi_detail')->where('id_produk', $id)->delete();
+                }
+                
+                // Hapus komposisi langsung ke produk (jika ada)
+                \App\Models\TblKomposisi::where('id_produk', $id)->whereNull('id_varian')->delete();
+                
+                // Hapus konversi produk terkait (jika ada)
+                DB::table('tbl_konversi_produk')->where('id_produk_hasil', $id)->delete();
+                
+                // Hapus bagian tubuh terkait (jika ada)
+                $product->bagianTubuh()->delete();
+                
                 // Hapus varian terkait terlebih dahulu (jika ada)
                 if ($variants->count() > 0) {
                     $product->varian()->delete();
@@ -372,14 +406,19 @@ class ProductController extends Controller
 
             } catch (\Exception $e) {
                 DB::rollback();
+                \Log::error('Error deleting product: ' . $e->getMessage());
+                \Log::error('Stack trace: ' . $e->getTraceAsString());
                 throw $e;
             }
 
         } catch (\Exception $e) {
+            \Log::error('Error in ProductController@destroy: ' . $e->getMessage());
+            \Log::error('Stack trace: ' . $e->getTraceAsString());
             return response()->json([
                 'success' => false,
                 'message' => 'Terjadi kesalahan saat menghapus produk',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
+                'file' => config('app.debug') ? $e->getFile() . ':' . $e->getLine() : null
             ], 500);
         }
     }

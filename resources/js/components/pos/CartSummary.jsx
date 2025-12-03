@@ -62,7 +62,10 @@ function CartSummary({ cart, total, onUpdateQuantity, onRemoveItem, onCheckout, 
                                 <div className="flex items-center justify-between">
                                     <div className="flex items-center gap-2">
                                         <button
-                                            onClick={() => onUpdateQuantity(item.variant.id_varian, item.quantity - 1)}
+                                            onClick={() => {
+                                                const currentQty = Math.floor(item.quantity);
+                                                onUpdateQuantity(item.variant.id_varian, currentQty - 1);
+                                            }}
                                             className="w-6 h-6 bg-gray-200 hover:bg-gray-300 rounded flex items-center justify-center transition-colors"
                                         >
                                             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -70,10 +73,13 @@ function CartSummary({ cart, total, onUpdateQuantity, onRemoveItem, onCheckout, 
                                             </svg>
                                         </button>
                                         <span className="w-8 text-center text-sm font-medium">
-                                            {item.quantity}
+                                            {Math.floor(item.quantity)}
                                         </span>
                                         <button
-                                            onClick={() => onUpdateQuantity(item.variant.id_varian, item.quantity + 1)}
+                                            onClick={() => {
+                                                const currentQty = Math.floor(item.quantity);
+                                                onUpdateQuantity(item.variant.id_varian, currentQty + 1);
+                                            }}
                                             className="w-6 h-6 bg-gray-200 hover:bg-gray-300 rounded flex items-center justify-center transition-colors"
                                         >
                                             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">

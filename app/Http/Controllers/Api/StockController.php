@@ -456,36 +456,84 @@ class StockController extends Controller
                 ], 404);
             }
 
-            // Simpan data untuk history sebelum delete
-            $oldData = $stock->toArray();
-            
-            // Log history untuk delete
-            try {
-                $this->logStockHistory(
-                    $stock->id_bahan,
-                    'delete',
-                    $oldData,
-                    null,
-                    "Menghapus stok: {$stock->nama_bahan}",
-                    auth()->id()
-                );
-            } catch (\Exception $e) {
-                // Log error but don't fail the delete
-                Log::error('Failed to log stock history: ' . $e->getMessage());
-            }
-            
-            $stock->delete();
+            DB::beginTransaction();
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Stok berhasil dihapus'
-            ], 200);
+            try {
+                // Simpan data untuk history sebelum delete
+                $oldData = $stock->toArray();
+                
+                // Log history untuk delete (sebelum delete, karena setelah delete tidak bisa log)
+                try {
+                    $userId = auth()->check() ? auth()->id() : (auth()->user() ? auth()->user()->id_user : null);
+                    if ($userId) {
+                        $this->logStockHistory(
+                            $stock->id_bahan,
+                            'delete',
+                            $oldData,
+                            null,
+                            "Menghapus stok: {$stock->nama_bahan}",
+                            $userId
+                        );
+                    }
+                } catch (\Exception $e) {
+                    // Log error but don't fail the delete
+                    Log::error('Failed to log stock history: ' . $e->getMessage());
+                }
+                
+                // Hapus semua relasi yang memiliki foreign key ke tbl_bahan
+                // Urutan penting: hapus dari yang paling dependen dulu
+                
+                // 1. Hapus stock history terkait (meskipun ada onDelete cascade, lebih aman hapus manual)
+                DB::table('tbl_stock_history')->where('id_bahan', $id)->delete();
+                
+                // 2. Hapus notifikasi terkait
+                DB::table('tbl_notifikasi')->where('id_bahan', $id)->delete();
+                
+                // 3. Hapus komposisi yang menggunakan bahan ini
+                // (Sudah dicek sebelumnya, tapi hapus lagi untuk memastikan)
+                DB::table('tbl_komposisi')->where('id_bahan', $id)->delete();
+                
+                // 4. Hapus konversi produk yang menggunakan bahan ini
+                // (Sudah dicek sebelumnya, tapi hapus lagi untuk memastikan)
+                DB::table('tbl_konversi_produk')->where('id_bahan_baku', $id)->delete();
+                
+                // Hapus stok
+                $stock->delete();
+
+                DB::commit();
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Stok berhasil dihapus'
+                ], 200);
+
+            } catch (\Exception $e) {
+                DB::rollback();
+                Log::error('Error deleting stock in transaction: ' . $e->getMessage());
+                Log::error('Stack trace: ' . $e->getTraceAsString());
+                Log::error('Stock ID: ' . $id);
+                
+                // Cek apakah error karena foreign key constraint
+                $errorMessage = $e->getMessage();
+                if (strpos($errorMessage, 'foreign key') !== false || strpos($errorMessage, '1451') !== false) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Stok tidak dapat dihapus karena masih digunakan dalam relasi lain. Pastikan semua komposisi dan konversi produk sudah dihapus.',
+                        'error' => config('app.debug') ? $e->getMessage() : 'Foreign key constraint violation'
+                    ], 400);
+                }
+                
+                throw $e;
+            }
 
         } catch (\Exception $e) {
+            Log::error('Error in StockController@destroy: ' . $e->getMessage());
+            Log::error('Stack trace: ' . $e->getTraceAsString());
             return response()->json([
                 'success' => false,
                 'message' => 'Terjadi kesalahan saat menghapus stok',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
+                'file' => config('app.debug') ? $e->getFile() . ':' . $e->getLine() : null
             ], 500);
         }
     }
@@ -530,26 +578,55 @@ class StockController extends Controller
                         // Simpan data untuk history sebelum delete
                         $oldData = $stock->toArray();
                         
+                        // Hapus semua relasi yang memiliki foreign key ke tbl_bahan
+                        // Urutan penting: hapus dari yang paling dependen dulu
+                        
+                        // 1. Hapus stock history terkait (meskipun ada onDelete cascade, lebih aman hapus manual)
+                        DB::table('tbl_stock_history')->where('id_bahan', $id)->delete();
+                        
+                        // 2. Hapus notifikasi terkait
+                        DB::table('tbl_notifikasi')->where('id_bahan', $id)->delete();
+                        
+                        // 3. Hapus komposisi yang menggunakan bahan ini
+                        DB::table('tbl_komposisi')->where('id_bahan', $id)->delete();
+                        
+                        // 4. Hapus konversi produk yang menggunakan bahan ini
+                        DB::table('tbl_konversi_produk')->where('id_bahan_baku', $id)->delete();
+                        
                         // Log history untuk delete
                         try {
-                            $this->logStockHistory(
-                                $stock->id_bahan,
-                                'delete',
-                                $oldData,
-                                null,
-                                "Menghapus stok: {$stock->nama_bahan}",
-                                auth()->id()
-                            );
+                            $userId = auth()->check() ? auth()->id() : (auth()->user() ? auth()->user()->id_user : null);
+                            if ($userId) {
+                                $this->logStockHistory(
+                                    $stock->id_bahan,
+                                    'delete',
+                                    $oldData,
+                                    null,
+                                    "Menghapus stok: {$stock->nama_bahan}",
+                                    $userId
+                                );
+                            }
                         } catch (\Exception $e) {
+                            // Log error but don't fail the delete
                             Log::error('Failed to log stock history: ' . $e->getMessage());
                         }
                         
+                        // Hapus stok
                         $stock->delete();
                         $deletedCount++;
                     } catch (\Exception $e) {
                         $failedCount++;
-                        $errors[] = "Gagal menghapus stok dengan ID {$id}: " . $e->getMessage();
-                        Log::error("Failed to delete stock {$id}: " . $e->getMessage());
+                        $errorMessage = $e->getMessage();
+                        $stockName = isset($stock) ? $stock->nama_bahan : 'Unknown';
+                        
+                        // Cek apakah error karena foreign key constraint
+                        if (strpos($errorMessage, 'foreign key') !== false || strpos($errorMessage, '1451') !== false) {
+                            $errors[] = "Stok '{$stockName}' tidak dapat dihapus karena masih digunakan dalam relasi lain";
+                        } else {
+                            $errors[] = "Gagal menghapus stok '{$stockName}' (ID: {$id}): " . $errorMessage;
+                        }
+                        Log::error("Failed to delete stock {$id}: " . $errorMessage);
+                        Log::error('Stack trace: ' . $e->getTraceAsString());
                     }
                 }
 

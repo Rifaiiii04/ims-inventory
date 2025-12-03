@@ -25,10 +25,16 @@ function CompositionFormModal({
 
     useEffect(() => {
         if (composition) {
+            // Pastikan ingredients memiliki is_bahan_baku_utama
+            const ingredientsWithMainFlag = (composition.ingredients || []).map(ing => ({
+                ...ing,
+                is_bahan_baku_utama: ing.is_bahan_baku_utama === true || ing.is_bahan_baku_utama === 1 || false
+            }));
+            
             setFormData({
                 product_id: composition.product_id || "",
                 variant_id: composition.variant_id || "",
-                ingredients: composition.ingredients || [],
+                ingredients: ingredientsWithMainFlag,
             });
             // Set selected product for variant filtering
             if (composition.product_id) {
@@ -102,6 +108,10 @@ function CompositionFormModal({
         const ingredient = ingredients.find(
             (ing) => ing.id_bahan == newIngredient.ingredient_id
         );
+        
+        // Jika ini bahan pertama, otomatis jadi bahan baku utama
+        const isFirstIngredient = formData.ingredients.length === 0;
+        
         setFormData((prev) => ({
             ...prev,
             ingredients: [
@@ -111,11 +121,23 @@ function CompositionFormModal({
                     quantity: parseFloat(newIngredient.quantity),
                     ingredient_name: ingredient?.nama_bahan || "",
                     unit: ingredient?.satuan || "",
+                    is_bahan_baku_utama: isFirstIngredient, // Bahan pertama otomatis jadi utama
                 },
             ],
         }));
 
         setNewIngredient({ ingredient_id: "", quantity: "" });
+    };
+    
+    // Handler untuk mengubah bahan baku utama (hanya 1 yang bisa dipilih)
+    const handleSetMainIngredient = (index) => {
+        setFormData((prev) => ({
+            ...prev,
+            ingredients: prev.ingredients.map((ing, i) => ({
+                ...ing,
+                is_bahan_baku_utama: i === index, // Hanya yang dipilih yang jadi true
+            })),
+        }));
     };
 
     const removeIngredient = (index) => {
@@ -140,6 +162,12 @@ function CompositionFormModal({
         if (formData.ingredients.length === 0) {
             newErrors.ingredients = "Minimal satu bahan harus ditambahkan";
         }
+        
+        // Validasi: Harus ada minimal 1 bahan baku utama
+        const hasMainIngredient = formData.ingredients.some(ing => ing.is_bahan_baku_utama === true);
+        if (!hasMainIngredient && formData.ingredients.length > 0) {
+            newErrors.ingredients = "Pilih minimal satu bahan sebagai Bahan Baku Utama";
+        }
 
         setErrors(newErrors);
         return Object.keys(newErrors).length === 0;
@@ -162,6 +190,7 @@ function CompositionFormModal({
                     variant_id: formData.variant_id || null, // Bisa null jika tidak ada variant
                     ingredient_id: ingredient.ingredient_id,
                     quantity: ingredient.quantity,
+                    is_bahan_baku_utama: ingredient.is_bahan_baku_utama || false,
                 };
 
                 if (composition) {
@@ -352,30 +381,53 @@ function CompositionFormModal({
                                 <h4 className="text-sm font-semibold text-gray-700 mb-3">
                                     Bahan yang Ditambahkan
                                 </h4>
+                                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-3">
+                                    <p className="text-xs text-yellow-800">
+                                        <strong>💡 Tips:</strong> Pilih salah satu bahan sebagai <strong>Bahan Baku Utama</strong>. 
+                                        Ketersediaan produk di transaksi akan bergantung pada stok bahan baku utama ini.
+                                    </p>
+                                </div>
                                 <div className="space-y-2">
                                     {formData.ingredients.map(
                                         (ingredient, index) => (
                                             <div
                                                 key={index}
-                                                className="flex items-center justify-between bg-gray-50 p-3 rounded-lg"
+                                                className={`flex items-center justify-between p-3 rounded-lg border-2 ${
+                                                    ingredient.is_bahan_baku_utama 
+                                                        ? 'bg-green-50 border-green-400' 
+                                                        : 'bg-gray-50 border-gray-200'
+                                                }`}
                                             >
-                                                <div className="flex-1">
-                                                    <span className="font-medium">
-                                                        {
-                                                            ingredient.ingredient_name
-                                                        }
-                                                    </span>
-                                                    <span className="text-gray-500 ml-2">
-                                                        {ingredient.quantity}{" "}
-                                                        {ingredient.unit}
-                                                    </span>
+                                                <div className="flex items-center flex-1">
+                                                    <input
+                                                        type="radio"
+                                                        name="main_ingredient"
+                                                        checked={ingredient.is_bahan_baku_utama || false}
+                                                        onChange={() => handleSetMainIngredient(index)}
+                                                        className="mr-3 h-4 w-4 text-green-600 focus:ring-green-500"
+                                                    />
+                                                    <div className="flex-1">
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="font-medium">
+                                                                {ingredient.ingredient_name}
+                                                            </span>
+                                                            {ingredient.is_bahan_baku_utama && (
+                                                                <span className="px-2 py-0.5 bg-green-500 text-white text-xs font-semibold rounded">
+                                                                    Bahan Baku Utama
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                        <span className="text-gray-500 text-sm">
+                                                            {ingredient.quantity} {ingredient.unit}
+                                                        </span>
+                                                    </div>
                                                 </div>
                                                 <button
                                                     type="button"
                                                     onClick={() =>
                                                         removeIngredient(index)
                                                     }
-                                                    className="text-red-500 hover:text-red-700 p-1"
+                                                    className="text-red-500 hover:text-red-700 p-1 ml-2"
                                                 >
                                                     <svg
                                                         className="w-4 h-4"

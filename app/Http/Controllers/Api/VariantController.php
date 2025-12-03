@@ -215,7 +215,7 @@ class VariantController extends Controller
                 ], 404);
             }
 
-            // Check if variant is used in compositions
+            // Check if variant is used in compositions (hanya cek komposisi aktif, tidak cek transaksi karena itu riwayat)
             $compositionsCount = \App\Models\TblKomposisi::where('id_varian', $id)->count();
             if ($compositionsCount > 0) {
                 return response()->json([
@@ -224,14 +224,7 @@ class VariantController extends Controller
                 ], 400);
             }
 
-            // Check if variant is used in transactions
-            $transactionsCount = \App\Models\TblTransaksiDetail::where('id_varian', $id)->count();
-            if ($transactionsCount > 0) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Varian tidak dapat dihapus karena masih digunakan dalam transaksi.'
-                ], 400);
-            }
+            // Tidak perlu cek transaksi karena transaksi adalah riwayat yang tidak menghalangi penghapusan
 
             $variant->delete();
 

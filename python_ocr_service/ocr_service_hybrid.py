@@ -54,7 +54,7 @@ try:
     import easyocr
     try:
         logger.info("Loading EasyOCR models...")
-        easyocr_reader = easyocr.Reader(['en', 'id'], gpu=False)
+        easyocr_reader = easyocr.Reader(['en', 'id'], gpu=True)
         easyocr_available = True
         logger.info("EasyOCR initialized successfully")
     except Exception as e:

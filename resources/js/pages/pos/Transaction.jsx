@@ -43,7 +43,8 @@ function Transaction() {
         removeFromCart,
         clearCart,
         getTotal,
-        processTransaction
+        processTransaction,
+        refreshProducts
     } = useTransaction();
 
     const handleProcessTransaction = async (paymentData) => {
@@ -56,6 +57,7 @@ function Transaction() {
         try {
             const result = await processTransaction(paymentData);
             if (result.success) {
+                // Produk sudah di-refresh di dalam processTransaction untuk update realtime
                 setTransactionData(result.data);
                 setShowPaymentModal(false);
                 setShowReceiptModal(true);

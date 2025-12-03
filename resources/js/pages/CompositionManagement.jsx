@@ -54,12 +54,45 @@ function CompositionManagement() {
         }
     };
 
-    // Handle hapus komposisi
+    // Handle hapus komposisi (single)
     const handleDeleteComposition = async (id) => {
         if (confirm("Apakah Anda yakin ingin menghapus komposisi ini?")) {
             const result = await deleteComposition(id);
             if (!result.success) {
                 alert(result.message);
+            }
+        }
+    };
+
+    // Handle hapus semua komposisi dalam grup (semua bahan untuk variant/produk)
+    const handleDeleteCompositionGroup = async (composition) => {
+        const compositionName = composition.variant_name || composition.product_name;
+        const ingredientCount = composition.ingredients?.length || 0;
+        
+        if (ingredientCount === 0) {
+            alert("Tidak ada komposisi yang bisa dihapus.");
+            return;
+        }
+
+        const confirmMessage = `Apakah Anda yakin ingin menghapus semua komposisi untuk ${compositionName}?\n\nIni akan menghapus ${ingredientCount} bahan dari komposisi.`;
+        
+        if (confirm(confirmMessage)) {
+            // Hapus semua komposisi dalam grup
+            const deletePromises = [];
+            if (composition.ingredients && composition.ingredients.length > 0) {
+                for (const ingredient of composition.ingredients) {
+                    if (ingredient.composition_id) {
+                        deletePromises.push(deleteComposition(ingredient.composition_id));
+                    }
+                }
+            }
+
+            // Tunggu semua delete selesai
+            const results = await Promise.all(deletePromises);
+            const failedResults = results.filter(r => !r.success);
+            
+            if (failedResults.length > 0) {
+                alert(`Gagal menghapus ${failedResults.length} komposisi. Silakan coba lagi.`);
             }
         }
     };
@@ -267,6 +300,7 @@ function CompositionManagement() {
                                     data={filteredCompositions}
                                     onEdit={handleEditComposition}
                                     onDelete={handleDeleteComposition}
+                                    onDeleteGroup={handleDeleteCompositionGroup}
                                     onViewDetail={handleViewDetail}
                                 />
                             </div>
@@ -337,6 +371,18 @@ function CompositionManagement() {
                     onClose={() => {
                         setShowDetailModal(false);
                         setSelectedComposition(null);
+                    }}
+                    onUpdate={async () => {
+                        await refreshData();
+                        // Refresh selected composition data
+                        if (selectedComposition) {
+                            const updated = compositionData.find(
+                                c => c.id === selectedComposition.id
+                            );
+                            if (updated) {
+                                setSelectedComposition(updated);
+                            }
+                        }
                     }}
                 />
             )}

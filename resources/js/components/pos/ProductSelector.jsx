@@ -1,5 +1,81 @@
 import React, { useState } from "react";
 
+// Helper function untuk mengecek bahan baku utama yang habis dari komposisi
+// PENTING: Hanya cek bahan baku utama (is_bahan_baku_utama = true)
+const getOutOfStockMainIngredient = (variant) => {
+    if (!variant) {
+        return null;
+    }
+    
+    // Pastikan compositions adalah array
+    let compositions = variant.compositions;
+    if (!compositions) {
+        return null;
+    }
+    
+    // Jika compositions adalah object/collection, convert ke array
+    if (!Array.isArray(compositions)) {
+        if (typeof compositions === 'object' && compositions.length !== undefined) {
+            compositions = Array.from(compositions);
+        } else {
+            return null;
+        }
+    }
+    
+    if (compositions.length === 0) {
+        return null;
+    }
+    
+    // Cari bahan baku utama
+    let mainIngredient = null;
+    for (const composition of compositions) {
+        if (composition && typeof composition === 'object') {
+            const isMain = composition.is_bahan_baku_utama;
+            // Cek dengan berbagai format: true, 1, '1', 'true'
+            if (isMain === true || isMain === 1 || isMain === '1' || isMain === 'true' || (typeof isMain === 'number' && isMain === 1) || (typeof isMain === 'string' && isMain === '1')) {
+                mainIngredient = composition;
+                console.log('Found main ingredient:', composition.nama_bahan, 'stok:', composition.stok_bahan, 'is_main:', isMain);
+                break;
+            }
+        }
+    }
+    
+    // Jika tidak ada bahan baku utama yang dipilih, gunakan bahan pertama (backward compatibility)
+    if (!mainIngredient && compositions.length > 0) {
+        mainIngredient = compositions[0];
+    }
+    
+    if (!mainIngredient) {
+        return null;
+    }
+    
+    // Cek apakah stok bahan baku utama habis atau tidak cukup untuk membuat 1 porsi
+    const stokBahan = parseFloat(mainIngredient.stok_bahan) || 0;
+    const jumlahPerPorsi = parseFloat(mainIngredient.jumlah_per_porsi) || 0;
+    const namaBahan = mainIngredient.nama_bahan || 'Bahan tidak diketahui';
+    
+    // Bahan baku utama dianggap habis jika:
+    // 1. Stok <= 0 (PALING PENTING - jika stok 0, pasti habis)
+    // 2. Stok < jumlah yang dibutuhkan per porsi
+    if (stokBahan <= 0) {
+        return {
+            nama: namaBahan,
+            stok: stokBahan,
+            dibutuhkan: jumlahPerPorsi,
+            reason: 'Stok habis (0 atau kurang)'
+        };
+    } else if (jumlahPerPorsi > 0 && stokBahan < jumlahPerPorsi) {
+        return {
+            nama: namaBahan,
+            stok: stokBahan,
+            dibutuhkan: jumlahPerPorsi,
+            reason: 'Stok tidak cukup untuk 1 porsi'
+        };
+    }
+    
+    return null; // Bahan baku utama tersedia
+};
+
 function ProductSelector({ products, onAddToCart }) {
     const [selectedProduct, setSelectedProduct] = useState(null);
     const [selectedVariant, setSelectedVariant] = useState(null);
@@ -28,14 +104,43 @@ function ProductSelector({ products, onAddToCart }) {
                 return;
             }
             
-            // Validasi stok bahan sebelum menambahkan ke keranjang
+            // PENTING: Cek flag dari backend terlebih dahulu
+            if (variant.has_out_of_stock_ingredient === true) {
+                alert(`⚠ Bahan pokok habis!\n\nProduk "${variant.nama_varian || product.name}" tidak bisa ditambahkan karena ada bahan yang habis.\n\nSilakan restock bahan terlebih dahulu.`);
+                return;
+            }
+            
+            // Validasi stok bahan sebelum menambahkan ke keranjang - sama dengan logika di addToCart
             const isDirectProduct = variant.is_direct_product === true || variant.id_varian?.toString().startsWith('product_');
             const predictedStock = variant.stok_prediksi;
+            const variantStock = variant.stok_varian ?? 0;
+            const hasComposition = variant.compositions && Array.isArray(variant.compositions) && variant.compositions.length > 0;
             
-            // Cek apakah stok habis
-            if (!isDirectProduct && (predictedStock === undefined || predictedStock === null || predictedStock <= 0)) {
-                alert(`⚠ Stok bahan habis! Tidak bisa menambahkan ${variant.nama_varian || product.name} ke keranjang.`);
-                return;
+            // Untuk produk langsung (stok_prediksi = 999), selalu bisa ditambahkan
+            if (isDirectProduct || predictedStock === 999) {
+                // Produk langsung selalu bisa ditambahkan
+            } else if (hasComposition) {
+                // Variant dengan komposisi: total stok = stok_varian (produk jadi) + stok_prediksi (bisa dibuat dari bahan)
+                const totalAvailable = variantStock + (predictedStock || 0);
+                
+                // Cek bahan yang habis - PENTING: cek ini SEBELUM cek totalAvailable
+                const outOfStockMainIngredient = getOutOfStockMainIngredient(variant);
+                
+                if (outOfStockMainIngredient) {
+                    alert(`⚠ Bahan baku utama habis!\n\nProduk "${variant.nama_varian || product.name}" tidak bisa ditambahkan karena bahan baku utama "${outOfStockMainIngredient.nama}" habis (stok: ${outOfStockMainIngredient.stok}).\n\nSilakan restock bahan baku utama terlebih dahulu.`);
+                    return;
+                }
+                
+                if (totalAvailable <= 0) {
+                    alert(`⚠ Stok bahan tidak mencukupi untuk membuat ${variant.nama_varian || product.name}.`);
+                    return;
+                }
+            } else {
+                // Variant tanpa komposisi: cek stok_varian
+                if (variantStock <= 0) {
+                    alert(`⚠ Stok ${variant.nama_varian || product.name} tidak mencukupi.`);
+                    return;
+                }
             }
             
             // Langsung tambah ke keranjang dengan quantity 1, termasuk produk parent
@@ -60,14 +165,43 @@ function ProductSelector({ products, onAddToCart }) {
     };
 
     const handleVariantSelect = (variant) => {
-        // Validasi stok bahan sebelum menambahkan ke keranjang
+        // PENTING: Cek flag dari backend terlebih dahulu
+        if (variant.has_out_of_stock_ingredient === true) {
+            alert(`⚠ Bahan pokok habis!\n\nProduk "${variant.nama_varian || 'produk ini'}" tidak bisa ditambahkan karena ada bahan yang habis.\n\nSilakan restock bahan terlebih dahulu.`);
+            return;
+        }
+        
+        // Validasi stok bahan sebelum menambahkan ke keranjang - sama dengan logika di addToCart
         const isDirectProduct = variant.is_direct_product === true || variant.id_varian?.toString().startsWith('product_');
         const predictedStock = variant.stok_prediksi;
+        const variantStock = variant.stok_varian ?? 0;
+        const hasComposition = variant.compositions && Array.isArray(variant.compositions) && variant.compositions.length > 0;
         
-        // Cek apakah stok habis
-        if (!isDirectProduct && (predictedStock === undefined || predictedStock === null || predictedStock <= 0)) {
-            alert(`⚠ Stok bahan habis! Tidak bisa menambahkan ${variant.nama_varian || 'produk ini'} ke keranjang.`);
-            return;
+        // Untuk produk langsung (stok_prediksi = 999), selalu bisa ditambahkan
+        if (isDirectProduct || predictedStock === 999) {
+            // Produk langsung selalu bisa ditambahkan
+        } else if (hasComposition) {
+            // Variant dengan komposisi: total stok = stok_varian (produk jadi) + stok_prediksi (bisa dibuat dari bahan)
+            const totalAvailable = variantStock + (predictedStock || 0);
+            
+            // Cek bahan yang habis - PENTING: cek ini SEBELUM cek totalAvailable
+            const outOfStockMainIngredient = getOutOfStockMainIngredient(variant);
+            
+            if (outOfStockMainIngredient) {
+                alert(`⚠ Bahan baku utama habis!\n\nProduk "${variant.nama_varian || 'produk ini'}" tidak bisa ditambahkan karena bahan baku utama "${outOfStockMainIngredient.nama}" habis (stok: ${outOfStockMainIngredient.stok}).\n\nSilakan restock bahan baku utama terlebih dahulu.`);
+                return;
+            }
+            
+            if (totalAvailable <= 0) {
+                alert(`⚠ Stok bahan tidak mencukupi untuk membuat ${variant.nama_varian || 'produk ini'}.`);
+                return;
+            }
+        } else {
+            // Variant tanpa komposisi: cek stok_varian
+            if (variantStock <= 0) {
+                alert(`⚠ Stok ${variant.nama_varian || 'produk ini'} tidak mencukupi.`);
+                return;
+            }
         }
         
         // Langsung tambah ke keranjang dengan quantity 1, termasuk produk parent
@@ -91,14 +225,43 @@ function ProductSelector({ products, onAddToCart }) {
 
     const handleAddToCart = () => {
         if (selectedVariant && quantity > 0) {
-            // Validasi stok bahan sebelum menambahkan ke keranjang
+            // PENTING: Cek flag dari backend terlebih dahulu
+            if (selectedVariant.has_out_of_stock_ingredient === true) {
+                alert(`⚠ Bahan pokok habis!\n\nProduk "${selectedVariant.nama_varian || 'produk ini'}" tidak bisa ditambahkan karena ada bahan yang habis.\n\nSilakan restock bahan terlebih dahulu.`);
+                return;
+            }
+            
+            // Validasi stok bahan sebelum menambahkan ke keranjang - sama dengan logika di addToCart
             const isDirectProduct = selectedVariant.is_direct_product === true || selectedVariant.id_varian?.toString().startsWith('product_');
             const predictedStock = selectedVariant.stok_prediksi;
+            const variantStock = selectedVariant.stok_varian ?? 0;
+            const hasComposition = selectedVariant.compositions && Array.isArray(selectedVariant.compositions) && selectedVariant.compositions.length > 0;
             
-            // Cek apakah stok habis
-            if (!isDirectProduct && (predictedStock === undefined || predictedStock === null || predictedStock <= 0)) {
-                alert(`⚠ Stok bahan habis! Tidak bisa menambahkan ${selectedVariant.nama_varian || 'produk ini'} ke keranjang.`);
-                return;
+            // Untuk produk langsung (stok_prediksi = 999), selalu bisa ditambahkan
+            if (isDirectProduct || predictedStock === 999) {
+                // Produk langsung selalu bisa ditambahkan
+            } else if (hasComposition) {
+                // Variant dengan komposisi: total stok = stok_varian (produk jadi) + stok_prediksi (bisa dibuat dari bahan)
+                const totalAvailable = variantStock + (predictedStock || 0);
+                
+                // Cek bahan yang habis - PENTING: cek ini SEBELUM cek totalAvailable
+                const outOfStockMainIngredient = getOutOfStockMainIngredient(selectedVariant);
+                
+                if (outOfStockMainIngredient) {
+                    alert(`⚠ Bahan baku utama habis!\n\nProduk "${selectedVariant.nama_varian || 'produk ini'}" tidak bisa ditambahkan karena bahan baku utama "${outOfStockMainIngredient.nama}" habis (stok: ${outOfStockMainIngredient.stok}).\n\nSilakan restock bahan baku utama terlebih dahulu.`);
+                    return;
+                }
+                
+                if (totalAvailable <= 0) {
+                    alert(`⚠ Stok bahan tidak mencukupi untuk membuat ${selectedVariant.nama_varian || 'produk ini'}.`);
+                    return;
+                }
+            } else {
+                // Variant tanpa komposisi: cek stok_varian
+                if (variantStock <= 0) {
+                    alert(`⚠ Stok ${selectedVariant.nama_varian || 'produk ini'} tidak mencukupi.`);
+                    return;
+                }
             }
             
             onAddToCart(selectedVariant, quantity, selectedProduct);
@@ -161,22 +324,110 @@ function ProductSelector({ products, onAddToCart }) {
                             // Cek apakah stok habis - lebih ketat
                             const isDirectProduct = variant?.is_direct_product === true || variant?.id_varian?.toString().startsWith('product_');
                             const predictedStock = variant?.stok_prediksi;
-                            const isOutOfStock = !isDirectProduct && (predictedStock === undefined || predictedStock === null || predictedStock <= 0);
+                            const variantStock = variant?.stok_varian ?? 0;
+                            const hasComposition = variant?.compositions && Array.isArray(variant.compositions) && variant.compositions.length > 0;
+                            
+                            // PENTING: Cek bahan yang habis untuk SEMUA produk yang punya komposisi
+                            // Jangan peduli apakah dianggap "produk langsung" atau tidak
+                            // Cek ini TERLEBIH DAHULU sebelum cek status lainnya
+                            
+                            // Cek apakah variant punya compositions (cek lebih ketat dan robust)
+                            let hasCompositionStrict = false;
+                            let compositionsArray = [];
+                            
+                            if (variant?.compositions) {
+                                if (Array.isArray(variant.compositions)) {
+                                    compositionsArray = variant.compositions;
+                                    hasCompositionStrict = compositionsArray.length > 0;
+                                } else if (typeof variant.compositions === 'object') {
+                                    // Jika object, coba convert ke array
+                                    try {
+                                        compositionsArray = Object.values(variant.compositions);
+                                        hasCompositionStrict = compositionsArray.length > 0;
+                                    } catch (e) {
+                                        hasCompositionStrict = false;
+                                    }
+                                }
+                            }
+                            
+                            // Cek bahan baku utama yang habis - PENTING: Hanya cek bahan baku utama
+                            // Cek untuk SEMUA produk yang punya komposisi, tidak peduli apakah is_direct_product atau tidak
+                            // PENTING: Cek ini HARUS dilakukan untuk SEMUA produk yang punya komposisi
+                            let outOfStockMainIngredient = null;
+                            let hasOutOfStockMainIngredient = false;
+                            
+                            // Cek komposisi dengan lebih ketat - PENTING: Cek ini untuk SEMUA produk
+                            if (variant?.compositions) {
+                                let comps = variant.compositions;
+                                if (Array.isArray(comps) && comps.length > 0) {
+                                    outOfStockMainIngredient = getOutOfStockMainIngredient(variant);
+                                    hasOutOfStockMainIngredient = outOfStockMainIngredient !== null;
+                                } else if (typeof comps === 'object' && comps !== null) {
+                                    // Coba convert object ke array
+                                    try {
+                                        const compsArray = Object.values(comps);
+                                        if (compsArray.length > 0) {
+                                            // Buat variant sementara dengan compositions array
+                                            const tempVariant = { ...variant, compositions: compsArray };
+                                            outOfStockMainIngredient = getOutOfStockMainIngredient(tempVariant);
+                                            hasOutOfStockMainIngredient = outOfStockMainIngredient !== null;
+                                        }
+                                    } catch (e) {
+                                        // Ignore error
+                                    }
+                                }
+                            }
+                            
+                            // PENTING: Cek juga dari hasCompositionStrict dan hasComposition
+                            if (!hasOutOfStockMainIngredient && (hasCompositionStrict || hasComposition)) {
+                                outOfStockMainIngredient = getOutOfStockMainIngredient(variant);
+                                hasOutOfStockMainIngredient = outOfStockMainIngredient !== null;
+                            }
+                            
+                            // Gunakan flag dari backend jika ada, atau cek dari frontend
+                            const hasOutOfStockFromBackend = variant?.has_out_of_stock_ingredient === true;
+                            
+                            // Jika bahan baku utama habis (dari backend ATAU dari frontend), produk TIDAK TERSEDIA
+                            // Karena tidak bisa diproduksi tanpa bahan baku utama
+                            // PENTING: Cek ini untuk SEMUA produk yang punya komposisi, meskipun is_direct_product = true
+                            const isProductUnavailable = hasOutOfStockFromBackend || hasOutOfStockMainIngredient;
+                            
+                            // Untuk variant dengan komposisi, total stok = stok_varian + stok_prediksi
+                            // Untuk variant tanpa komposisi, hanya cek stok_varian
+                            let totalAvailableStock = predictedStock;
+                            if (!isDirectProduct && hasComposition && predictedStock !== 999) {
+                                totalAvailableStock = variantStock + (predictedStock || 0);
+                            } else if (!isDirectProduct && !hasComposition) {
+                                totalAvailableStock = variantStock;
+                            }
+                            
+                            // Produk dianggap habis jika:
+                            // 1. Ada bahan baku utama yang habis (isProductUnavailable) - PRIORITAS UTAMA
+                            // 2. Stok habis (totalAvailableStock <= 0)
+                            // PENTING: Jika ada bahan baku utama habis, produk TIDAK BOLEH dijual meskipun ada stok_varian
+                            // PENTING: Untuk produk dengan komposisi, jika bahan baku utama habis, langsung dianggap tidak tersedia
+                            const isOutOfStock = isProductUnavailable || (!isDirectProduct && (totalAvailableStock === undefined || totalAvailableStock === null || totalAvailableStock <= 0));
 
                             return (
                                 <div
                                     key={product.id}
                                     onClick={(e) => {
-                                        if (isOutOfStock) {
+                                        if (isOutOfStock || isProductUnavailable) {
                                             e.preventDefault();
                                             e.stopPropagation();
-                                            alert(`⚠ Stok bahan habis! Tidak bisa menambahkan ${product.name} ke keranjang.`);
+                                            
+                                            // Tampilkan alert dengan daftar bahan yang habis
+                                            if (hasOutOfStockMainIngredient) {
+                                                alert(`⚠ Bahan baku utama habis!\n\nProduk "${product.name}" tidak bisa ditambahkan karena bahan baku utama "${outOfStockMainIngredient.nama}" habis (stok: ${outOfStockMainIngredient.stok}).\n\nSilakan restock bahan baku utama terlebih dahulu.`);
+                                            } else {
+                                                alert(`⚠ Stok bahan habis! Tidak bisa menambahkan ${product.name} ke keranjang.`);
+                                            }
                                             return;
                                         }
                                         handleProductClick(product);
                                     }}
                                     className={`p-4 border-2 rounded-xl transition-all duration-200 ${
-                                        isOutOfStock
+                                        isOutOfStock || isProductUnavailable
                                             ? "border-red-400 bg-red-50 opacity-75 cursor-not-allowed"
                                             : selectedProduct?.id === product.id
                                             ? "border-green-500 bg-green-50 shadow-lg cursor-pointer"
@@ -203,20 +454,62 @@ function ProductSelector({ products, onAddToCart }) {
                                                         ? `${product.variants.length} varian tersedia`
                                                         : "Produk langsung"}
                                                 </p>
-                                                    {isOutOfStock ? (
-                                                        <p className="text-xs text-red-600 font-bold mt-0.5">
-                                                            ⚠ STOK BAHAN HABIS
-                                                        </p>
+                                                    {isOutOfStock || isProductUnavailable ? (
+                                                        <div className="mt-0.5">
+                                                            <p className="text-xs text-red-600 font-bold">
+                                                                ⚠ TIDAK TERSEDIA
+                                                            </p>
+                                                            {hasOutOfStockMainIngredient && (
+                                                                <p className="text-xs text-red-500 mt-0.5">
+                                                                    Bahan baku utama habis: {outOfStockMainIngredient.nama}
+                                                                </p>
+                                                            )}
+                                                        </div>
                                                     ) : variant?.stok_prediksi !== undefined ? (
-                                                        variant.stok_prediksi === 999 ? (
-                                                            <p className="text-xs text-green-600 font-medium mt-0.5">
-                                                                ✓ Tersedia (produk langsung)
+                                                        // PENTING: HANYA tampilkan "Tersedia" jika TIDAK ada bahan baku utama habis
+                                                        // Cek isProductUnavailable TERLEBIH DAHULU sebelum menampilkan status
+                                                        // PENTING: Jika produk punya komposisi dan bahan baku utama habis, TIDAK BOLEH menampilkan "Tersedia"
+                                                        isProductUnavailable ? (
+                                                            <p className="text-xs text-red-600 font-medium mt-0.5">
+                                                                ⚠ Tidak tersedia
                                                             </p>
-                                                        ) : (
-                                                            <p className="text-xs text-blue-600 font-medium mt-0.5">
-                                                                📊 Bisa dibuat: ~{variant.stok_prediksi} porsi (berdasarkan stok bahan)
-                                                            </p>
-                                                        )
+                                                        ) : (() => {
+                                                            // PENTING: Hanya tampilkan "Tersedia" jika:
+                                                            // 1. Produk TIDAK punya komposisi (produk langsung)
+                                                            // 2. DAN stok_prediksi = 999
+                                                            // 3. DAN TIDAK ada bahan baku utama habis
+                                                            // Jika produk punya komposisi, TIDAK BOLEH menampilkan "Tersedia" meskipun stok_prediksi = 999
+                                                            
+                                                            // Cek apakah produk benar-benar produk langsung (tanpa komposisi)
+                                                            const hasAnyComposition = hasCompositionStrict || hasComposition || (variant?.compositions && (
+                                                                (Array.isArray(variant.compositions) && variant.compositions.length > 0) ||
+                                                                (typeof variant.compositions === 'object' && Object.keys(variant.compositions).length > 0)
+                                                            ));
+                                                            
+                                                            const isTrueDirectProduct = !hasAnyComposition && variant.stok_prediksi === 999;
+                                                            
+                                                            if (isTrueDirectProduct) {
+                                                                return (
+                                                                    <p className="text-xs text-green-600 font-medium mt-0.5">
+                                                                        ✓ Tersedia
+                                                                    </p>
+                                                                );
+                                                            } else if (hasAnyComposition) {
+                                                                // Produk dengan komposisi: tampilkan jumlah porsi yang bisa dibuat
+                                                                return (
+                                                                    <p className="text-xs text-blue-600 font-medium mt-0.5">
+                                                                        📊 Bisa dibuat: ~{Math.floor(totalAvailableStock)} porsi
+                                                                    </p>
+                                                                );
+                                                            } else {
+                                                                // Produk tanpa komposisi tapi bukan produk langsung
+                                                                return (
+                                                                    <p className="text-xs text-blue-600 font-medium mt-0.5">
+                                                                        📊 Stok: ~{Math.floor(predictedStock)} porsi
+                                                                    </p>
+                                                                );
+                                                            }
+                                                        })()
                                                     ) : null}
                                                 </div>
                                                 <p className="text-sm font-bold text-green-600">
@@ -247,22 +540,46 @@ function ProductSelector({ products, onAddToCart }) {
                                 selectedProduct.variants.map((variant) => {
                                     const isDirectProduct = variant.is_direct_product === true || variant.id_varian?.toString().startsWith('product_');
                                     const predictedStock = variant.stok_prediksi;
-                                    const isOutOfStock = !isDirectProduct && (predictedStock === undefined || predictedStock === null || predictedStock <= 0);
+                                    const variantStock = variant.stok_varian ?? 0;
+                                    const hasComposition = variant.compositions && Array.isArray(variant.compositions) && variant.compositions.length > 0;
+                                    
+                                    // PENTING: Cek bahan baku utama yang habis untuk variant dengan komposisi
+                                    const outOfStockMainIngredient = hasComposition ? getOutOfStockMainIngredient(variant) : null;
+                                    const hasOutOfStockMainIngredient = outOfStockMainIngredient !== null;
+                                    const hasOutOfStockFromBackend = variant?.has_out_of_stock_ingredient === true;
+                                    const isVariantUnavailable = hasOutOfStockFromBackend || hasOutOfStockMainIngredient;
+                                    
+                                    // Untuk variant dengan komposisi, total stok = stok_varian + stok_prediksi
+                                    // Untuk variant tanpa komposisi, hanya cek stok_varian
+                                    let totalAvailableStock = predictedStock;
+                                    if (!isDirectProduct && hasComposition && predictedStock !== 999) {
+                                        totalAvailableStock = variantStock + (predictedStock || 0);
+                                    } else if (!isDirectProduct && !hasComposition) {
+                                        totalAvailableStock = variantStock;
+                                    }
+                                    
+                                    // Variant dianggap habis jika stok habis ATAU ada bahan habis
+                                    const isOutOfStock = (!isDirectProduct && (totalAvailableStock === undefined || totalAvailableStock === null || totalAvailableStock <= 0)) || isVariantUnavailable;
                                     
                                     return (
                                 <div
                                     key={variant.id_varian}
                                     onClick={(e) => {
-                                        if (isOutOfStock) {
+                                        if (isOutOfStock || isVariantUnavailable) {
                                             e.preventDefault();
                                             e.stopPropagation();
-                                            alert(`⚠ Stok bahan habis! Tidak bisa menambahkan ${variant.nama_varian} ke keranjang.`);
+                                            
+                                            if (hasOutOfStockMainIngredient) {
+                                                alert(`⚠ Bahan baku utama habis!\n\nVarian "${variant.nama_varian}" tidak bisa ditambahkan karena bahan baku utama "${outOfStockMainIngredient.nama}" habis (stok: ${outOfStockMainIngredient.stok}).\n\nSilakan restock bahan baku utama terlebih dahulu.`);
+                                            } else {
+                                                alert(`⚠ Stok bahan habis! Tidak bisa menambahkan ${variant.nama_varian} ke keranjang.`);
+                                            }
                                             return;
                                         }
                                         handleVariantSelect(variant);
                                     }}
                                     className={`p-3 border-2 rounded-lg transition-all duration-200 ${
-                                        isOutOfStock
+                                        isOutOfStock || isVariantUnavailable
                                             ? "border-red-400 bg-red-50 opacity-75 cursor-not-allowed"
                                             : selectedVariant?.id_varian ===
                                         variant.id_varian
@@ -278,18 +595,29 @@ function ProductSelector({ products, onAddToCart }) {
                                             <p className="text-sm text-gray-500">
                                                 Stok: {variant.stok_varian}
                                             </p>
-                                            {isOutOfStock ? (
-                                                <p className="text-xs text-red-600 font-bold">
-                                                    ⚠ STOK BAHAN HABIS
-                                                </p>
-                                            ) : variant.stok_prediksi !== undefined ? (
+                                            {isOutOfStock || isVariantUnavailable ? (
+                                                <div>
+                                                    <p className="text-xs text-red-600 font-bold">
+                                                        ⚠ STOK HABIS
+                                                    </p>
+                                                    {hasOutOfStockMainIngredient && (
+                                                        <p className="text-xs text-red-500 mt-0.5">
+                                                            Bahan baku utama habis: {outOfStockMainIngredient.nama}
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            ) : variant.stok_prediksi !== undefined && !isVariantUnavailable ? (
                                                 variant.stok_prediksi === 999 ? (
                                                     <p className="text-xs text-green-600 font-medium">
                                                         ✓ Tersedia (produk langsung)
                                                     </p>
+                                                ) : hasComposition ? (
+                                                    <p className="text-xs text-blue-600 font-medium">
+                                                        📊 Bisa dibuat: ~{Math.floor(totalAvailableStock)} porsi
+                                                    </p>
                                                 ) : (
                                                     <p className="text-xs text-blue-600 font-medium">
-                                                        📊 Bisa dibuat: ~{variant.stok_prediksi} porsi (berdasarkan stok bahan)
+                                                        📊 Stok: ~{Math.floor(predictedStock)} porsi
                                                     </p>
                                                 )
                                             ) : null}
