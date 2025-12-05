@@ -115,21 +115,12 @@ function ProductSelector({ products, onAddToCart }) {
     };
 
     const handleVariantSelect = (variant) => {
-        // Cek apakah produk tidak tersedia dari backend atau frontend
-        const isOutOfStockFromBackend =
-            variant.has_out_of_stock_ingredient === true ||
-            variant.can_sell === false;
+        // Cek apakah bahan baku utama habis
         const stockCheck = checkMainIngredientStock(variant);
-        const isAvailable = !isOutOfStockFromBackend && stockCheck.available;
-
-        if (!isAvailable) {
-            if (stockCheck.mainIngredient) {
-                alert(
-                    `⚠ Variant tidak tersedia!\n\nBahan baku utama "${stockCheck.mainIngredient.nama}" habis (stok: ${stockCheck.mainIngredient.stok}).\n\nSilakan restock terlebih dahulu.`
-                );
-            } else {
-                alert(`⚠ Variant tidak tersedia!\n\nStok variant habis.`);
-            }
+        if (!stockCheck.available) {
+            alert(
+                `⚠ Variant tidak tersedia!\n\nBahan baku utama "${stockCheck.mainIngredient.nama}" habis (stok: ${stockCheck.mainIngredient.stok}).\n\nSilakan restock terlebih dahulu.`
+            );
             return;
         }
 
@@ -197,14 +188,7 @@ function ProductSelector({ products, onAddToCart }) {
                             // SEMUA produk harus cek bahan baku utama (semua punya komposisi)
                             const stockCheck =
                                 checkMainIngredientStock(variant);
-
-                            // Cek apakah produk tidak tersedia dari backend atau frontend
-                            const isOutOfStockFromBackend =
-                                variant.has_out_of_stock_ingredient === true ||
-                                variant.can_sell === false;
-                            const isAvailable =
-                                !isOutOfStockFromBackend &&
-                                stockCheck.available;
+                            const isAvailable = stockCheck.available;
 
                             // Hitung total stok yang tersedia (selalu = stok_varian + stok_prediksi)
                             const totalAvailableStock =
@@ -346,14 +330,7 @@ function ProductSelector({ products, onAddToCart }) {
                                     // SEMUA produk harus cek bahan baku utama (semua punya komposisi)
                                     const stockCheck =
                                         checkMainIngredientStock(variant);
-
-                                    // Cek apakah produk tidak tersedia dari backend atau frontend
-                                    const isOutOfStockFromBackend =
-                                        variant.has_out_of_stock_ingredient ===
-                                            true || variant.can_sell === false;
-                                    const isAvailable =
-                                        !isOutOfStockFromBackend &&
-                                        stockCheck.available;
+                                    const isAvailable = stockCheck.available;
 
                                     // Hitung total stok yang tersedia (selalu = stok_varian + stok_prediksi)
                                     const totalAvailableStock =

@@ -1,5 +1,5 @@
 {
-    "name": "WhatsApp Chatbot - Simple Gemini",
+    "name": "WhatsApp AI Agent - Angkringan IMS",
     "nodes": [
         {
             "parameters": {
@@ -106,43 +106,459 @@
         },
         {
             "parameters": {
-                "method": "POST",
-                "url": "=https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={{ $env.GEMINI_API_KEY }}",
-                "authentication": "none",
-                "sendBody": true,
-                "contentType": "json",
-                "specifyBody": "json",
-                "jsonBody": "={\n  \"contents\": [\n    {\n      \"parts\": [\n        {\n          \"text\": \"Anda adalah asisten AI yang ramah untuk UMKM. Anda membantu pemilik bisnis melalui WhatsApp dengan menjawab pertanyaan, memberikan saran, dan membantu mengelola bisnis.\\n\\nJawablah dengan natural, ramah, dan dalam bahasa Indonesia seperti sedang ngobrol biasa. Gunakan emoji jika perlu untuk membuat lebih ramah.\\n\\nPesan dari user: {{ $json.message }}\\n\\nJawablah dengan natural dan ramah.\"\n        }\n      ]\n    }\n  ],\n  \"generationConfig\": {\n    \"temperature\": 0.8,\n    \"maxOutputTokens\": 500\n  }\n}",
-                "options": {
-                    "timeout": 10000
-                }
+                "jsCode": "// Check if message starts with slash (command mode) or not (chat mode)\nconst inputData = $input.item.json || {};\nconst message = (inputData.message || '').trim();\n\n// Simple check: ada slash di awal = command mode, tidak ada = chat mode\nconst isCommand = message.startsWith('/');\n\n// Clear any conversation state (kita tidak pakai state management lagi)\nconst workflowStaticData = $getWorkflowStaticData('global');\nif (!workflowStaticData.conversations) {\n  workflowStaticData.conversations = {};\n}\n\nconst chatId = inputData.chatId || '';\nif (workflowStaticData.conversations[chatId]) {\n  // Clear old state\n  delete workflowStaticData.conversations[chatId];\n}\n\nreturn {\n  json: {\n    ...inputData,\n    isCommand: isCommand,\n    conversationState: 'idle',\n    isInConversation: false\n  }\n};"
             },
-            "id": "call-gemini-ai",
-            "name": "AI Chat Response",
-            "type": "n8n-nodes-base.httpRequest",
-            "typeVersion": 4.2,
-            "position": [1340, 400],
-            "continueOnFail": true
+            "id": "get-conversation-state",
+            "name": "Check Slash Command",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [1340, 400]
         },
         {
             "parameters": {
-                "jsCode": "// Extract response dari Gemini AI\nconst geminiResponse = $input.item.json || {};\nconst originalData = $('Extract Pesan').item.json || {};\nconst userMessage = originalData.message || '';\n\nlet aiMessage = null;\n\n// Extract dari struktur Gemini API\nif (geminiResponse.candidates && geminiResponse.candidates[0]) {\n  const candidate = geminiResponse.candidates[0];\n  if (candidate.content && candidate.content.parts && candidate.content.parts[0]) {\n    aiMessage = candidate.content.parts[0].text;\n  }\n}\n\n// Fallback\nif (!aiMessage) {\n  if (geminiResponse.text) {\n    aiMessage = geminiResponse.text;\n  } else if (geminiResponse.message) {\n    aiMessage = geminiResponse.message;\n  } else if (typeof geminiResponse === 'string') {\n    aiMessage = geminiResponse;\n  }\n}\n\n// Fallback response jika Gemini gagal\nif (!aiMessage || aiMessage.trim() === '') {\n  const lowerMessage = userMessage.toLowerCase().trim();\n  if (lowerMessage.includes('hai') || lowerMessage.includes('halo') || lowerMessage.includes('hello') || lowerMessage === 'hi') {\n    aiMessage = 'Halo! 👋 Ada yang bisa saya bantu hari ini?';\n  } else if (lowerMessage.includes('terima kasih') || lowerMessage.includes('makasih')) {\n    aiMessage = 'Sama-sama! 😊';\n  } else {\n    aiMessage = 'Terima kasih atas pesan Anda! Ada yang bisa saya bantu?';\n  }\n} else {\n  aiMessage = aiMessage.trim();\n  if (aiMessage === '') {\n    aiMessage = 'Terima kasih atas pesan Anda! Ada yang bisa saya bantu?';\n  }\n}\n\n// PASTIKAN selalu string\naiMessage = String(aiMessage).trim();\n\nreturn {\n  json: {\n    ...originalData,\n    responseMessage: aiMessage,\n    message: aiMessage,\n    chatId: originalData.chatId || '6283836339182@c.us'\n  }\n};"
+                "conditions": {
+                    "options": {
+                        "caseSensitive": false,
+                        "leftValue": "",
+                        "typeValidation": "loose"
+                    },
+                    "conditions": [
+                        {
+                            "id": "check-is-command",
+                            "leftValue": "={{ $json.isCommand }}",
+                            "rightValue": true,
+                            "operator": {
+                                "type": "boolean",
+                                "operation": "true"
+                            }
+                        }
+                    ],
+                    "combinator": "and"
+                },
+                "options": {}
             },
-            "id": "format-ai-response",
-            "name": "Format AI Response",
-            "type": "n8n-nodes-base.code",
+            "id": "route-command-or-chat",
+            "name": "Command or Chat?",
+            "type": "n8n-nodes-base.if",
             "typeVersion": 2,
             "position": [1560, 400]
         },
         {
             "parameters": {
-                "jsCode": "// Final validation - PASTIKAN responseMessage adalah STRING\nconst inputData = $input.item.json || {};\n\nfunction forceString(value) {\n  if (value === null || value === undefined) return '';\n  if (typeof value === 'string') return value;\n  if (typeof value === 'number' || typeof value === 'boolean') return String(value);\n  if (typeof value === 'object') {\n    if (value.message && typeof value.message === 'string') return value.message;\n    if (value.error && typeof value.error === 'string') return '❌ ' + value.error;\n    if (value.text && typeof value.text === 'string') return value.text;\n    if (value.responseMessage && typeof value.responseMessage === 'string') return value.responseMessage;\n    return 'Terjadi kesalahan dalam memproses respons.';\n  }\n  return String(value);\n}\n\nlet responseMessage = forceString(inputData.responseMessage || inputData.message || '');\nif (!responseMessage || responseMessage.trim() === '') {\n  responseMessage = 'Terima kasih atas pesan Anda! Ada yang bisa saya bantu?';\n}\nif (responseMessage.includes('[object Object]')) {\n  responseMessage = 'Terima kasih atas pesan Anda! Ada yang bisa saya bantu?';\n}\n\nlet chatId = String(inputData.chatId || '6283836339182@c.us').trim();\nif (!chatId) chatId = '6283836339182@c.us';\n\nresponseMessage = String(responseMessage).trim();\n\nreturn {\n  json: {\n    session: 'default',\n    chatId: chatId,\n    text: responseMessage,\n    responseMessage: responseMessage,\n    message: responseMessage\n  }\n};"
+                "jsCode": "// Parse slash command dan extract data\nconst inputData = $input.item.json || {};\nconst message = (inputData.message || '').trim();\n\nconsole.log('[PARSE COMMAND] Message:', message);\n\n// Format: /tambah data stok bahan: ... atau /tambah stok bahan: ... atau /analisis trend pasar\nconst slashMatch = message.match(/^\\/([^:]+):?(.*)$/);\n\nlet commandType = null;\nlet commandData = null;\n\nif (slashMatch) {\n  const command = slashMatch[1].toLowerCase().trim();\n  const data = slashMatch[2].trim();\n  \n  console.log('[PARSE COMMAND] Command:', command, 'Data:', data);\n  \n  // Parse jenis command - support berbagai format\n  if (command.includes('tambah')) {\n    // Support: /tambah data stok bahan, /tambah stok bahan, /tambah bahan\n    if (command.includes('stok bahan') || command.includes('bahan') || (command.includes('stok') && !command.includes('produk'))) {\n      commandType = 'tambah_bahan';\n      commandData = data;\n    } else if (command.includes('produk')) {\n      commandType = 'tambah_produk';\n      commandData = data;\n    } else if (command.includes('kategori')) {\n      commandType = 'tambah_kategori';\n      commandData = data;\n    }\n  } else if (command.includes('laporan') || command.includes('report')) {\n    commandType = 'lihat_laporan';\n  } else if (command.includes('trend') || command.includes('analisis') || command.includes('prediksi')) {\n    commandType = 'trend_pasar';\n  }\n}\n\nconsole.log('[PARSE COMMAND] CommandType:', commandType, 'CommandData:', commandData);\n\n// Jika commandType adalah tambah_bahan dan ada data, langsung parse\nif (commandType === 'tambah_bahan') {\n  if (commandData && commandData.trim() !== '') {\n    // Ada data, langsung parse\n    console.log('[PARSE COMMAND] Going to parse bahan input');\n    return {\n      json: {\n        ...inputData,\n        commandType: commandType,\n        commandData: commandData,\n        action: 'parse_bahan_input',\n        message: commandData // Gunakan data dari command\n      }\n    };\n  } else {\n    // Tidak ada data, minta input\n    console.log('[PARSE COMMAND] No data, asking for input');\n    return {\n      json: {\n        ...inputData,\n        commandType: commandType,\n        responseMessage: 'Baik! Mau nambahin bahan apa aja nih? 😊\\n\\nSilakan kirim data bahannya. Bisa format bebas, contoh:\\n\\n• Beras 10kg harga 50000\\n• Gula 5kg 30000\\n• Minyak 2 liter 25000\\n\\nAtau format lainnya juga bisa, saya akan merapihkan datanya! 📝',\n        action: 'waiting_input'\n      }\n    };\n  }\n}\n\n// Untuk command lain (laporan, trend), handle sesuai kebutuhan\nif (commandType === 'lihat_laporan') {\n  console.log('[PARSE COMMAND] Going to get sales report');\n  return {\n    json: {\n      ...inputData,\n      commandType: commandType,\n      action: 'get_sales_report'\n    }\n  };\n}\n\nif (commandType === 'trend_pasar') {\n  console.log('[PARSE COMMAND] Going to get trend analysis');\n  return {\n    json: {\n      ...inputData,\n      commandType: commandType,\n      action: 'get_trend_analysis'\n    }\n  };\n}\n\n// Unknown command\nconsole.log('[PARSE COMMAND] Unknown command, going to chat');\nreturn {\n  json: {\n    ...inputData,\n    commandType: null,\n    action: 'chat'\n  }\n};"
             },
-            "id": "final-validate-response",
-            "name": "Final Validate Response",
+            "id": "parse-command",
+            "name": "Parse Command",
             "type": "n8n-nodes-base.code",
             "typeVersion": 2,
-            "position": [1780, 400]
+            "position": [1780, 200]
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": false,
+                        "leftValue": "",
+                        "typeValidation": "loose"
+                    },
+                    "rules": [
+                        {
+                            "conditions": [
+                                {
+                                    "id": "tambah-bahan",
+                                    "leftValue": "={{ $json.intent }}",
+                                    "rightValue": "tambah_bahan",
+                                    "operator": {
+                                        "type": "string",
+                                        "operation": "equals"
+                                    }
+                                }
+                            ],
+                            "renameOutput": true,
+                            "outputKey": "tambah_bahan"
+                        },
+                        {
+                            "conditions": [
+                                {
+                                    "id": "tambah-produk",
+                                    "leftValue": "={{ $json.intent }}",
+                                    "rightValue": "tambah_produk",
+                                    "operator": {
+                                        "type": "string",
+                                        "operation": "equals"
+                                    }
+                                }
+                            ],
+                            "renameOutput": true,
+                            "outputKey": "tambah_produk"
+                        },
+                        {
+                            "conditions": [
+                                {
+                                    "id": "tambah-kategori",
+                                    "leftValue": "={{ $json.intent }}",
+                                    "rightValue": "tambah_kategori",
+                                    "operator": {
+                                        "type": "string",
+                                        "operation": "equals"
+                                    }
+                                }
+                            ],
+                            "renameOutput": true,
+                            "outputKey": "tambah_kategori"
+                        },
+                        {
+                            "conditions": [
+                                {
+                                    "id": "lihat-laporan",
+                                    "leftValue": "={{ $json.intent }}",
+                                    "rightValue": "lihat_laporan",
+                                    "operator": {
+                                        "type": "string",
+                                        "operation": "equals"
+                                    }
+                                }
+                            ],
+                            "renameOutput": true,
+                            "outputKey": "lihat_laporan"
+                        },
+                        {
+                            "conditions": [
+                                {
+                                    "id": "trend-pasar",
+                                    "leftValue": "={{ $json.intent }}",
+                                    "rightValue": "trend_pasar",
+                                    "operator": {
+                                        "type": "string",
+                                        "operation": "equals"
+                                    }
+                                }
+                            ],
+                            "renameOutput": true,
+                            "outputKey": "trend_pasar"
+                        }
+                    ],
+                    "combinator": "or"
+                },
+                "options": {}
+            },
+            "id": "route-intent",
+            "name": "Route Intent",
+            "type": "n8n-nodes-base.switch",
+            "typeVersion": 3,
+            "position": [2000, 400]
+        },
+        {
+            "parameters": {
+                "jsCode": "// Handle tambah bahan intent dengan support slash command\nconst inputData = $input.item.json || {};\nconst chatId = inputData.chatId || '';\nconst message = inputData.message || '';\nconst commandData = inputData.commandData || null;\nconst isInConversation = inputData.isInConversation || false;\nconst conversationState = inputData.conversationState || 'idle';\n\nconst workflowStaticData = $getWorkflowStaticData('global');\nif (!workflowStaticData.conversations) {\n  workflowStaticData.conversations = {};\n}\n\n// Case 1: Slash command dengan data langsung\nif (commandData && commandData.trim() !== '') {\n  // User mengirim data langsung via slash command\n  // Langsung parse dan kirim ke API\n  return {\n    json: {\n      ...inputData,\n      message: commandData, // Gunakan data dari command\n      action: 'parse_bahan_input'\n    }\n  };\n}\n\n// Case 2: Slash command tanpa data (hanya command)\nif (inputData.originalMessage && inputData.originalMessage.startsWith('/tambah data')) {\n  const commandMatch = inputData.originalMessage.match(/^\\/tambah data[^:]*:?(.*)$/i);\n  if (commandMatch && (!commandMatch[1] || commandMatch[1].trim() === '')) {\n    // Set conversation state untuk menunggu input\n    workflowStaticData.conversations[chatId] = {\n      state: 'waiting_bahan_input',\n      data: {},\n      lastActivity: Date.now()\n    };\n    \n    return {\n      json: {\n        ...inputData,\n        responseMessage: 'Baik! Mau nambahin bahan apa aja nih? 😊\\n\\nSilakan kirim data bahannya. Bisa format bebas, contoh:\\n\\n• Beras 10kg harga 50000\\n• Gula 5kg 30000\\n• Minyak 2 liter 25000\\n\\nAtau format lainnya juga bisa, saya akan merapihkan datanya! 📝',\n        action: 'waiting_input'\n      }\n    };\n  }\n}\n\n// Case 3: Keyword explicit tanpa slash command\nif (!isInConversation || conversationState === 'idle') {\n  // Set conversation state\n  workflowStaticData.conversations[chatId] = {\n    state: 'waiting_bahan_input',\n    data: {},\n    lastActivity: Date.now()\n  };\n  \n  return {\n    json: {\n      ...inputData,\n      responseMessage: 'Baik! Mau nambahin bahan apa aja nih? 😊\\n\\nSilakan kirim data bahannya. Bisa format bebas, contoh:\\n\\n• Beras 10kg harga 50000\\n• Gula 5kg 30000\\n• Minyak 2 liter 25000\\n\\nAtau format lainnya juga bisa, saya akan merapihkan datanya! 📝',\n      action: 'waiting_input'\n    }\n  };\n}\n\n// Case 4: User sedang dalam conversation state (memberikan data input)\nif (conversationState === 'waiting_bahan_input') {\n  // User is providing data, send to LLM to parse\n  return {\n    json: {\n      ...inputData,\n      action: 'parse_bahan_input'\n    }\n  };\n}\n\n// Fallback: tidak ada yang match, kembalikan ke chat\nreturn { \n  json: {\n    ...inputData,\n    intent: 'chat',\n    action: 'chat'\n  }\n};"
+            },
+            "id": "handle-tambah-bahan",
+            "name": "Handle Tambah Bahan",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [2220, 200]
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": false,
+                        "leftValue": "",
+                        "typeValidation": "loose"
+                    },
+                    "rules": [
+                        {
+                            "conditions": [
+                                {
+                                    "id": "action-parse-bahan",
+                                    "leftValue": "={{ $json.action }}",
+                                    "rightValue": "parse_bahan_input",
+                                    "operator": {
+                                        "type": "string",
+                                        "operation": "equals"
+                                    }
+                                }
+                            ],
+                            "renameOutput": true,
+                            "outputKey": "parse_bahan"
+                        },
+                        {
+                            "conditions": [
+                                {
+                                    "id": "action-waiting-input",
+                                    "leftValue": "={{ $json.action }}",
+                                    "rightValue": "waiting_input",
+                                    "operator": {
+                                        "type": "string",
+                                        "operation": "equals"
+                                    }
+                                }
+                            ],
+                            "renameOutput": true,
+                            "outputKey": "waiting_input"
+                        },
+                        {
+                            "conditions": [
+                                {
+                                    "id": "action-get-sales",
+                                    "leftValue": "={{ $json.action }}",
+                                    "rightValue": "get_sales_report",
+                                    "operator": {
+                                        "type": "string",
+                                        "operation": "equals"
+                                    }
+                                }
+                            ],
+                            "renameOutput": true,
+                            "outputKey": "get_sales"
+                        },
+                        {
+                            "conditions": [
+                                {
+                                    "id": "action-get-trend",
+                                    "leftValue": "={{ $json.action }}",
+                                    "rightValue": "get_trend_analysis",
+                                    "operator": {
+                                        "type": "string",
+                                        "operation": "equals"
+                                    }
+                                }
+                            ],
+                            "renameOutput": true,
+                            "outputKey": "get_trend"
+                        }
+                    ],
+                    "combinator": "or"
+                },
+                "options": {}
+            },
+            "id": "check-bahan-action",
+            "name": "Route Command Action",
+            "type": "n8n-nodes-base.switch",
+            "typeVersion": 3,
+            "position": [2000, 200]
+        },
+        {
+            "parameters": {
+                "method": "POST",
+                "url": "=http://localhost:11434/api/generate",
+                "authentication": "none",
+                "sendBody": true,
+                "contentType": "json",
+                "specifyBody": "json",
+                "jsonBody": "={\n  \"model\": \"gemma3:1b\",\n  \"prompt\": \"Anda adalah AI assistant untuk parsing data bahan dari pesan WhatsApp yang mungkin berantakan.\\n\\nPesan user: {{ $json.message }}\\n\\nTugas Anda adalah mengekstrak informasi bahan dari pesan tersebut dan mengembalikan dalam format JSON yang rapi.\\n\\nFormat output JSON:\\n[\\n  {\\n    \\\"nama_bahan\\\": \\\"nama bahan\\\",\\n    \\\"kategori\\\": \\\"nama kategori (opsional, bisa infer dari nama bahan)\\\",\\n    \\\"harga_beli\\\": number (harga dalam rupiah),\\n    \\\"stok_bahan\\\": number (jumlah stok),\\n    \\\"satuan\\\": \\\"kg/liter/pcs/dll\\\"\\n  }\\n]\\n\\nContoh:\\nInput: 'Beras 10kg harga 50000, Gula 5kg 30000'\\nOutput: [{\\\"nama_bahan\\\": \\\"Beras\\\", \\\"kategori\\\": \\\"Bahan Pokok\\\", \\\"harga_beli\\\": 50000, \\\"stok_bahan\\\": 10, \\\"satuan\\\": \\\"kg\\\"}, {\\\"nama_bahan\\\": \\\"Gula\\\", \\\"kategori\\\": \\\"Bahan Pokok\\\", \\\"harga_beli\\\": 30000, \\\"stok_bahan\\\": 5, \\\"satuan\\\": \\\"kg\\\"}]\\n\\nJawab HANYA dengan JSON array, tanpa penjelasan lain.\",\n  \"stream\": false,\n  \"options\": {\n    \"temperature\": 0.2,\n    \"num_predict\": 500\n  }\n}",
+                "options": {
+                    "timeout": 20000
+                }
+            },
+            "id": "parse-bahan-input",
+            "name": "Parse Bahan Input (Ollama)",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [2660, 200],
+            "continueOnFail": true
+        },
+        {
+            "parameters": {
+                "jsCode": "// Parse JSON dari Ollama dan kirim ke Laravel API\nconst ollamaResponse = $input.item.json || {};\nconst originalData = $('Parse Command').first().json || {};\n\nlet bahanList = [];\n\n// Extract JSON from Ollama response\nlet responseText = '';\nif (ollamaResponse.response) {\n  responseText = ollamaResponse.response;\n} else if (typeof ollamaResponse === 'string') {\n  responseText = ollamaResponse;\n} else if (ollamaResponse.text) {\n  responseText = ollamaResponse.text;\n}\n\n// Try to parse JSON array\nif (responseText) {\n  try {\n    // Extract JSON array from response\n    const jsonMatch = responseText.match(/\\[[^\\]]+\\]/);\n    if (jsonMatch) {\n      bahanList = JSON.parse(jsonMatch[0]);\n    } else {\n      // Try to parse as single object\n      const objMatch = responseText.match(/\\{[^}]+\\}/);\n      if (objMatch) {\n        bahanList = [JSON.parse(objMatch[0])];\n      }\n    }\n  } catch (e) {\n    console.log('[PARSE] Failed to parse JSON:', e);\n  }\n}\n\n// Validate and clean data\nif (!Array.isArray(bahanList) || bahanList.length === 0) {\n  return {\n    json: {\n      ...originalData,\n      responseMessage: 'Maaf, saya tidak bisa memahami format datanya. 😅\\n\\nCoba kirim lagi dengan format yang lebih jelas, contoh:\\n\\nBeras 10kg harga 50000\\nGula 5kg 30000',\n      action: 'error_parsing'\n    }\n  };\n}\n\n// Clean and validate each item\nconst cleanedBahan = bahanList.map(item => {\n  return {\n    nama_bahan: String(item.nama_bahan || '').trim(),\n    kategori: String(item.kategori || 'Umum').trim(),\n    harga_beli: parseFloat(item.harga_beli) || 0,\n    stok_bahan: parseFloat(item.stok_bahan) || 0,\n    satuan: String(item.satuan || 'pcs').trim()\n  };\n}).filter(item => item.nama_bahan && item.harga_beli > 0 && item.stok_bahan > 0);\n\nif (cleanedBahan.length === 0) {\n  return {\n    json: {\n      ...originalData,\n      responseMessage: 'Maaf, data yang dikirim tidak lengkap atau tidak valid. 😅\\n\\nPastikan ada nama bahan, jumlah, dan harga.',\n      action: 'error_validation'\n    }\n  };\n}\n\nreturn {\n  json: {\n    ...originalData,\n    bahanList: cleanedBahan,\n    action: 'send_to_api'\n  }\n};"
+            },
+            "id": "process-bahan-data",
+            "name": "Process Bahan Data",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [2880, 200]
+        },
+        {
+            "parameters": {
+                "method": "POST",
+                "url": "=http://host.docker.internal:8000/api/stocks",
+                "authentication": "none",
+                "sendBody": true,
+                "contentType": "json",
+                "specifyBody": "json",
+                "jsonBody": "={{ {\n  \"nama_bahan\": $json.bahanList[0].nama_bahan,\n  \"id_kategori\": null,\n  \"kategori_nama\": $json.bahanList[0].kategori,\n  \"harga_beli\": $json.bahanList[0].harga_beli,\n  \"stok_bahan\": $json.bahanList[0].stok_bahan,\n  \"satuan\": $json.bahanList[0].satuan,\n  \"min_stok\": 0\n} }}",
+                "options": {
+                    "timeout": 10000
+                }
+            },
+            "id": "send-bahan-to-api",
+            "name": "Send Bahan to Laravel API",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [3100, 200],
+            "continueOnFail": true
+        },
+        {
+            "parameters": {
+                "jsCode": "// Handle response from Laravel API dan prepare untuk format dengan Ollama\nconst apiResponse = $input.item.json || {};\nconst originalData = $('Process Bahan Data').first().json || {};\n\nif (apiResponse.success || apiResponse.id_bahan || apiResponse.data) {\n  const bahan = originalData.bahanList[0] || {};\n  const resultData = {\n    success: true,\n    bahan: bahan,\n    message: `Input stok bahan berhasil dimasukkan. Bahan: ${bahan.nama_bahan}, Stok: ${bahan.stok_bahan} ${bahan.satuan}, Harga: Rp ${bahan.harga_beli.toLocaleString('id-ID')}, Kategori: ${bahan.kategori}`\n  };\n  \n  return {\n    json: {\n      ...originalData,\n      apiResult: resultData,\n      action: 'format_success_response'\n    }\n  };\n}\n\n// Error handling\nconst errorMsg = apiResponse.message || apiResponse.error || 'Terjadi kesalahan saat menyimpan data';\nreturn {\n  json: {\n    ...originalData,\n    apiResult: {\n      success: false,\n      error: errorMsg\n    },\n    action: 'format_error_response'\n  }\n};"
+            },
+            "id": "handle-bahan-response",
+            "name": "Handle Bahan Response",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [3320, 200]
+        },
+        {
+            "parameters": {
+                "method": "POST",
+                "url": "=http://localhost:11434/api/generate",
+                "authentication": "none",
+                "sendBody": true,
+                "contentType": "json",
+                "specifyBody": "json",
+                "jsonBody": "={\n  \"model\": \"gemma3:1b\",\n  \"prompt\": \"Anda adalah AI assistant untuk sistem Inventory Management System (IMS).\\n\\nUser baru saja menginput data ke sistem. Berikut adalah hasil dari sistem:\\n\\n{{ JSON.stringify($json.apiResult) }}\\n\\nBuatkan pesan balasan yang natural, ramah, dan dalam bahasa Indonesia untuk memberitahu user bahwa input data berhasil. Gunakan emoji. Format mudah dibaca di WhatsApp.\\n\\nJawab langsung tanpa penjelasan tambahan.\",\n  \"stream\": false,\n  \"options\": {\n    \"temperature\": 0.7,\n    \"num_predict\": 300\n  }\n}",
+                "options": {
+                    "timeout": 15000
+                }
+            },
+            "id": "format-success-response",
+            "name": "Format Success Response (Ollama)",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [3540, 200],
+            "continueOnFail": true
+        },
+        {
+            "parameters": {
+                "jsCode": "// Extract response from Ollama\nconst ollamaResponse = $input.item.json || {};\nconst originalData = $('Handle Bahan Response').first().json || {};\n\nlet responseText = '';\nif (ollamaResponse.response) {\n  responseText = ollamaResponse.response.trim();\n} else if (typeof ollamaResponse === 'string') {\n  responseText = ollamaResponse.trim();\n}\n\n// Fallback jika Ollama gagal\nif (!responseText || responseText === '') {\n  const bahan = originalData.apiResult?.bahan || {};\n  responseText = `✅ Input stok bahan berhasil dimasukkan!\\n\\n📦 Bahan: *${bahan.nama_bahan || 'N/A'}*\\n📊 Stok: ${bahan.stok_bahan || 'N/A'} ${bahan.satuan || ''}\\n💰 Harga: Rp ${(bahan.harga_beli || 0).toLocaleString('id-ID')}\\n📂 Kategori: ${bahan.kategori || 'N/A'}`;\n}\n\nreturn {\n  json: {\n    ...originalData,\n    responseMessage: responseText\n  }\n};"
+            },
+            "id": "extract-success-response",
+            "name": "Extract Success Response",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [3760, 200]
+        },
+        {
+            "parameters": {
+                "method": "GET",
+                "url": "=http://host.docker.internal:8000/api/reports/sales?period=monthly",
+                "authentication": "none",
+                "options": {
+                    "timeout": 10000
+                }
+            },
+            "id": "get-sales-report",
+            "name": "Get Sales Report",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [2220, 400],
+            "continueOnFail": true
+        },
+        {
+            "parameters": {
+                "method": "GET",
+                "url": "=http://host.docker.internal:8000/api/reports/inventory",
+                "authentication": "none",
+                "options": {
+                    "timeout": 10000
+                }
+            },
+            "id": "get-inventory-report",
+            "name": "Get Inventory Report",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [2220, 500],
+            "continueOnFail": true
+        },
+        {
+            "parameters": {
+                "method": "POST",
+                "url": "=http://localhost:11434/api/generate",
+                "authentication": "none",
+                "sendBody": true,
+                "contentType": "json",
+                "specifyBody": "json",
+                "jsonBody": "={\n  \"model\": \"gemma3:1b\",\n  \"prompt\": \"Anda adalah AI assistant untuk sistem Inventory Management System (IMS) untuk UMKM angkringan.\\n\\nUser meminta laporan penjualan. Berikut adalah data laporan dari database:\\n\\n{{ JSON.stringify($json) }}\\n\\nBuatkan laporan yang mudah dipahami dalam bahasa Indonesia yang ramah dan natural. Sertakan:\\n1. Ringkasan penjualan (total, periode)\\n2. Produk terlaris\\n3. Trend penjualan\\n4. Insight atau saran berdasarkan data\\n\\nGunakan emoji untuk membuat lebih menarik. Jawab dengan format yang mudah dibaca di WhatsApp.\",\n  \"stream\": false,\n  \"options\": {\n    \"temperature\": 0.7,\n    \"num_predict\": 800\n  }\n}",
+                "options": {
+                    "timeout": 20000
+                }
+            },
+            "id": "generate-report-response",
+            "name": "Generate Report Response (Ollama)",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [2440, 400],
+            "continueOnFail": true
+        },
+        {
+            "parameters": {
+                "method": "POST",
+                "url": "=http://localhost:11434/api/generate",
+                "authentication": "none",
+                "sendBody": true,
+                "contentType": "json",
+                "specifyBody": "json",
+                "jsonBody": "={\n  \"model\": \"gemma3:1b\",\n  \"prompt\": \"Anda adalah AI assistant untuk sistem Inventory Management System (IMS) untuk UMKM angkringan.\\n\\nUser meminta analisis trend pasar dan prediksi. Berikut adalah data dari database:\\n\\n{{ JSON.stringify($json) }}\\n\\nAnalisis data tersebut dan berikan:\\n1. Trend penjualan (naik/turun/stabil)\\n2. Produk yang sedang naik trend\\n3. Produk yang perlu perhatian (stok menipis, penjualan turun)\\n4. Prediksi untuk periode berikutnya\\n5. Rekomendasi strategi bisnis\\n\\nJawab dalam bahasa Indonesia yang ramah dan natural. Gunakan emoji. Format mudah dibaca di WhatsApp.\",\n  \"stream\": false,\n  \"options\": {\n    \"temperature\": 0.8,\n    \"num_predict\": 1000\n  }\n}",
+                "options": {
+                    "timeout": 20000
+                }
+            },
+            "id": "generate-trend-analysis",
+            "name": "Generate Trend Analysis (Ollama)",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [2440, 500],
+            "continueOnFail": true
+        },
+        {
+            "parameters": {
+                "jsCode": "// Extract response from Ollama and format\nconst ollamaResponse = $input.item.json || {};\nconst originalData = $('Check Slash Command').first().json || {};\n\nlet responseText = '';\nif (ollamaResponse.response) {\n  responseText = ollamaResponse.response;\n} else if (typeof ollamaResponse === 'string') {\n  responseText = ollamaResponse;\n} else if (ollamaResponse.text) {\n  responseText = ollamaResponse.text;\n}\n\n// Clean response\nresponseText = responseText.trim();\nif (!responseText) {\n  responseText = 'Maaf, terjadi kesalahan saat memproses laporan.';\n}\n\nreturn {\n  json: {\n    ...originalData,\n    responseMessage: responseText\n  }\n};"
+            },
+            "id": "format-report-response",
+            "name": "Format Report Response",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [2660, 400]
+        },
+        {
+            "parameters": {
+                "jsCode": "// Extract response from Ollama and format\nconst ollamaResponse = $input.item.json || {};\nconst originalData = $('Check Slash Command').first().json || {};\n\nlet responseText = '';\nif (ollamaResponse.response) {\n  responseText = ollamaResponse.response;\n} else if (typeof ollamaResponse === 'string') {\n  responseText = ollamaResponse;\n} else if (ollamaResponse.text) {\n  responseText = ollamaResponse.text;\n}\n\n// Clean response\nresponseText = responseText.trim();\nif (!responseText) {\n  responseText = 'Maaf, terjadi kesalahan saat memproses analisis trend.';\n}\n\nreturn {\n  json: {\n    ...originalData,\n    responseMessage: responseText\n  }\n};"
+            },
+            "id": "format-trend-response",
+            "name": "Format Trend Response",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [2660, 500]
+        },
+        {
+            "parameters": {
+                "method": "POST",
+                "url": "=http://localhost:11434/api/generate",
+                "authentication": "none",
+                "sendBody": true,
+                "contentType": "json",
+                "specifyBody": "json",
+                "jsonBody": "={\n  \"model\": \"gemma3:1b\",\n  \"prompt\": \"Anda adalah AI assistant untuk sistem Inventory Management System (IMS) untuk UMKM angkringan. Anda membantu pemilik bisnis melalui WhatsApp dengan menjawab pertanyaan, memberikan saran, dan membantu mengelola bisnis.\\n\\nKonteks sistem:\\n- Sistem manajemen inventori untuk angkringan\\n- Bisa menambah bahan, produk, kategori (dengan command /tambah data)\\n- Bisa melihat laporan penjualan dan stok\\n- Bisa minta analisis trend pasar\\n\\nPesan dari user: {{ $json.message }}\\n\\nJawablah dengan natural, ramah, dan dalam bahasa Indonesia seperti sedang ngobrol biasa. Gunakan emoji jika perlu. Tetap dalam konteks sistem IMS angkringan.\\n\\nJawab langsung tanpa penjelasan tambahan.\",\n  \"stream\": false,\n  \"options\": {\n    \"temperature\": 0.8,\n    \"num_predict\": 500\n  }\n}",
+                "options": {
+                    "timeout": 15000
+                }
+            },
+            "id": "generate-chat-response",
+            "name": "Generate Chat Response (Ollama)",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.2,
+            "position": [2220, 600],
+            "continueOnFail": true
+        },
+        {
+            "parameters": {
+                "jsCode": "// Extract response from Ollama and format\nconst ollamaResponse = $input.item.json || {};\nconst originalData = $('Check Slash Command').first().json || {};\n\nconsole.log('[FORMAT CHAT] Full Ollama Response:', JSON.stringify(ollamaResponse, null, 2));\nconsole.log('[FORMAT CHAT] Original Data:', JSON.stringify(originalData, null, 2));\n\nlet responseText = '';\n\n// Check if Ollama returned an error\nif (ollamaResponse.error || ollamaResponse.message) {\n  console.log('[FORMAT CHAT] Ollama Error:', ollamaResponse.error || ollamaResponse.message);\n  // If error, use fallback\n} else {\n  // Ollama API returns { \"response\": \"...\" }\n  if (ollamaResponse.response && typeof ollamaResponse.response === 'string') {\n    responseText = ollamaResponse.response.trim();\n    console.log('[FORMAT CHAT] Found response in ollamaResponse.response');\n  } else if (ollamaResponse.response && typeof ollamaResponse.response === 'object') {\n    responseText = String(ollamaResponse.response).trim();\n    console.log('[FORMAT CHAT] Found response object');\n  } else if (typeof ollamaResponse === 'string') {\n    responseText = ollamaResponse.trim();\n    console.log('[FORMAT CHAT] Response is string');\n  } else if (ollamaResponse.text) {\n    responseText = String(ollamaResponse.text).trim();\n    console.log('[FORMAT CHAT] Found response in text');\n  } else if (ollamaResponse.message) {\n    responseText = String(ollamaResponse.message).trim();\n    console.log('[FORMAT CHAT] Found response in message');\n  }\n}\n\nconsole.log('[FORMAT CHAT] Extracted text length:', responseText.length);\nconsole.log('[FORMAT CHAT] Extracted text preview:', responseText.substring(0, 200));\n\n// Only use fallback if Ollama response is truly empty or error\nif (!responseText || responseText === '' || responseText === 'null' || responseText === 'undefined' || responseText.length < 3) {\n  console.log('[FORMAT CHAT] Using fallback response - Ollama response was empty');\n  const lowerMessage = (originalData.message || '').toLowerCase().trim();\n  if (lowerMessage.includes('hai') || lowerMessage.includes('halo') || lowerMessage.includes('hello')) {\n    responseText = 'Halo! 👋 Ada yang bisa saya bantu hari ini?\\n\\nSaya bisa membantu Anda:\\n📦 Tambah bahan/stok (gunakan /tambah data stok bahan)\\n📊 Lihat laporan penjualan\\n📈 Analisis trend pasar\\n💬 Chat tentang bisnis angkringan\\n\\nSilakan pilih yang mana! 😊';\n  } else if (lowerMessage.includes('terima kasih') || lowerMessage.includes('makasih')) {\n    responseText = 'Sama-sama! 😊 Ada lagi yang bisa saya bantu?';\n  } else {\n    responseText = 'Terima kasih atas pesan Anda! Ada yang bisa saya bantu? 😊';\n  }\n} else {\n  console.log('[FORMAT CHAT] Using Ollama response (not fallback)');\n}\n\nresponseText = responseText.trim();\n\nconsole.log('[FORMAT CHAT] Final response length:', responseText.length);\n\nreturn {\n  json: {\n    ...originalData,\n    responseMessage: responseText\n  }\n};"
+            },
+            "id": "format-chat-response",
+            "name": "Format Chat Response",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [2440, 600]
+        },
+        {
+            "parameters": {
+                "jsCode": "// Merge all responses\nconst inputData = $input.item.json || {};\n\n// Ensure responseMessage exists\nlet responseMessage = inputData.responseMessage || 'Terima kasih atas pesan Anda! Ada yang bisa saya bantu? 😊';\n\n// Ensure chatId exists\nlet chatId = inputData.chatId || '6283836339182@c.us';\n\n// Final validation\nif (typeof responseMessage !== 'string') {\n  responseMessage = String(responseMessage);\n}\n\nif (responseMessage.includes('[object Object]')) {\n  responseMessage = 'Terima kasih atas pesan Anda! Ada yang bisa saya bantu? 😊';\n}\n\nresponseMessage = responseMessage.trim();\n\n// Format untuk WAHA API\nconst wahaRequest = {\n  session: inputData.session || 'default',\n  chatId: chatId,\n  text: responseMessage\n};\n\nreturn {\n  json: {\n    session: wahaRequest.session,\n    chatId: wahaRequest.chatId,\n    text: wahaRequest.text,\n    responseMessage: responseMessage,\n    message: responseMessage,\n    wahaRequest: wahaRequest\n  }\n};"
+            },
+            "id": "final-format-response",
+            "name": "Final Format Response",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [3100, 400]
         },
         {
             "parameters": {
@@ -152,7 +568,7 @@
                 "sendBody": true,
                 "contentType": "json",
                 "specifyBody": "json",
-                "jsonBody": "={\n  \"session\": \"{{ $json.session || 'default' }}\",\n  \"chatId\": \"{{ $json.chatId }}\",\n  \"text\": \"{{ $json.text || $json.responseMessage || $json.message }}\"\n}",
+                "jsonBody": "={{ $json.wahaRequest }}",
                 "options": {
                     "response": {
                         "response": {
@@ -166,7 +582,7 @@
             "name": "Send WhatsApp Response",
             "type": "n8n-nodes-base.httpRequest",
             "typeVersion": 4.2,
-            "position": [2000, 400],
+            "position": [3320, 400],
             "continueOnFail": true
         }
     ],
@@ -225,7 +641,7 @@
             "main": [
                 [
                     {
-                        "node": "AI Chat Response",
+                        "node": "Check Slash Command",
                         "type": "main",
                         "index": 0
                     }
@@ -233,29 +649,307 @@
                 []
             ]
         },
-        "AI Chat Response": {
+        "Check Slash Command": {
             "main": [
                 [
                     {
-                        "node": "Format AI Response",
+                        "node": "Command or Chat?",
                         "type": "main",
                         "index": 0
                     }
                 ]
             ]
         },
-        "Format AI Response": {
+        "Command or Chat?": {
             "main": [
                 [
                     {
-                        "node": "Final Validate Response",
+                        "node": "Parse Command",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Generate Chat Response (Ollama)",
                         "type": "main",
                         "index": 0
                     }
                 ]
             ]
         },
-        "Final Validate Response": {
+        "Parse Command": {
+            "main": [
+                [
+                    {
+                        "node": "Route Command Action",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Route Command Action": {
+            "main": [
+                [
+                    {
+                        "node": "Parse Bahan Input (Ollama)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Final Format Response",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Get Sales Report",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Get Inventory Report",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Generate Chat Response (Ollama)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Route Intent": {
+            "main": [
+                [
+                    {
+                        "node": "Handle Tambah Bahan",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Generate Chat Response (Ollama)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Generate Chat Response (Ollama)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Get Sales Report",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Get Inventory Report",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Generate Chat Response (Ollama)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Handle Tambah Bahan": {
+            "main": [
+                [
+                    {
+                        "node": "Check Bahan Action",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Parse Bahan Input (Ollama)": {
+            "main": [
+                [
+                    {
+                        "node": "Process Bahan Data",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Process Bahan Data": {
+            "main": [
+                [
+                    {
+                        "node": "Send Bahan to Laravel API",
+                        "type": "main",
+                        "index": 0
+                    },
+                    {
+                        "node": "Final Format Response",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Send Bahan to Laravel API": {
+            "main": [
+                [
+                    {
+                        "node": "Handle Bahan Response",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Handle Bahan Response": {
+            "main": [
+                [
+                    {
+                        "node": "Format Success Response (Ollama)",
+                        "type": "main",
+                        "index": 0
+                    },
+                    {
+                        "node": "Final Format Response",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Format Success Response (Ollama)": {
+            "main": [
+                [
+                    {
+                        "node": "Extract Success Response",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Extract Success Response": {
+            "main": [
+                [
+                    {
+                        "node": "Final Format Response",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Get Sales Report": {
+            "main": [
+                [
+                    {
+                        "node": "Generate Report Response (Ollama)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Get Inventory Report": {
+            "main": [
+                [
+                    {
+                        "node": "Generate Trend Analysis (Ollama)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Generate Report Response (Ollama)": {
+            "main": [
+                [
+                    {
+                        "node": "Format Report Response",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Generate Trend Analysis (Ollama)": {
+            "main": [
+                [
+                    {
+                        "node": "Format Trend Response",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Format Report Response": {
+            "main": [
+                [
+                    {
+                        "node": "Final Format Response",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Format Trend Response": {
+            "main": [
+                [
+                    {
+                        "node": "Final Format Response",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Generate Chat Response (Ollama)": {
+            "main": [
+                [
+                    {
+                        "node": "Format Chat Response",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Format Chat Response": {
+            "main": [
+                [
+                    {
+                        "node": "Final Format Response",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Final Format Response": {
             "main": [
                 [
                     {
@@ -274,7 +968,6 @@
     "staticData": null,
     "tags": [],
     "triggerCount": 1,
-    "updatedAt": "2025-11-26T12:00:00.000Z",
+    "updatedAt": "2025-01-26T12:00:00.000Z",
     "versionId": "1"
 }
-

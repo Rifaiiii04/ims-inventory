@@ -1,0 +1,153 @@
+{
+  "agent_name": "WhatsAppInventoryAgent",
+  "description": "AI agent untuk membaca data inventory dari MySQL dan menjawab pertanyaan via WhatsApp. Agent hanya READ-ONLY.",
+  "llm": {
+    "provider": "ollama",
+    "model": "gemma3:1b",
+    "role_instruction": "Kamu adalah asisten inventory untuk angkringan. Jawab dalam bahasa Indonesia yang singkat, jelas, dan to the point. Jangan mengubah angka dari database. Jika data kosong, jelaskan dengan jujur bahwa data tidak ditemukan."
+  },
+  "database": {
+    "type": "mysql",
+    "host": "ANGKRI_HOST_PLACEHOLDER",
+    "port": 3306,
+    "database": "angkringan_ims",
+    "username": "ANGKRI_USER_PLACEHOLDER",
+    "password": "ANGKRI_PASSWORD_PLACEHOLDER"
+  },
+  "intents": [
+    {
+      "intent_id": "cek_stok_bahan_by_nama",
+      "description": "Cek stok bahan tertentu berdasarkan nama bahan.",
+      "examples": [
+        "stok mie ayam berapa",
+        "cek stok gas",
+        "bahan ayam sisa berapa",
+        "berapa stok gula sekarang"
+      ],
+      "parameters": [
+        {
+          "name": "nama_bahan",
+          "type": "string",
+          "required": true,
+          "source": "llm_extracted",
+          "description": "Nama bahan yang disebut user, dicocokkan ke kolom tbl_bahan.nama_bahan menggunakan LIKE."
+        }
+      ],
+      "mysql_query": "SELECT b.id_bahan, b.nama_bahan, b.stok_bahan, b.min_stok, b.satuan, k.nama_kategori FROM tbl_bahan b JOIN tbl_kategori k ON b.id_kategori = k.id_kategori WHERE b.nama_bahan LIKE CONCAT('%', :nama_bahan, '%') ORDER BY b.nama_bahan LIMIT 10;",
+      "expected_columns": [
+        "id_bahan",
+        "nama_bahan",
+        "stok_bahan",
+        "min_stok",
+        "satuan",
+        "nama_kategori"
+      ],
+      "max_rows": 10,
+      "llm_response_guideline": "Jika satu baris: jelaskan stok bahan tersebut dan apakah sudah di bawah min_stok atau masih aman. Jika beberapa baris: tampilkan dalam bentuk bullet list ringkas dengan format: nama_bahan (kategori) - stok_bahan satuan (batas minimum: min_stok). Tambahkan kalimat singkat jika ada yang sudah melewati batas minimum."
+    },
+    {
+      "intent_id": "list_bahan_stok_rendah",
+      "description": "Menampilkan daftar bahan dengan stok di bawah atau mendekati min_stok.",
+      "examples": [
+        "barang apa saja yang mau habis",
+        "list bahan stok menipis",
+        "bahan yang hampir habis apa",
+        "kasih tau stok kritis"
+      ],
+      "parameters": [
+        {
+          "name": "toleransi_persen",
+          "type": "number",
+          "required": false,
+          "default": 10,
+          "source": "fixed_or_llm",
+          "description": "Persentase toleransi di atas min_stok untuk dianggap hampir habis. Jika user tidak menyebutkan, pakai default 10%."
+        }
+      ],
+      "mysql_query": "SELECT b.id_bahan, b.nama_bahan, b.stok_bahan, b.min_stok, b.satuan, k.nama_kategori FROM tbl_bahan b JOIN tbl_kategori k ON b.id_kategori = k.id_kategori WHERE b.stok_bahan <= b.min_stok * (1 + (:toleransi_persen / 100)) ORDER BY b.stok_bahan ASC LIMIT 50;",
+      "expected_columns": [
+        "id_bahan",
+        "nama_bahan",
+        "stok_bahan",
+        "min_stok",
+        "satuan",
+        "nama_kategori"
+      ],
+      "max_rows": 50,
+      "llm_response_guideline": "Jika tidak ada data: jelaskan bahwa tidak ada bahan yang stoknya mendekati habis. Jika ada data: buat ringkasan singkat seperti 'Ada X bahan yang stoknya menipis', lalu list 5–10 teratas dengan format: nama_bahan - stok_bahan satuan (batas minimum: min_stok). Prioritaskan yang paling rendah stoknya."
+    },
+    {
+      "intent_id": "ringkasan_stok_per_kategori",
+      "description": "Ringkasan stok bahan per kategori.",
+      "examples": [
+        "ringkasan stok per kategori",
+        "rekap stok bahan per kategori",
+        "kategori mana yang paling banyak dipakai",
+        "lihat stok berdasarkan kategori"
+      ],
+      "parameters": [],
+      "mysql_query": "SELECT k.id_kategori, k.nama_kategori, COUNT(b.id_bahan) AS jumlah_bahan, SUM(b.stok_bahan) AS total_stok FROM tbl_kategori k LEFT JOIN tbl_bahan b ON k.id_kategori = b.id_kategori GROUP BY k.id_kategori, k.nama_kategori ORDER BY k.nama_kategori ASC;",
+      "expected_columns": [
+        "id_kategori",
+        "nama_kategori",
+        "jumlah_bahan",
+        "total_stok"
+      ],
+      "max_rows": 50,
+      "llm_response_guideline": "Buat ringkasan singkat: sebutkan total kategori dan highlight 3 kategori dengan total_stok terbesar. Jawaban tetap ringkas dan mudah dibaca di WhatsApp. Jika ada kategori tanpa bahan (jumlah_bahan = 0), sebutkan bahwa kategori tersebut belum memiliki bahan terdaftar."
+    },
+    {
+      "intent_id": "daftar_produk_dan_varian",
+      "description": "Menampilkan daftar produk beserta varian dan stok varian.",
+      "examples": [
+        "daftar produk dan variannya",
+        "stok per varian menu",
+        "list menu beserta varian",
+        "lihat stok varian menu"
+      ],
+      "parameters": [
+        {
+          "name": "nama_produk",
+          "type": "string",
+          "required": false,
+          "source": "llm_extracted",
+          "description": "Jika user menyebut nama produk tertentu, filter berdasarkan nama tersebut. Jika tidak disebut, tampilkan beberapa produk pertama."
+        }
+      ],
+      "mysql_query": "SELECT p.id_produk, p.nama_produk, v.id_varian, v.nama_varian, v.stok_varian, v.unit FROM tbl_produk p LEFT JOIN tbl_varian v ON p.id_produk = v.id_produk WHERE (:nama_produk IS NULL OR p.nama_produk LIKE CONCAT('%', :nama_produk, '%')) ORDER BY p.nama_produk ASC, v.nama_varian ASC LIMIT 50;",
+      "expected_columns": [
+        "id_produk",
+        "nama_produk",
+        "id_varian",
+        "nama_varian",
+        "stok_varian",
+        "unit"
+      ],
+      "max_rows": 50,
+      "llm_response_guideline": "Kelompokkan output berdasarkan nama_produk. Jika varian NULL atau tidak ada, jelaskan bahwa produk belum punya varian terdaftar. Jawaban tetap ringkas dan enak dibaca di chat."
+    },
+    {
+      "intent_id": "ringkasan_transaksi_hari_ini",
+      "description": "Ringkasan transaksi penjualan hari ini.",
+      "examples": [
+        "ringkasan penjualan hari ini",
+        "rekap transaksi hari ini",
+        "hari ini laku berapa",
+        "total penjualan hari ini"
+      ],
+      "parameters": [],
+      "mysql_query": "SELECT DATE(t.tanggal_waktu) AS tanggal, COUNT(t.id_transaksi) AS jumlah_transaksi, SUM(t.total_transaksi) AS total_penjualan FROM tbl_transaksi t WHERE DATE(t.tanggal_waktu) = CURDATE() GROUP BY DATE(t.tanggal_waktu);",
+      "expected_columns": [
+        "tanggal",
+        "jumlah_transaksi",
+        "total_penjualan"
+      ],
+      "max_rows": 1,
+      "llm_response_guideline": "Jika tidak ada transaksi: jelaskan bahwa belum ada transaksi yang tercatat hari ini. Jika ada: sebutkan tanggal, jumlah_transaksi, dan total_penjualan dalam format yang mudah dibaca. Jangan mengubah angka, hanya formatkan menjadi kalimat yang jelas."
+    }
+  ],
+  "fallback": {
+    "behavior": "Jika intent tidak jelas atau tidak cocok dengan konfigurasi di atas, jangan menebak. Balas dengan kalimat yang meminta user memperjelas pertanyaan, misalnya: 'Pertanyaannya belum jelas. Mau cek stok bahan, daftar bahan menipis, ringkasan per kategori, atau rekap penjualan hari ini?'"
+  }
+}
+

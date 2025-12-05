@@ -124,6 +124,14 @@ Route::middleware('auth:sanctum')->group(function () {
 
 // Public WhatsApp Agent routes (for webhook)
 Route::post('/whatsapp/webhook', [WhatsAppAgentController::class, 'processStockMessage']);
+Route::post('/whatsapp/query', [WhatsAppAgentController::class, 'executeQuery']);
+
+// WhatsApp Inventory Agent endpoints (specific endpoints for each intent)
+Route::get('/whatsapp/inventory/check-stock', [WhatsAppAgentController::class, 'getStockByMaterialName']);
+Route::get('/whatsapp/inventory/low-stock', [WhatsAppAgentController::class, 'getLowStockMaterials']);
+Route::get('/whatsapp/inventory/summary-by-category', [WhatsAppAgentController::class, 'getStockSummaryByCategory']);
+Route::get('/whatsapp/inventory/products-variants', [WhatsAppAgentController::class, 'getProductsAndVariants']);
+Route::get('/whatsapp/inventory/today-transactions', [WhatsAppAgentController::class, 'getTodayTransactionSummary']);
 
 // Test route for n8n stock notification
 Route::post('/test/stock-notification', function (Request $request) {
