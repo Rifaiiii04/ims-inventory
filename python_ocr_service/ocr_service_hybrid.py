@@ -642,7 +642,7 @@ Output text yang sudah rapih:"""
         logger.info("Tahap 1: Normalisasi text OCR (%s lines)", len(text_list))
         cleaned_response = call_ollama_api(
             prompt_clean,
-            timeout=50,
+            timeout=40,  # Reduced from 50s to 40s for faster processing
             options={'num_predict': 1200, 'temperature': 0.1, 'top_p': 0.3, 'top_k': 20}
         )
         if not cleaned_response:
@@ -676,7 +676,7 @@ JSON array:"""
         logger.info("Tahap 2: Ekstraksi JSON dari text normalisasi")
         response = call_ollama_api(
             prompt_json,
-            timeout=50,
+            timeout=35,  # Reduced from 50s to 35s for faster fallback
             options={'num_predict': 1200, 'temperature': 0.0, 'top_p': 0.2, 'top_k': 10}
         )
         if not response:
@@ -829,9 +829,12 @@ def classify_with_ollama(text_list):
         if not text_list:
             return []
         if USE_FULLTEXT_CLASSIFIER:
-            fulltext_items = classify_fulltext_with_ollama(text_list)
-            if fulltext_items:
-                return fulltext_items
+            try:
+                fulltext_items = classify_fulltext_with_ollama(text_list)
+                if fulltext_items:
+                    return fulltext_items
+            except Exception as exc:
+                logger.warning("Fulltext classifier error: %s, falling back to per-line mode", exc)
             logger.warning("Fulltext classifier returned no items, falling back to per-line mode")
         return classify_per_line(text_list)
     except Exception as exc:

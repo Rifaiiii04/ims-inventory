@@ -27,8 +27,8 @@ class OcrController extends Controller
     public function processPhoto(Request $request): JsonResponse
     {
         try {
-            // Set maximum execution time to 120 seconds for OCR processing (increased for Ollama)
-            set_time_limit(120);
+            // Set maximum execution time to 180 seconds for OCR processing (increased for Ollama + fulltext classifier)
+            set_time_limit(180);
             
             // Validate request
             $validator = Validator::make($request->all(), [
@@ -66,9 +66,9 @@ class OcrController extends Controller
                 ], 400);
             }
             
-            // Send request to OCR service with timeout (120 seconds maximum for Ollama processing)
+            // Send request to OCR service with timeout (180 seconds maximum for Ollama processing + fulltext classifier)
             try {
-                $response = Http::timeout(120)->attach(
+                $response = Http::timeout(180)->attach(
                 'image', 
                 file_get_contents($imageFile->getPathname()),
                 $imageFile->getClientOriginalName()
@@ -90,7 +90,7 @@ class OcrController extends Controller
                     return response()->json([
                         'success' => false,
                         'error' => 'OCR processing timeout',
-                        'message' => 'Proses OCR memakan waktu terlalu lama (lebih dari 120 detik). Pastikan Python OCR service dan Ollama berjalan dengan baik. Silakan coba lagi dengan foto yang lebih kecil atau jelas.'
+                        'message' => 'Proses OCR memakan waktu terlalu lama (lebih dari 180 detik). Pastikan Python OCR service dan Ollama berjalan dengan baik. Silakan coba lagi dengan foto yang lebih kecil atau jelas.'
                     ], 504);
                 }
                 
@@ -169,11 +169,11 @@ class OcrController extends Controller
             ]);
             
             // Check if it's a timeout error
-            if (str_contains($e->getMessage(), 'timed out') || str_contains($e->getMessage(), 'timeout')) {
+            if (str_contains($e->getMessage(), 'timed out') || str_contains($e->getMessage(), 'timeout') || str_contains($e->getMessage(), 'Maximum execution time')) {
                 return response()->json([
                     'success' => false,
                     'error' => 'OCR processing timeout',
-                    'message' => 'Proses OCR memakan waktu terlalu lama (lebih dari 120 detik). Pastikan Python OCR service dan Ollama berjalan dengan baik. Silakan coba lagi dengan foto yang lebih kecil atau jelas.'
+                    'message' => 'Proses OCR memakan waktu terlalu lama (lebih dari 180 detik). Pastikan Python OCR service dan Ollama berjalan dengan baik. Silakan coba lagi dengan foto yang lebih kecil atau jelas.'
                 ], 504);
             }
             

@@ -38,7 +38,7 @@ function Login() {
     // Show loading while checking authentication
     if (loading) {
         return (
-            <div className="w-screen h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
+            <div className="w-screen h-screen flex items-center justify-center bg-linear-to-br from-slate-900 via-slate-800 to-slate-900">
                 <div className="text-center">
                     <div className="w-16 h-16 border-4 border-green-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
                     <p className="text-white text-lg">Loading...</p>
@@ -58,7 +58,7 @@ function Login() {
     };
 
     return (
-        <div className="w-screen h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 overflow-hidden">
+        <div className="w-screen h-screen bg-linear-to-br from-slate-900 via-slate-800 to-slate-900 overflow-hidden">
             {/* Background Pattern */}
             <div className="absolute inset-0 opacity-20">
                 <div className="w-full h-full" style={{
@@ -78,14 +78,14 @@ function Login() {
                     <div className="bg-white/95 backdrop-blur-sm rounded-2xl shadow-2xl border border-white/20 p-8">
                         {/* Header */}
                         <div className="text-center mb-8">
-                            <div className="w-16 h-16 bg-gradient-to-br from-green-500 to-green-600 rounded-2xl mx-auto mb-4 flex items-center justify-center shadow-lg">
+                            <div className="w-16 h-16 bg-linear-to-br from-green-500 to-green-600 rounded-2xl mx-auto mb-4 flex items-center justify-center shadow-lg">
                                 <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                                 </svg>
                             </div>
                             <h1 className="text-3xl font-bold text-gray-800 mb-2">
                                 Welcome to{" "}
-                                <span className="bg-gradient-to-r from-green-600 to-green-500 bg-clip-text text-transparent">
+                                <span className="bg-linear-to-r from-green-600 to-green-500 bg-clip-text text-transparent">
                                     IMS Admin
                                 </span>
                             </h1>
