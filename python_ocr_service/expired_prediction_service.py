@@ -142,34 +142,11 @@ def call_ollama_api(prompt: str, timeout: int = 240, retry: int = 2) -> Optional
 
 def build_expiration_prompt(bahan_data: Dict, is_retry: bool = False, previous_error: str = '') -> str:
     try:
-        nama_bahan = bahan_data.get('nama_bahan', '').lower()
+        nama_bahan = bahan_data.get('nama_bahan', '')
         kategori = bahan_data.get('kategori', '')
-        
-        # Mapping karakteristik bahan berdasarkan nama untuk membantu AI
-        bahan_karakteristik = ""
-        if 'cabai' in nama_bahan or 'cabe' in nama_bahan or 'chili' in nama_bahan:
-            bahan_karakteristik = "\n🔍 KARAKTERISTIK SPESIFIK: Cabai adalah bahan SEGAR dengan kandungan air tinggi, mudah busuk, dan memerlukan penyimpanan yang baik. Estimasi realistis: 3-7 hari.\n"
-        elif 'ayam' in nama_bahan or 'chicken' in nama_bahan:
-            bahan_karakteristik = "\n🔍 KARAKTERISTIK SPESIFIK: Ayam adalah DAGING SEGAR yang sangat mudah busuk, memerlukan suhu dingin, dan harus dikonsumsi cepat. Estimasi realistis: 1-3 hari.\n"
-        elif 'minyak' in nama_bahan or 'oil' in nama_bahan:
-            bahan_karakteristik = "\n🔍 KARAKTERISTIK SPESIFIK: Minyak adalah bahan POKOK yang tahan lama, tidak mengandung air, dan memiliki sifat pengawet alami. Estimasi realistis: 180-365 hari.\n"
-        elif 'beras' in nama_bahan or 'rice' in nama_bahan:
-            bahan_karakteristik = "\n🔍 KARAKTERISTIK SPESIFIK: Beras adalah bahan POKOK kering yang sangat tahan lama jika disimpan di tempat kering. Estimasi realistis: 365-730 hari.\n"
-        elif 'gula' in nama_bahan or 'sugar' in nama_bahan:
-            bahan_karakteristik = "\n🔍 KARAKTERISTIK SPESIFIK: Gula adalah bahan POKOK kering yang sangat tahan lama. Estimasi realistis: 365-730 hari.\n"
-        elif 'garam' in nama_bahan or 'salt' in nama_bahan:
-            bahan_karakteristik = "\n🔍 KARAKTERISTIK SPESIFIK: Garam adalah bahan POKOK yang hampir tidak pernah expired jika disimpan kering. Estimasi realistis: 730+ hari.\n"
-        elif any(x in nama_bahan for x in ['sayur', 'vegetable', 'daun', 'kangkung', 'bayam', 'selada']):
-            bahan_karakteristik = "\n🔍 KARAKTERISTIK SPESIFIK: Sayuran hijau adalah bahan SEGAR yang sangat mudah busuk dan memerlukan penyimpanan dingin. Estimasi realistis: 2-5 hari.\n"
-        elif any(x in nama_bahan for x in ['ikan', 'fish', 'udang', 'shrimp']):
-            bahan_karakteristik = "\n🔍 KARAKTERISTIK SPESIFIK: Ikan/seafood segar adalah bahan yang sangat mudah busuk dan memerlukan suhu dingin. Estimasi realistis: 1-2 hari.\n"
-        elif any(x in nama_bahan for x in ['buah', 'fruit', 'apel', 'jeruk', 'mangga']):
-            bahan_karakteristik = "\n🔍 KARAKTERISTIK SPESIFIK: Buah segar adalah bahan yang mudah busuk tergantung jenisnya. Estimasi realistis: 3-7 hari.\n"
-        
-        nama_bahan = bahan_data.get('nama_bahan', '')  # Kembalikan ke format asli untuk display
         stok = bahan_data.get('stok_bahan', '')
         satuan = bahan_data.get('satuan', '')
-        harga_beli = bahan_data.get('harga_beli', '')
+        harga_beli = bahan_data.get('harga_beli', 0)
         min_stok = bahan_data.get('min_stok', '')
         
         # Tanggal dibuat dan terakhir update
@@ -179,201 +156,71 @@ def build_expiration_prompt(bahan_data: Dict, is_retry: bool = False, previous_e
         if not terakhir_update_str:
             terakhir_update = datetime.now()
             terakhir_update_str = terakhir_update.strftime('%Y-%m-%d')
-        else:
-            try:
-                terakhir_update = datetime.strptime(terakhir_update_str, '%Y-%m-%d')
-            except ValueError:
-                terakhir_update = datetime.now()
-                terakhir_update_str = terakhir_update.strftime('%Y-%m-%d')
         
         # Hitung umur stok dan hari sejak update
         umur_stok_hari = bahan_data.get('umur_stok_hari')
         hari_sejak_update = bahan_data.get('hari_sejak_update')
         
-        # Informasi bahan sejenis untuk konteks
-        bahan_sejenis = bahan_data.get('bahan_sejenis', [])
-        bahan_sejenis_text = ""
-        if bahan_sejenis:
-            bahan_sejenis_text = "\n📊 BAHAN SEJENIS DALAM KATEGORI YANG SAMA (untuk referensi, tapi {nama_bahan} HARUS memiliki estimasi yang berbeda):\n"
-            for bs in bahan_sejenis:
-                bahan_sejenis_text += f"- {bs.get('nama', '')}: {bs.get('stok', '')} {bs.get('satuan', '')}\n"
-            bahan_sejenis_text += f"\n⚠️ PENTING: Meskipun ada bahan sejenis di atas, {nama_bahan} HARUS memiliki estimasi_hari yang berbeda dan spesifik untuk karakteristik {nama_bahan} sendiri!\n"
-        
         today = datetime.now()
         today_str = today.strftime('%Y-%m-%d')
-        
-        # Informasi umur stok
-        umur_info = ""
-        if umur_stok_hari is not None:
-            umur_info += f"\nUmur stok: {umur_stok_hari} hari (sejak dibuat)"
-        if hari_sejak_update is not None:
-            umur_info += f"\nHari sejak terakhir update: {hari_sejak_update} hari"
         
         retry_note = ""
         if is_retry:
             if 'JSON' in previous_error.upper() or 'parse' in previous_error.lower():
-                retry_note = f"\n⚠️ KESALAHAN SEBELUMNYA: {previous_error}\n⚠️ PENTING: Anda HARUS mengembalikan HANYA JSON tanpa teks penjelasan! Format: {{'estimasi_hari': angka, 'reason': 'teks', 'confidence': angka}}\n"
+                retry_note = f"\n⚠️ KESALAHAN SEBELUMNYA: {previous_error}\n⚠️ PENTING: Kembalikan HANYA JSON tanpa teks penjelasan!\n"
             else:
-                retry_note = f"\n⚠️ KESALAHAN SEBELUMNYA: {previous_error}\n⚠️ Pastikan estimasi_hari adalah angka bulat (bukan tanggal), dan estimasi_hari harus sesuai dengan jumlah hari yang disebutkan di reason. Berikan estimasi hari yang realistis berdasarkan jenis bahan dan kategori.\n"
+                retry_note = f"\n⚠️ KESALAHAN SEBELUMNYA: {previous_error}\n"
         
-        return f"""Anda adalah ahli prediksi masa simpan bahan makanan untuk sistem inventory angkringan.
+        return f"""Anda adalah ahli prediksi masa simpan bahan makanan. Analisis dan prediksi kapan {nama_bahan} akan expired.
 
-⚠️ PERINGATAN PENTING SEBELUM MEMULAI:
-- Setiap bahan makanan memiliki karakteristik yang BERBEDA
-- JANGAN memberikan estimasi_hari yang SAMA untuk semua bahan!
-- Analisis karakteristik {nama_bahan} secara SPESIFIK dan BERBEDA dari bahan lain
-- Bahan segar (Cabai, Ayam, Sayur) = 1-7 hari
-- Bahan pokok (Minyak, Beras, Gula) = 180-365+ hari
-- Daging segar (Ayam, Ikan) = 1-3 hari
+DATA BAHAN:
+- Nama: {nama_bahan}
+- Kategori: {kategori}
+- Stok: {stok} {satuan}
+- Tanggal dibuat: {tanggal_dibuat_str if tanggal_dibuat_str else 'Tidak diketahui'}
+- Terakhir update: {terakhir_update_str}
+- Umur stok: {umur_stok_hari if umur_stok_hari is not None else 'Tidak diketahui'} hari
+- Hari sejak update: {hari_sejak_update if hari_sejak_update is not None else 'Tidak diketahui'} hari
 
-TUGAS: Prediksi kapan bahan makanan akan expired berdasarkan informasi lengkap berikut.
+PENTING - BACA INI DENGAN HATI-HATI:
 
-📋 DATA BAHAN:
-Nama: {nama_bahan}
-Kategori: {kategori}
-Stok saat ini: {stok} {satuan}
-Harga beli: Rp {harga_beli:,.0f} (jika tersedia)
-Minimum stok: {min_stok} {satuan} (jika tersedia)
-{bahan_karakteristik}
+1. ANALISIS KARAKTERISTIK {nama_bahan.upper()}:
+   - Identifikasi jenis bahan: bahan segar (sayur/daging/buah) atau bahan pokok (minyak/beras/gula/garam)?
+   - Bahan SEGAR (Ayam, Cabai, Sayur, Ikan, Buah): mudah busuk, kandungan air tinggi, perlu kulkas → 1-7 hari
+   - Bahan POKOK (Minyak, Beras, Gula, Garam): tahan lama, tidak mudah rusak, disimpan kering → 180-365+ hari
+   - Daging SEGAR (Ayam, Ikan): sangat mudah busuk, perlu kulkas → 1-3 hari maksimal
 
-📅 INFORMASI TANGGAL:
-Tanggal dibuat: {tanggal_dibuat_str if tanggal_dibuat_str else 'Tidak diketahui'}
-Terakhir update: {terakhir_update_str}
-Tanggal hari ini: {today_str}
-{umur_info}
+2. PREDIKSI MASA SIMPAN:
+   - Hitung dari tanggal terakhir update ({terakhir_update_str})
+   - Jika {nama_bahan} adalah bahan POKOK (minyak/beras/gula/garam): estimasi MINIMAL 180 hari
+   - Jika {nama_bahan} adalah bahan SEGAR (ayam/cabai/sayur): estimasi 1-7 hari
+   - Jika {nama_bahan} adalah daging SEGAR (ayam/ikan): estimasi 1-3 hari maksimal
 
-{bahan_sejenis_text}
+3. KONSISTENSI WAJIB:
+   - Jika reason mengatakan "dapat bertahan X hari", maka estimasi_hari HARUS = X
+   - JANGAN mengatakan "dapat bertahan 24 hari" tapi estimasi_hari = 0 atau 1
+   - JANGAN mengatakan "tahan lama" tapi estimasi_hari < 180 untuk bahan pokok
 
-🎯 PETUNJUK PREDIKSI (WAJIB DIIKUTI):
-1. Gunakan tanggal terakhir update ({terakhir_update_str}) sebagai titik awal perhitungan
-2. Hitung estimasi hari masa simpan dengan mempertimbangkan SEMUA informasi berikut:
-   a. NAMA BAHAN: {nama_bahan} - analisis karakteristik bahan ini
-   b. KATEGORI: {kategori} - gunakan pengetahuan tentang kategori ini
-   c. UMUR STOK: {umur_stok_hari if umur_stok_hari is not None else 'Tidak diketahui'} hari sejak dibuat
-   d. HARI SEJAK UPDATE: {hari_sejak_update if hari_sejak_update is not None else 'Tidak diketahui'} hari
-   e. BAHAN SEJENIS: Gunakan sebagai referensi untuk memahami pola kategori ini
-   f. STOK SAAT INI: {stok} {satuan} - pertimbangkan apakah stok besar/kecil mempengaruhi masa simpan
-3. ESTIMASI HARUS REALISTIS berdasarkan jenis bahan - WAJIB BEDA UNTUK SETIAP BAHAN:
-   ⚠️ PENTING: Setiap bahan HARUS memiliki estimasi yang BERBEDA! JANGAN memberikan estimasi yang sama!
-   
-   Contoh karakteristik dan estimasi yang BENAR:
-   - CABAI (bahan segar, sayuran): 3-7 hari (karena mudah busuk, kandungan air tinggi)
-   - AYAM (daging segar): 1-3 hari (harus disimpan dingin, sangat mudah busuk)
-   - MINYAK GORENG (bahan pokok, minyak): 180-365 hari (tahan lama, tidak mudah rusak)
-   - BERAS (bahan pokok, kering): 365-730 hari (sangat tahan lama jika disimpan kering)
-   - GULA (bahan pokok, kering): 365-730 hari (sangat tahan lama)
-   - GARAM (bahan pokok, kering): 730+ hari (hampir tidak pernah expired)
-   - SAYUR HIJAU (bahan segar): 2-5 hari (sangat mudah busuk)
-   - IKAN SEGAR (bahan segar): 1-2 hari (sangat mudah busuk)
-   - BUAH SEGAR (bahan segar): 3-7 hari (tergantung jenis buah)
-   - BUMBU KERING (bahan kering): 90-180 hari (tahan lebih lama dari segar)
-   - MIE INSTAN (bahan kering, kemasan): 180-365 hari (tahan lama karena kemasan)
-   
-   ⚠️ KARAKTERISTIK BAHAN YANG HARUS DIPERTIMBANGKAN:
-   a. Bahan SEGAR (sayur, daging, ikan, buah segar): 1-7 hari
-      - Mudah busuk, kandungan air tinggi
-      - Perlu penyimpanan dingin
-      - Contoh: Cabai, Ayam, Ikan, Sayur hijau, Buah segar
-   b. Bahan POKOK (beras, gula, garam, minyak goreng): 180-365+ hari
-      - Tahan lama, tidak mudah rusak
-      - Disimpan di tempat kering
-      - Contoh: Minyak goreng, Beras, Gula, Garam
-   c. Bahan KERING/AWET (kacang, bumbu kering, mie instan): 90-365+ hari
-      - Lebih tahan dari bahan segar
-      - Perlu tempat kering
-      - Contoh: Bumbu kering, Kacang, Mie instan
-   d. Bahan BEKU/DINGIN (jika disimpan di freezer/kulkas): 30-180 hari
-      - Tahan lebih lama karena suhu dingin
-      - Contoh: Daging beku, Ikan beku
-   e. Bahan KALENG/PRESERVATIF: 365-730+ hari
-      - Sangat tahan lama karena pengawet
-      - Contoh: Makanan kaleng
-   
-4. expired_date = {terakhir_update_str} + estimasi_hari
-5. expired_date WAJIB lebih besar dari {terakhir_update_str} (minimal +1 hari, idealnya sesuai jenis bahan)
-6. ⚠️ WAJIB: Setiap bahan HARUS memiliki estimasi_hari yang BERBEDA!
-   - JANGAN memberikan semua bahan dengan estimasi_hari yang sama (misalnya semua 15 hari)!
-   - Analisis karakteristik {nama_bahan} secara spesifik
-   - Bandingkan dengan bahan sejenis jika ada, tapi tetap berikan estimasi yang berbeda untuk {nama_bahan}
-   - Jika {nama_bahan} adalah bahan segar, berikan estimasi 1-7 hari
-   - Jika {nama_bahan} adalah bahan pokok seperti minyak, berikan estimasi 180-365 hari
-   - Jika {nama_bahan} adalah daging segar, berikan estimasi 1-3 hari
-7. Confidence: skala 1-100, berikan nilai yang wajar:
-   - 85-95: Untuk prediksi yang sangat yakin (bahan dengan karakteristik jelas)
-   - 70-84: Untuk prediksi yang cukup yakin
-   - 50-69: Untuk prediksi yang kurang yakin (hindari jika mungkin)
-8. Reason: Jelaskan dengan JELAS dan SPESIFIK mengapa estimasi tersebut diberikan:
-   ⚠️ PENTING: FOKUS HANYA PADA BAHAN {nama_bahan} SAJA! JANGAN menyebutkan bahan lain!
-   - WAJIB sebutkan jumlah HARI yang diprediksi dalam reason (contoh: "5 hari", "7 hari", "180 hari", "365 hari")
-   - FOKUS pada karakteristik {nama_bahan} yang mempengaruhi prediksi
-   - Jelaskan bagaimana kategori {kategori} mempengaruhi masa simpan {nama_bahan}
-   - Jika ada informasi umur stok, sebutkan bagaimana itu mempengaruhi prediksi {nama_bahan}
-   - JANGAN menyebutkan bahan lain dalam deskripsi!
-   - WAJIB menjelaskan karakteristik spesifik {nama_bahan}:
-     * Jika {nama_bahan} adalah bahan segar (seperti Cabai, Ayam, Sayur): jelaskan kandungan air, mudah busuk, perlu penyimpanan dingin
-     * Jika {nama_bahan} adalah bahan pokok (seperti Minyak, Beras, Gula): jelaskan tahan lama, tidak mudah rusak, disimpan kering
-     * Jika {nama_bahan} adalah daging segar: jelaskan sangat mudah busuk, perlu suhu dingin, maksimal 1-3 hari
-   - Contoh BAIK untuk CABAI: "Cabai adalah bahan segar dengan kandungan air tinggi yang mudah busuk. Cabai dapat bertahan sekitar 5-7 hari jika disimpan di tempat yang sejuk dan kering. Karena sifatnya yang mudah busuk, masa simpan Cabai relatif pendek."
-   - Contoh BAIK untuk MINYAK: "Minyak goreng adalah bahan pokok yang tahan lama karena tidak mengandung air dan memiliki sifat pengawet alami. Minyak dapat bertahan sekitar 180-365 hari jika disimpan di tempat yang sejuk, kering, dan terhindar dari cahaya langsung."
-   - Contoh BAIK untuk AYAM: "Ayam adalah daging segar yang sangat mudah busuk karena kandungan protein dan air yang tinggi. Ayam dapat bertahan sekitar 1-3 hari jika disimpan di kulkas dengan suhu dingin. Setelah 3 hari, ayam berisiko tinggi mengalami pembusukan."
-   - Contoh SALAH: "{nama_bahan} dapat bertahan beberapa hari. Cabai dan minyak juga memiliki masa simpan yang berbeda." (JANGAN menyebutkan bahan lain!)
-
-9. KONSISTENSI WAJIB: 
-   ⚠️ PENTING SEKALI - expired_date HARUS SESUAI dengan jumlah hari yang disebutkan di reason!
-   - Jika reason mengatakan "16 hari", maka expired_date = {terakhir_update_str} + 16 hari
-   - Jika reason mengatakan "30 hari", maka expired_date = {terakhir_update_str} + 30 hari
-   - Jika reason mengatakan "365 hari", maka expired_date = {terakhir_update_str} + 365 hari
-   - JANGAN membuat expired_date yang tidak sesuai dengan estimasi hari di reason!
-
-📤 OUTPUT (WAJIB format JSON - HANYA JSON, TIDAK ADA TEKS LAIN):
-⚠️ PENTING: Anda HARUS mengembalikan HANYA JSON, tanpa teks penjelasan sebelum atau sesudahnya!
-⚠️ JANGAN menambahkan markdown, penjelasan, atau teks lain di luar JSON!
-
-Format JSON yang WAJIB dikembalikan:
+OUTPUT (HANYA JSON):
 {{
-  "estimasi_hari": angka_hari,
-  "reason": "Penjelasan yang WAJIB menyebutkan jumlah hari (contoh: 'dapat bertahan 16 hari' atau 'masa simpan 30 hari').",
-  "confidence": angka_antara_1_100
+  "estimasi_hari": <angka_hari>,
+  "reason": "<Deskripsi {nama_bahan} dan alasan. WAJIB sebutkan jumlah hari yang SAMA dengan estimasi_hari. Contoh: '{nama_bahan} adalah bahan pokok yang tahan lama. {nama_bahan} dapat bertahan sekitar 180 hari jika disimpan dengan benar.'>",
+  "confidence": <angka_1_100>
 }}
 
-Contoh output yang BENAR (copy paste format ini):
-{{"estimasi_hari": 3, "reason": "Ayam adalah daging segar yang sangat mudah busuk. Ayam dapat bertahan sekitar 3 hari jika disimpan di kulkas dengan suhu dingin.", "confidence": 90}}
+CONTOH BENAR untuk MINYAK:
+{{"estimasi_hari": 180, "reason": "Minyak adalah bahan pokok yang tahan lama karena tidak mengandung air dan memiliki sifat pengawet alami. Minyak dapat bertahan sekitar 180 hari jika disimpan di tempat yang sejuk, kering, dan terhindar dari cahaya langsung.", "confidence": 90}}
 
-Contoh output yang SALAH (JANGAN lakukan ini):
-Oke, mari kita lakukan prediksi...
-{{"estimasi_hari": 3, ...}}
-Terima kasih.
+CONTOH BENAR untuk AYAM:
+{{"estimasi_hari": 3, "reason": "Ayam adalah daging segar yang sangat mudah busuk karena kandungan protein dan air yang tinggi. Ayam dapat bertahan sekitar 3 hari jika disimpan di kulkas dengan suhu dingin.", "confidence": 90}}
 
-⚠️ KEMBALIKAN HANYA JSON, TANPA TEKS LAIN!
-
-⚠️ PENTING SEKALI - BACA INI DENGAN HATI-HATI:
-1. JANGAN berikan expired_date dalam format tanggal seperti "YYYY-MM-DD"!
-2. Berikan HANYA estimasi_hari (angka bulat) - contoh: 16, 30, 365
-3. Sistem akan menghitung expired_date = {terakhir_update_str} + estimasi_hari
-4. Jika Anda memberikan expired_date, sistem akan MENGABAIKANNYA dan menggunakan estimasi_hari
-5. estimasi_hari HARUS sesuai dengan jumlah hari yang disebutkan di reason
-   - Jika reason mengatakan "16 hari", maka estimasi_hari = 16
-   - Jika reason mengatakan "30 hari", maka estimasi_hari = 30
-   - Jika reason mengatakan "365 hari", maka estimasi_hari = 365
-6. JANGAN memberikan format seperti "2025-12-15 + 16 hari" - itu SALAH!
-7. Berikan HANYA angka: estimasi_hari = 16
+CONTOH SALAH (JANGAN LAKUKAN):
+{{"estimasi_hari": 0, "reason": "Ayam dapat bertahan sekitar 24 hari..."}} ❌ INKONSISTEN!
+{{"estimasi_hari": 23, "reason": "Minyak tahan lama..."}} ❌ Terlalu kecil untuk minyak!
 
 {retry_note}
 
-⚠️ PENTING: 
-- Berikan HANYA estimasi_hari (angka), BUKAN expired_date (tanggal)!
-- estimasi_hari HARUS sesuai dengan jumlah hari yang disebutkan di reason
-- Jika reason mengatakan "X hari", maka estimasi_hari = X
-- Sistem akan menghitung expired_date = {terakhir_update_str} + estimasi_hari
-- Berikan estimasi yang masuk akal berdasarkan jenis bahan
-- ⚠️ WAJIB: JANGAN memberikan semua bahan dengan durasi yang sama!
-  * Setiap bahan HARUS memiliki estimasi_hari yang BERBEDA
-  * Analisis karakteristik {nama_bahan} secara spesifik
-  * Bahan segar (Cabai, Ayam, Sayur): 1-7 hari
-  * Bahan pokok (Minyak, Beras, Gula): 180-365+ hari
-  * Daging segar (Ayam, Ikan): 1-3 hari
-- Gunakan informasi umur stok dan bahan sejenis sebagai referensi tambahan
-- Jika Anda memberikan estimasi yang sama untuk semua bahan, itu SALAH! Setiap bahan punya karakteristik berbeda!
+KEMBALIKAN HANYA JSON, TANPA TEKS LAIN!
 """
     except Exception as e:
         print(f"[PROMPT] ERROR: Gagal build prompt: {e}")
@@ -583,6 +430,72 @@ def parse_expiration_prediction(ai_response: str, bahan_data: Dict) -> Dict:
         else:
             terakhir_update = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         
+        # Validasi estimasi_hari berdasarkan jenis bahan (jika bisa diidentifikasi dari nama)
+        nama_bahan_lower = bahan_data.get('nama_bahan', '').lower()
+        original_ai_days = ai_days
+        reason_updated = False
+        
+        # Validasi khusus untuk bahan yang seharusnya tahan lama
+        if 'minyak' in nama_bahan_lower or 'oil' in nama_bahan_lower:
+            if ai_days < 180:
+                print(f"[PARSING] ERROR: Estimasi_hari untuk Minyak terlalu kecil ({ai_days} hari)")
+                print(f"[PARSING] Minyak adalah bahan pokok yang tahan lama, HARUS minimal 180 hari")
+                print(f"[PARSING] Memperbaiki menjadi 180 hari minimum")
+                ai_days = 180
+                reason_updated = True
+        elif 'beras' in nama_bahan_lower or 'rice' in nama_bahan_lower:
+            if ai_days < 365:
+                print(f"[PARSING] ERROR: Estimasi_hari untuk Beras terlalu kecil ({ai_days} hari)")
+                print(f"[PARSING] Beras adalah bahan pokok yang sangat tahan lama, HARUS minimal 365 hari")
+                print(f"[PARSING] Memperbaiki menjadi 365 hari minimum")
+                ai_days = 365
+                reason_updated = True
+        elif 'gula' in nama_bahan_lower or 'sugar' in nama_bahan_lower:
+            if ai_days < 365:
+                print(f"[PARSING] ERROR: Estimasi_hari untuk Gula terlalu kecil ({ai_days} hari)")
+                print(f"[PARSING] Gula adalah bahan pokok yang sangat tahan lama, HARUS minimal 365 hari")
+                print(f"[PARSING] Memperbaiki menjadi 365 hari minimum")
+                ai_days = 365
+                reason_updated = True
+        elif 'garam' in nama_bahan_lower or 'salt' in nama_bahan_lower:
+            if ai_days < 730:
+                print(f"[PARSING] ERROR: Estimasi_hari untuk Garam terlalu kecil ({ai_days} hari)")
+                print(f"[PARSING] Garam adalah bahan pokok yang hampir tidak pernah expired, HARUS minimal 730 hari")
+                print(f"[PARSING] Memperbaiki menjadi 730 hari minimum")
+                ai_days = 730
+                reason_updated = True
+        
+        # Validasi untuk bahan segar - tidak boleh terlalu lama
+        if any(x in nama_bahan_lower for x in ['ayam', 'chicken', 'ikan', 'fish', 'udang', 'shrimp']):
+            if ai_days > 7:
+                print(f"[PARSING] ERROR: Estimasi_hari untuk daging segar terlalu besar ({ai_days} hari)")
+                print(f"[PARSING] Daging segar maksimal 3-7 hari, memperbaiki menjadi 3 hari")
+                ai_days = 3
+                reason_updated = True
+        
+        # Jika estimasi_hari diubah, perlu update reason dan expired_date juga
+        if ai_days != original_ai_days:
+            print(f"[PARSING] Estimasi_hari diubah dari {original_ai_days} menjadi {ai_days} hari")
+            
+            # Recalculate expired_date
+            expired_date = terakhir_update + timedelta(days=ai_days)
+            ai_date = expired_date.strftime('%Y-%m-%d')
+            
+            # Update reason untuk konsistensi
+            nama_bahan_display = bahan_data.get('nama_bahan', 'Bahan ini')
+            
+            if 'minyak' in nama_bahan_lower or 'oil' in nama_bahan_lower:
+                ai_reason = f"{nama_bahan_display} adalah bahan pokok yang tahan lama karena tidak mengandung air dan memiliki sifat pengawet alami. {nama_bahan_display} dapat bertahan sekitar {ai_days} hari jika disimpan di tempat yang sejuk, kering, dan terhindar dari cahaya langsung."
+            elif 'ayam' in nama_bahan_lower or 'chicken' in nama_bahan_lower:
+                ai_reason = f"{nama_bahan_display} adalah daging segar yang sangat mudah busuk karena kandungan protein dan air yang tinggi. {nama_bahan_display} dapat bertahan sekitar {ai_days} hari jika disimpan di kulkas dengan suhu dingin."
+            elif 'cabai' in nama_bahan_lower or 'cabe' in nama_bahan_lower or 'chili' in nama_bahan_lower:
+                ai_reason = f"{nama_bahan_display} adalah bahan segar dengan kandungan air tinggi yang mudah busuk. {nama_bahan_display} dapat bertahan sekitar {ai_days} hari jika disimpan di tempat yang sejuk dan kering."
+            else:
+                # Update reason dengan jumlah hari yang benar
+                ai_reason = re.sub(r'\d+\s*hari', f'{ai_days} hari', ai_reason, flags=re.IGNORECASE)
+            
+            print(f"[PARSING] Reason diperbaiki untuk konsistensi: {ai_reason}")
+        
         # Hitung expired_date = terakhir_update + estimasi_hari
         expired_date = terakhir_update + timedelta(days=ai_days)
         ai_date = expired_date.strftime('%Y-%m-%d')
@@ -621,19 +534,37 @@ def parse_expiration_prediction(ai_response: str, bahan_data: Dict) -> Dict:
                 # Bandingkan dengan ai_days
                 diff = abs(ai_days - reason_days)
                 if diff > 2:  # Toleransi 2 hari untuk perbedaan kecil
-                    print(f"[PARSING] WARNING: Inconsistency detected!")
+                    print(f"[PARSING] ERROR: INKONSISTENSI DETECTED!")
                     print(f"[PARSING] Reason menyebutkan: {reason_days} hari")
                     print(f"[PARSING] estimasi_hari menunjukkan: {ai_days} hari")
-                    print(f"[PARSING] Selisih: {diff} hari")
+                    print(f"[PARSING] Selisih: {diff} hari - INI SANGAT TIDAK KONSISTEN!")
                     print(f"[PARSING] Memperbaiki estimasi_hari sesuai dengan reason...")
-                    
-                    # Perbaiki estimasi_hari sesuai dengan reason
+
+                    # Perbaiki estimasi_hari sesuai dengan reason (reason lebih akurat karena AI sudah berpikir)
                     ai_days = reason_days
                     expired_date = terakhir_update + timedelta(days=ai_days)
                     ai_date = expired_date.strftime('%Y-%m-%d')
-                    
+
                     print(f"[PARSING] estimasi_hari diperbaiki menjadi: {ai_days} hari")
                     print(f"[PARSING] expired_date diperbaiki menjadi: {ai_date}")
+                    
+                    # Update reason untuk memastikan konsistensi
+                    nama_bahan_display = bahan_data.get('nama_bahan', 'Bahan ini')
+                    nama_bahan_lower = bahan_data.get('nama_bahan', '').lower()
+                    
+                    # Perbaiki reason berdasarkan jenis bahan
+                    if 'minyak' in nama_bahan_lower or 'oil' in nama_bahan_lower:
+                        ai_reason = f"{nama_bahan_display} adalah bahan pokok yang tahan lama karena tidak mengandung air dan memiliki sifat pengawet alami. {nama_bahan_display} dapat bertahan sekitar {ai_days} hari jika disimpan di tempat yang sejuk, kering, dan terhindar dari cahaya langsung."
+                    elif 'ayam' in nama_bahan_lower or 'chicken' in nama_bahan_lower:
+                        ai_reason = f"{nama_bahan_display} adalah daging segar yang sangat mudah busuk karena kandungan protein dan air yang tinggi. {nama_bahan_display} dapat bertahan sekitar {ai_days} hari jika disimpan di kulkas dengan suhu dingin."
+                    elif 'cabai' in nama_bahan_lower or 'cabe' in nama_bahan_lower or 'chili' in nama_bahan_lower:
+                        ai_reason = f"{nama_bahan_display} adalah bahan segar dengan kandungan air tinggi yang mudah busuk. {nama_bahan_display} dapat bertahan sekitar {ai_days} hari jika disimpan di tempat yang sejuk dan kering."
+                    else:
+                        # Update reason dengan jumlah hari yang benar
+                        # Ganti angka hari yang salah dengan yang benar
+                        ai_reason = re.sub(r'\d+\s*hari', f'{ai_days} hari', ai_reason, flags=re.IGNORECASE)
+                    
+                    print(f"[PARSING] Reason diperbaiki untuk konsistensi: {ai_reason}")
                 else:
                     print(f"[PARSING] Konsistensi OK: reason {reason_days} hari, estimasi_hari {ai_days} hari (selisih {diff} hari)")
             else:
@@ -671,6 +602,101 @@ def parse_expiration_prediction(ai_response: str, bahan_data: Dict) -> Dict:
             if not ai_reason or len(ai_reason) < 10:
                 print(f"[PARSING] ERROR: Reason terlalu pendek atau kosong")
                 raise ValueError("Reason terlalu pendek atau kosong")
+            
+            # PENTING: Validasi bahwa reason menyebutkan nama bahan yang benar
+            nama_bahan = bahan_data.get('nama_bahan', '').lower()
+            ai_reason_lower = ai_reason.lower()
+            
+            # Cek apakah reason menyebutkan nama bahan yang benar
+            # Untuk nama bahan yang umum, cek beberapa variasi
+            bahan_mentions = []
+            if 'minyak' in nama_bahan or 'oil' in nama_bahan:
+                bahan_mentions = ['minyak', 'oil']
+            elif 'ayam' in nama_bahan or 'chicken' in nama_bahan:
+                bahan_mentions = ['ayam', 'chicken']
+            elif 'cabai' in nama_bahan or 'cabe' in nama_bahan or 'chili' in nama_bahan:
+                bahan_mentions = ['cabai', 'cabe', 'chili']
+            elif 'beras' in nama_bahan or 'rice' in nama_bahan:
+                bahan_mentions = ['beras', 'rice']
+            elif 'gula' in nama_bahan or 'sugar' in nama_bahan:
+                bahan_mentions = ['gula', 'sugar']
+            elif 'garam' in nama_bahan or 'salt' in nama_bahan:
+                bahan_mentions = ['garam', 'salt']
+            else:
+                # Untuk bahan lain, gunakan nama bahan langsung
+                bahan_mentions = [nama_bahan]
+            
+            # Cek apakah reason menyebutkan nama bahan yang benar
+            reason_mentions_correct_bahan = any(mention in ai_reason_lower for mention in bahan_mentions)
+            
+            # Cek apakah reason menyebutkan bahan lain yang salah
+            wrong_bahan_mentions = []
+            if 'minyak' in nama_bahan or 'oil' in nama_bahan:
+                # Jika bahan adalah Minyak, jangan boleh menyebutkan Ayam, Cabai, dll
+                wrong_bahan_mentions = ['ayam', 'chicken', 'cabai', 'cabe', 'chili', 'ikan', 'fish', 'sayur', 'vegetable']
+            elif 'ayam' in nama_bahan or 'chicken' in nama_bahan:
+                # Jika bahan adalah Ayam, jangan boleh menyebutkan Minyak, Beras, dll
+                wrong_bahan_mentions = ['minyak', 'oil', 'beras', 'rice', 'gula', 'sugar']
+            elif 'cabai' in nama_bahan or 'cabe' in nama_bahan or 'chili' in nama_bahan:
+                # Jika bahan adalah Cabai, jangan boleh menyebutkan Ayam, Minyak, dll
+                wrong_bahan_mentions = ['ayam', 'chicken', 'minyak', 'oil']
+            
+            reason_mentions_wrong_bahan = any(wrong in ai_reason_lower for wrong in wrong_bahan_mentions)
+            
+            if reason_mentions_wrong_bahan:
+                print(f"[PARSING] WARNING: Reason menyebutkan bahan yang salah!")
+                print(f"[PARSING] Bahan yang diprediksi: {nama_bahan}")
+                print(f"[PARSING] Reason asli dari AI: {ai_reason}")
+                print(f"[PARSING] Reason menyebutkan bahan yang salah, akan diperbaiki...")
+                
+                # Perbaiki reason dengan mengganti bahan yang salah dengan bahan yang benar
+                nama_bahan_display = bahan_data.get('nama_bahan', 'Bahan ini')
+                
+                # Ganti dengan reason yang benar berdasarkan jenis bahan
+                if 'minyak' in nama_bahan or 'oil' in nama_bahan:
+                    # Minyak adalah bahan pokok yang tahan lama
+                    # PENTING: Minyak HARUS memiliki estimasi_hari yang besar (180-365 hari)
+                    # Jika estimasi_hari terlalu kecil (< 180), berarti AI salah menganalisis
+                    if ai_days < 180:
+                        print(f"[PARSING] WARNING: Estimasi_hari untuk Minyak terlalu kecil ({ai_days} hari)")
+                        print(f"[PARSING] Minyak adalah bahan pokok yang tahan lama, memperbaiki menjadi 180 hari minimum")
+                        ai_days = 180
+                        # Recalculate expired_date
+                        terakhir_update_str = bahan_data.get('terakhir_update', '')
+                        if terakhir_update_str:
+                            try:
+                                terakhir_update = datetime.strptime(terakhir_update_str, '%Y-%m-%d').replace(hour=0, minute=0, second=0, microsecond=0)
+                            except ValueError:
+                                terakhir_update = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+                        else:
+                            terakhir_update = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+                        expired_date = terakhir_update + timedelta(days=ai_days)
+                        ai_date = expired_date.strftime('%Y-%m-%d')
+                    
+                    ai_reason = f"{nama_bahan_display} adalah bahan pokok yang tahan lama karena tidak mengandung air dan memiliki sifat pengawet alami. {nama_bahan_display} dapat bertahan sekitar {ai_days} hari jika disimpan di tempat yang sejuk, kering, dan terhindar dari cahaya langsung."
+                elif 'ayam' in nama_bahan or 'chicken' in nama_bahan:
+                    # Ayam adalah daging segar
+                    ai_reason = f"{nama_bahan_display} adalah daging segar yang sangat mudah busuk karena kandungan protein dan air yang tinggi. {nama_bahan_display} dapat bertahan sekitar {ai_days} hari jika disimpan di kulkas dengan suhu dingin."
+                elif 'cabai' in nama_bahan or 'cabe' in nama_bahan or 'chili' in nama_bahan:
+                    # Cabai adalah bahan segar
+                    ai_reason = f"{nama_bahan_display} adalah bahan segar dengan kandungan air tinggi yang mudah busuk. {nama_bahan_display} dapat bertahan sekitar {ai_days} hari jika disimpan di tempat yang sejuk dan kering."
+                else:
+                    # Untuk bahan lain, gunakan template umum
+                    ai_reason = f"{nama_bahan_display} adalah bahan makanan yang dapat bertahan sekitar {ai_days} hari jika disimpan dengan baik."
+                
+                print(f"[PARSING] Reason diperbaiki menjadi: {ai_reason}")
+            
+            if not reason_mentions_correct_bahan:
+                print(f"[PARSING] WARNING: Reason tidak menyebutkan nama bahan yang benar!")
+                print(f"[PARSING] Bahan yang diprediksi: {nama_bahan}")
+                print(f"[PARSING] Reason: {ai_reason}")
+                print(f"[PARSING] Menambahkan nama bahan ke reason...")
+                
+                # Tambahkan nama bahan di awal reason jika belum ada
+                nama_bahan_display = bahan_data.get('nama_bahan', 'Bahan ini')
+                if not any(mention in ai_reason_lower for mention in bahan_mentions):
+                    ai_reason = f"{nama_bahan_display} adalah {ai_reason.lower()}"
+                    print(f"[PARSING] Reason diperbaiki menjadi: {ai_reason}")
             
             # Validasi: reason harus menyebutkan jumlah hari
             hari_patterns = [
