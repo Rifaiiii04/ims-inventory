@@ -550,16 +550,19 @@ def parse_expiration_prediction(ai_response: str, bahan_data: Dict) -> Dict:
                 # Coba parse sebagai tanggal normal
                 try:
                     date = datetime.strptime(expired_date_str, '%Y-%m-%d')
-            terakhir_update_str = bahan_data.get('terakhir_update', '')
-            if terakhir_update_str:
-                try:
-                    terakhir_update = datetime.strptime(terakhir_update_str, '%Y-%m-%d').replace(hour=0, minute=0, second=0, microsecond=0)
-                except ValueError:
-                    terakhir_update = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-            else:
-                terakhir_update = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-            
-            ai_days = (date - terakhir_update).days
+                    
+                    # Ambil terakhir_update dari bahan_data
+                    terakhir_update_str = bahan_data.get('terakhir_update', '')
+                    if terakhir_update_str:
+                        try:
+                            terakhir_update = datetime.strptime(terakhir_update_str, '%Y-%m-%d').replace(hour=0, minute=0, second=0, microsecond=0)
+                        except ValueError:
+                            terakhir_update = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+                    else:
+                        terakhir_update = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+                    
+                    # Hitung estimasi_hari dari selisih tanggal
+                    ai_days = (date - terakhir_update).days
                     if ai_days <= 0:
                         raise ValueError(f"expired_date harus lebih besar dari terakhir_update")
                     print(f"[PARSING] Menghitung estimasi_hari dari expired_date: {ai_days} hari")
@@ -637,10 +640,10 @@ def parse_expiration_prediction(ai_response: str, bahan_data: Dict) -> Dict:
                 print(f"[PARSING] INFO: Tidak ditemukan jumlah hari eksplisit dalam reason, menggunakan estimasi_hari yang diberikan")
         
         # Hitung hari dari sekarang (real-time calculation)
-            today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         days_from_today = (datetime.strptime(ai_date, '%Y-%m-%d') - today).days
-            
-            print(f"[PARSING] Tanggal valid: {ai_date} ({ai_days} hari dari terakhir update, {days_from_today} hari dari sekarang)")
+        
+        print(f"[PARSING] Tanggal valid: {ai_date} ({ai_days} hari dari terakhir update, {days_from_today} hari dari sekarang)")
         
         # Validasi confidence
         try:

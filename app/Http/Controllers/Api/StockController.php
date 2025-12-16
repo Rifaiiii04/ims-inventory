@@ -293,7 +293,7 @@ class StockController extends Controller
 
                 // Reset time limit before returning
                 set_time_limit($originalTimeLimit);
-                
+
                 return response()->json([
                     'success' => true,
                     'message' => "Stok '{$existingStock->nama_bahan}' sudah ada. Quantity ditambahkan: +{$request->quantity} {$request->unit}. Total stok sekarang: {$newQuantity} {$request->unit}",
@@ -364,20 +364,20 @@ class StockController extends Controller
                             // Set execution time limit untuk proses ini
                             set_time_limit(20); // 20 seconds max for this operation
                             
-                            $notificationController = app(NotificationController::class);
-                            $predictionResult = $notificationController->smartUpdateExpiredPrediction($doubleCheck->id_bahan);
-                            if ($predictionResult['success']) {
-                                Log::info('Expired prediction smart updated after restock (double check)', [
-                                    'bahan_id' => $doubleCheck->id_bahan,
-                                    'action' => $predictionResult['action'] ?? 'unknown'
-                                ]);
-                            }
-                        } catch (\Exception $e) {
-                            // Non-blocking: log error tapi tidak gagalkan restock
-                            Log::warning('Failed to smart update expired prediction after restock (double check)', [
+                        $notificationController = app(NotificationController::class);
+                        $predictionResult = $notificationController->smartUpdateExpiredPrediction($doubleCheck->id_bahan);
+                        if ($predictionResult['success']) {
+                            Log::info('Expired prediction smart updated after restock (double check)', [
                                 'bahan_id' => $doubleCheck->id_bahan,
-                                'error' => $e->getMessage()
+                                'action' => $predictionResult['action'] ?? 'unknown'
                             ]);
+                        }
+                    } catch (\Exception $e) {
+                        // Non-blocking: log error tapi tidak gagalkan restock
+                        Log::warning('Failed to smart update expired prediction after restock (double check)', [
+                            'bahan_id' => $doubleCheck->id_bahan,
+                            'error' => $e->getMessage()
+                        ]);
                         } finally {
                             // Reset time limit
                             set_time_limit($originalTimeLimit);
@@ -481,7 +481,7 @@ class StockController extends Controller
 
             // Reset time limit before returning
             set_time_limit($originalTimeLimit);
-            
+
             return response()->json([
                 'success' => true,
                 'message' => 'Stok berhasil ditambahkan',
@@ -631,7 +631,7 @@ class StockController extends Controller
 
             // Reset time limit before returning
             set_time_limit($originalTimeLimit);
-            
+
             return response()->json([
                 'success' => true,
                 'message' => 'Stok berhasil diperbarui',

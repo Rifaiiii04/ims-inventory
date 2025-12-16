@@ -712,8 +712,27 @@ class TransactionController extends Controller
                 Log::info('Transaction created successfully:', ['transaction_id' => $transaction->id_transaksi]);
 
                 // Create transaction details and update stock
+                Log::info('Starting stock update process:', [
+                    'total_items' => count($items),
+                    'items' => array_map(function($item) {
+                        return [
+                            'variant_id' => $item['variant']->id_varian ?? null,
+                            'variant_name' => $item['variant']->nama_varian ?? null,
+                            'quantity' => $item['quantity'] ?? 0,
+                            'isDirectProduct' => $item['isDirectProduct'] ?? false
+                        ];
+                    }, $items)
+                ]);
+                
                 foreach ($items as $item) {
                     $isDirectProduct = $item['isDirectProduct'] ?? false;
+                    
+                    Log::info('Processing item for stock update:', [
+                        'isDirectProduct' => $isDirectProduct,
+                        'variant_id' => $item['variant']->id_varian ?? null,
+                        'variant_name' => $item['variant']->nama_varian ?? null,
+                        'quantity' => $item['quantity'] ?? 0
+                    ]);
                     
                     // Ensure product exists and has id_produk
                     if (!isset($item['product']) || !$item['product']) {
@@ -773,11 +792,44 @@ class TransactionController extends Controller
                     }
 
                     // Update stock berdasarkan jenis produk
+                    // PENTING: Semua item HARUS update stock, tidak boleh skip
                     if (!$isDirectProduct) {
                         // Ensure variant_id is integer
                         $variantIdForUpdate = is_numeric($item['variant']->id_varian) 
                             ? (int) $item['variant']->id_varian 
                             : $item['variant']->id_varian;
+                        
+                        if (!$variantIdForUpdate || $variantIdForUpdate <= 0) {
+                            Log::error('Invalid variant ID for stock update:', [
+                                'variant_id' => $variantIdForUpdate,
+                                'item' => $item
+                            ]);
+                            throw new \Exception("ID varian tidak valid untuk update stok");
+                        }
+                        
+                        // Reload variant dari database untuk mendapatkan data terbaru (termasuk stok_varian)
+                        $variantForUpdate = TblVarian::lockForUpdate()->find($variantIdForUpdate);
+                        if (!$variantForUpdate) {
+                            Log::error('Variant not found for stock update:', [
+                                'variant_id' => $variantIdForUpdate,
+                                'item' => $item
+                            ]);
+                            throw new \Exception("Varian tidak ditemukan untuk update stok. ID: {$variantIdForUpdate}");
+                        }
+                        
+                        Log::info('Variant found and locked for stock update:', [
+                            'variant_id' => $variantIdForUpdate,
+                            'variant_name' => $variantForUpdate->nama_varian,
+                            'current_stok_varian' => $variantForUpdate->stok_varian,
+                            'quantity_to_process' => $item['quantity']
+                        ]);
+                        
+                        Log::info('Variant loaded for stock update:', [
+                            'variant_id' => $variantIdForUpdate,
+                            'variant_name' => $variantForUpdate->nama_varian,
+                            'current_stok_varian' => $variantForUpdate->stok_varian,
+                            'quantity_to_decrement' => $item['quantity']
+                        ]);
                         
                         // Cek apakah variant punya komposisi (bahan)
                         $compositions = DB::table('tbl_komposisi')
@@ -786,40 +838,107 @@ class TransactionController extends Controller
                         
                         $hasComposition = !$compositions->isEmpty();
                         
+                        Log::info('Composition check for variant:', [
+                            'variant_id' => $variantIdForUpdate,
+                            'variant_name' => $variantForUpdate->nama_varian,
+                            'has_composition' => $hasComposition,
+                            'compositions_count' => $compositions->count()
+                        ]);
+                        
                         if ($hasComposition) {
-                            // Variant dengan komposisi: untuk model angkringan (make-to-order), 
-                            // selalu kurangi bahan karena produk dibuat dari bahan
-                            // Stok_varian hanya sebagai buffer/pre-made, tapi bahan tetap harus dikurangi
-                            $currentVariantStock = $item['variant']->stok_varian ?? 0;
-                            $quantityToFulfill = $item['quantity'];
+                            // Variant dengan komposisi: untuk model angkringan (make-to-order)
+                            // PENTING: Selalu kurangi stok_varian sesuai quantity yang dipesan (jika stok_varian cukup)
+                            // Jika stok_varian kurang dari quantity, kurangi sampai habis
+                            // Bahan SELALU dikurangi untuk semua quantity (make-to-order model)
                             
-                            // Hitung berapa yang bisa dipenuhi dari stok_varian (produk jadi)
-                            $fulfilledFromStock = min($currentVariantStock, $quantityToFulfill);
-                            $remainingToProduce = $quantityToFulfill - $fulfilledFromStock;
+                            // PENTING: Ambil stok_varian langsung dari database (setelah lock)
+                            $currentVariantStock = (float) $variantForUpdate->stok_varian;
+                            $quantityToFulfill = (float) $item['quantity'];
+                            
+                            // PENTING: Selalu kurangi stok_varian sesuai dengan quantity yang dipesan
+                            // Jika stok_varian >= quantity, kurangi sesuai quantity
+                            // Jika stok_varian < quantity, kurangi sampai habis (tidak bisa negatif)
+                            // PENTING: Pastikan selalu kurangi jika stok_varian > 0
+                            $variantStockToDecrement = min($currentVariantStock, $quantityToFulfill);
+                            
+                            // PENTING: Logging untuk debugging
+                            Log::info('Variant stock calculation:', [
+                                'variant_id' => $variantIdForUpdate,
+                                'variant_name' => $variantForUpdate->nama_varian,
+                                'current_stok_varian_from_db' => $currentVariantStock,
+                                'quantity_requested' => $quantityToFulfill,
+                                'calculated_decrement' => $variantStockToDecrement,
+                                'will_decrement' => $variantStockToDecrement > 0
+                            ]);
                             
                             Log::info('Updating stock for variant with composition:', [
                                 'variant_id' => $variantIdForUpdate,
-                                'variant_name' => $item['variant']->nama_varian,
+                                'variant_name' => $variantForUpdate->nama_varian,
                                 'current_stok_varian' => $currentVariantStock,
                                 'total_quantity' => $quantityToFulfill,
-                                'fulfilled_from_stock' => $fulfilledFromStock,
-                                'remaining_to_produce' => $remainingToProduce
+                                'variant_stock_to_decrement' => $variantStockToDecrement,
+                                'will_decrement_variant_stock' => $variantStockToDecrement > 0
                             ]);
                             
-                            // Decrement stok_varian untuk produk jadi yang digunakan
-                            if ($fulfilledFromStock > 0) {
-                                DB::table('tbl_varian')
-                                    ->where('id_varian', $variantIdForUpdate)
-                                    ->decrement('stok_varian', $fulfilledFromStock);
+                            // PENTING: Decrement stok_varian untuk produk jadi yang digunakan
+                            // Selalu kurangi stok_varian sesuai dengan quantity yang dipesan (jika stok_varian cukup)
+                            // Jika stok_varian = 0, tidak perlu dikurangi (sudah 0, tidak bisa negatif)
+                            // Jika stok_varian < quantity, kurangi sampai habis
+                            if ($variantStockToDecrement > 0) {
+                                // PENTING: Ambil stok_varian langsung dari model sebelum decrement
+                                $beforeStock = (float) $variantForUpdate->stok_varian;
                                 
-                                Log::info('Decremented variant stock:', [
+                                // PENTING: Pastikan decrement benar-benar dijalankan
+                                Log::info('Attempting to decrement variant stock:', [
                                     'variant_id' => $variantIdForUpdate,
-                                    'decremented_by' => $fulfilledFromStock
+                                    'variant_name' => $variantForUpdate->nama_varian,
+                                    'before_stock' => $beforeStock,
+                                    'decrement_amount' => $variantStockToDecrement,
+                                    'expected_after' => ($beforeStock - $variantStockToDecrement)
+                                ]);
+                                
+                                // PENTING: Gunakan decrement method yang aman
+                                $variantForUpdate->decrement('stok_varian', $variantStockToDecrement);
+                                
+                                // PENTING: Reload dari database untuk mendapatkan nilai terbaru
+                                $variantForUpdate->refresh();
+                                $afterStock = (float) $variantForUpdate->stok_varian;
+                                
+                                // Verify stock was actually decremented
+                                $stockDecremented = ($beforeStock - $variantStockToDecrement) == $afterStock;
+                                if (!$stockDecremented) {
+                                    Log::error('Variant stock decrement verification failed:', [
+                                        'variant_id' => $variantIdForUpdate,
+                                        'variant_name' => $variantForUpdate->nama_varian,
+                                        'before_stock' => $beforeStock,
+                                        'decremented_by' => $variantStockToDecrement,
+                                        'after_stock' => $afterStock,
+                                        'expected_after' => ($beforeStock - $variantStockToDecrement)
+                                    ]);
+                                    throw new \Exception("Gagal mengurangi stok variant {$variantForUpdate->nama_varian}. Stok tidak sesuai setelah update.");
+                                }
+                                
+                                Log::info('Decremented variant stock successfully:', [
+                                    'variant_id' => $variantIdForUpdate,
+                                    'variant_name' => $variantForUpdate->nama_varian,
+                                    'before_stock' => $beforeStock,
+                                    'decremented_by' => $variantStockToDecrement,
+                                    'after_stock' => $afterStock,
+                                    'verified' => true
+                                ]);
+                            } else {
+                                Log::info('Variant stock is 0 or less, skipping decrement:', [
+                                    'variant_id' => $variantIdForUpdate,
+                                    'variant_name' => $variantForUpdate->nama_varian,
+                                    'current_stok_varian' => $currentVariantStock,
+                                    'quantity_requested' => $quantityToFulfill,
+                                    'note' => 'Variant stock is already 0, cannot decrement further'
                                 ]);
                             }
                             
                             // SELALU kurangi bahan untuk semua quantity (make-to-order model)
                             // Karena produk dibuat dari bahan, bukan dari stok_varian
+                            // PENTING: Bahan dikurangi untuk SEMUA quantity yang dipesan, bukan hanya yang tidak terpenuhi dari stok_varian
                             $totalQuantityToProduce = $quantityToFulfill; // Selalu kurangi bahan untuk semua quantity
                             
                             Log::info('Producing variant from ingredients (make-to-order):', [
@@ -829,6 +948,7 @@ class TransactionController extends Controller
                             ]);
                             
                             try {
+                                $ingredientsUpdated = 0;
                                 foreach ($compositions as $composition) {
                                     // Gunakan bahan untuk SEMUA quantity (make-to-order model)
                                     $ingredientUsage = $composition->jumlah_per_porsi * $totalQuantityToProduce;
@@ -837,9 +957,10 @@ class TransactionController extends Controller
                                     $bahan = TblBahan::lockForUpdate()->find($composition->id_bahan);
                                     if (!$bahan) {
                                         Log::error('Bahan not found for stock update:', [
-                                            'ingredient_id' => $composition->id_bahan
+                                            'ingredient_id' => $composition->id_bahan,
+                                            'variant_id' => $variantIdForUpdate
                                         ]);
-                                        continue;
+                                        throw new \Exception("Bahan dengan ID {$composition->id_bahan} tidak ditemukan untuk update stok");
                                     }
                                     
                                     // Double check stok sebelum update
@@ -864,10 +985,37 @@ class TransactionController extends Controller
                                     ]);
                                     
                                     // Update dengan decrement yang aman
+                                    $beforeStock = $bahan->stok_bahan;
                                     $bahan->decrement('stok_bahan', $ingredientUsage);
                                     
                                     // Reload untuk mendapatkan stok terbaru
                                     $bahan->refresh();
+                                    $afterStock = $bahan->stok_bahan;
+                                    
+                                    $ingredientsUpdated++;
+                                    
+                                    // Verify stock was actually decremented
+                                    $stockDecremented = ($beforeStock - $ingredientUsage) == $afterStock;
+                                    if (!$stockDecremented) {
+                                        Log::error('Stock decrement verification failed:', [
+                                            'ingredient_id' => $bahan->id_bahan,
+                                            'ingredient_name' => $bahan->nama_bahan,
+                                            'before_stock' => $beforeStock,
+                                            'decremented_by' => $ingredientUsage,
+                                            'after_stock' => $afterStock,
+                                            'expected_after' => ($beforeStock - $ingredientUsage)
+                                        ]);
+                                        throw new \Exception("Gagal mengurangi stok bahan {$bahan->nama_bahan}. Stok tidak sesuai setelah update.");
+                                    }
+                                    
+                                    Log::info('Ingredient stock decremented successfully:', [
+                                        'ingredient_id' => $bahan->id_bahan,
+                                        'ingredient_name' => $bahan->nama_bahan,
+                                        'before_stock' => $beforeStock,
+                                        'decremented_by' => $ingredientUsage,
+                                        'after_stock' => $afterStock,
+                                        'verified' => true
+                                    ]);
                                     
                                     // Trigger notifikasi jika stok menipis (berdasarkan min_stok dari bahan)
                                     if ($bahan->stok_bahan < $bahan->min_stok) {
@@ -886,11 +1034,20 @@ class TransactionController extends Controller
                                         }
                                     }
                                 }
+                                
+                                Log::info('All ingredients updated successfully:', [
+                                    'variant_id' => $variantIdForUpdate,
+                                    'variant_name' => $variantForUpdate->nama_varian,
+                                    'ingredients_updated' => $ingredientsUpdated,
+                                    'total_quantity' => $totalQuantityToProduce
+                                ]);
                             } catch (\Exception $e) {
                                 Log::error('Failed to update ingredient stock:', [
                                     'error' => $e->getMessage(),
-                                    'variant_id' => $item['variant']->id_varian,
-                                    'quantity' => $item['quantity']
+                                    'variant_id' => $variantIdForUpdate,
+                                    'variant_name' => $variantForUpdate->nama_varian ?? 'Unknown',
+                                    'quantity' => $item['quantity'],
+                                    'trace' => $e->getTraceAsString()
                                 ]);
                                 // Rollback transaction jika gagal update stok bahan
                                 throw $e;
@@ -899,25 +1056,141 @@ class TransactionController extends Controller
                             // Variant tanpa komposisi (produk jadi):
                             // Hanya decrement stok variant, tidak ada bahan yang digunakan
                             
+                            $quantityToDecrement = (float) $item['quantity'];
+                            $beforeStock = $variantForUpdate->stok_varian;
+                            
                             Log::info('Updating variant stock for pre-made variant:', [
                                 'variant_id' => $variantIdForUpdate,
-                                'current_stock' => $item['variant']->stok_varian,
-                                'decrement_by' => $item['quantity']
+                                'variant_name' => $variantForUpdate->nama_varian,
+                                'before_stock' => $beforeStock,
+                                'decrement_by' => $quantityToDecrement
                             ]);
                             
-                            DB::table('tbl_varian')
-                                ->where('id_varian', $variantIdForUpdate)
-                                ->decrement('stok_varian', $item['quantity']);
+                            // Gunakan model decrement untuk konsistensi
+                            $variantForUpdate->decrement('stok_varian', $quantityToDecrement);
+                            $variantForUpdate->refresh();
+                            $afterStock = $variantForUpdate->stok_varian;
+                            
+                            // Verify stock was actually decremented
+                            $stockDecremented = ($beforeStock - $quantityToDecrement) == $afterStock;
+                            if (!$stockDecremented) {
+                                Log::error('Variant stock decrement verification failed:', [
+                                    'variant_id' => $variantIdForUpdate,
+                                    'variant_name' => $variantForUpdate->nama_varian,
+                                    'before_stock' => $beforeStock,
+                                    'decremented_by' => $quantityToDecrement,
+                                    'after_stock' => $afterStock,
+                                    'expected_after' => ($beforeStock - $quantityToDecrement)
+                                ]);
+                                throw new \Exception("Gagal mengurangi stok variant {$variantForUpdate->nama_varian}. Stok tidak sesuai setelah update.");
+                            }
+                            
+                            Log::info('Decremented variant stock (no composition) successfully:', [
+                                'variant_id' => $variantIdForUpdate,
+                                'variant_name' => $variantForUpdate->nama_varian,
+                                'before_stock' => $beforeStock,
+                                'decremented_by' => $quantityToDecrement,
+                                'after_stock' => $afterStock,
+                                'verified' => true
+                            ]);
                         }
                     } else {
-                        Log::info('Skipping stock update for direct product:', [
-                            'product' => $item['variant']->nama_varian,
-                            'quantity' => $item['quantity']
-                        ]);
+                        // Direct product: masih perlu update stock jika punya komposisi
+                        // Cek apakah produk punya komposisi langsung (tanpa variant)
+                        $productId = $item['product']->id_produk ?? null;
+                        if ($productId) {
+                            $productCompositions = DB::table('tbl_komposisi')
+                                ->where('id_produk', $productId)
+                                ->whereNull('id_varian')
+                                ->get();
+                            
+                            if (!$productCompositions->isEmpty()) {
+                                Log::info('Updating stock for direct product with composition:', [
+                                    'product_id' => $productId,
+                                    'product_name' => $item['variant']->nama_varian,
+                                    'quantity' => $item['quantity'],
+                                    'compositions_count' => $productCompositions->count()
+                                ]);
+                                
+                                // Update stock bahan untuk direct product
+                                try {
+                                    foreach ($productCompositions as $composition) {
+                                        $ingredientUsage = $composition->jumlah_per_porsi * $item['quantity'];
+                                        
+                                        $bahan = TblBahan::lockForUpdate()->find($composition->id_bahan);
+                                        if (!$bahan) {
+                                            Log::error('Bahan not found for direct product stock update:', [
+                                                'ingredient_id' => $composition->id_bahan
+                                            ]);
+                                            continue;
+                                        }
+                                        
+                                        if ($bahan->stok_bahan < $ingredientUsage) {
+                                            Log::error('Insufficient ingredient stock for direct product:', [
+                                                'ingredient' => $bahan->nama_bahan,
+                                                'required' => $ingredientUsage,
+                                                'available' => $bahan->stok_bahan
+                                            ]);
+                                            throw new \Exception("Stok bahan {$bahan->nama_bahan} tidak mencukupi. Dibutuhkan: {$ingredientUsage}, Tersedia: {$bahan->stok_bahan}");
+                                        }
+                                        
+                                        $beforeStock = $bahan->stok_bahan;
+                                        $bahan->decrement('stok_bahan', $ingredientUsage);
+                                        $bahan->refresh();
+                                        $afterStock = $bahan->stok_bahan;
+                                        
+                                        Log::info('Direct product ingredient stock decremented:', [
+                                            'ingredient_id' => $bahan->id_bahan,
+                                            'ingredient_name' => $bahan->nama_bahan,
+                                            'before_stock' => $beforeStock,
+                                            'decremented_by' => $ingredientUsage,
+                                            'after_stock' => $afterStock
+                                        ]);
+                                    }
+                                } catch (\Exception $e) {
+                                    Log::error('Failed to update direct product ingredient stock:', [
+                                        'error' => $e->getMessage(),
+                                        'product_id' => $productId
+                                    ]);
+                                    throw $e;
+                                }
+                            } else {
+                                Log::warning('Direct product has no composition, skipping stock update:', [
+                                    'product_id' => $productId,
+                                    'product_name' => $item['variant']->nama_varian
+                                ]);
+                            }
+                        } else {
+                            Log::warning('Direct product has no product ID, skipping stock update:', [
+                                'product' => $item['variant']->nama_varian ?? 'Unknown'
+                            ]);
+                        }
                     }
+                }
+                
+                Log::info('Stock update process completed successfully', [
+                    'total_items_processed' => count($items),
+                    'transaction_id' => $transaction->id_transaksi
+                ]);
+
+                // Final verification: Check if all items were processed
+                $transactionDetails = TblTransaksiDetail::where('id_transaksi', $transaction->id_transaksi)->get();
+                if ($transactionDetails->count() !== count($items)) {
+                    Log::error('Transaction details count mismatch:', [
+                        'expected' => count($items),
+                        'actual' => $transactionDetails->count(),
+                        'transaction_id' => $transaction->id_transaksi
+                    ]);
+                    throw new \Exception("Jumlah detail transaksi tidak sesuai dengan item yang diproses");
                 }
 
                 DB::commit();
+                
+                Log::info('Transaction committed successfully:', [
+                    'transaction_id' => $transaction->id_transaksi,
+                    'total_amount' => $totalAmount,
+                    'items_count' => count($items)
+                ]);
 
                 // Prepare response
                 $response = response()->json([
