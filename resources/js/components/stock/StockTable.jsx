@@ -192,7 +192,19 @@ function StockTable({ data, onEdit, onDelete, onViewHistory, onBulkDelete }) {
                             </th>
                             <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
                                 <div className="flex items-center gap-2">
+                                    <span>Total Cost</span>
+                                    <div className="w-1 h-1 bg-gray-400 rounded-full"></div>
+                                </div>
+                            </th>
+                            <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
+                                <div className="flex items-center gap-2">
                                     <span>Satuan</span>
+                                    <div className="w-1 h-1 bg-gray-400 rounded-full"></div>
+                                </div>
+                            </th>
+                            <th className="px-6 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
+                                <div className="flex items-center gap-2">
+                                    <span>Deskripsi Pembagian</span>
                                     <div className="w-1 h-1 bg-gray-400 rounded-full"></div>
                                 </div>
                             </th>
@@ -285,9 +297,45 @@ function StockTable({ data, onEdit, onDelete, onViewHistory, onBulkDelete }) {
                                     </div>
                                 </td>
                                 <td className="px-6 py-5">
+                                    <div className="text-sm font-bold text-green-600">
+                                        Rp{" "}
+                                        {(
+                                            parseFloat(item.buyPrice) *
+                                            parseFloat(item.quantity)
+                                        ).toLocaleString("id-ID")}
+                                    </div>
+                                    <div className="text-xs text-gray-500">
+                                        {item.quantity} × Rp{" "}
+                                        {item.buyPrice.toLocaleString("id-ID")}
+                                    </div>
+                                </td>
+                                <td className="px-6 py-5">
                                     <div className="text-sm font-semibold text-gray-700 bg-gray-100 px-2 py-1 rounded-lg text-center">
                                         {item.unit}
                                     </div>
+                                </td>
+                                <td className="px-6 py-5">
+                                    {item.is_divisible &&
+                                    item.division_description ? (
+                                        <div className="max-w-xs">
+                                            <div className="text-xs font-semibold text-purple-700 bg-purple-50 px-2 py-1 rounded-lg mb-1">
+                                                Dapat Dibagi
+                                            </div>
+                                            <div className="text-xs text-gray-600">
+                                                {item.division_description}
+                                            </div>
+                                            {item.max_divisions && (
+                                                <div className="text-xs text-gray-500 mt-1">
+                                                    Max: {item.max_divisions}{" "}
+                                                    bagian
+                                                </div>
+                                            )}
+                                        </div>
+                                    ) : (
+                                        <div className="text-xs text-gray-400 italic">
+                                            Tidak dapat dibagi
+                                        </div>
+                                    )}
                                 </td>
                                 <td className="px-6 py-5">
                                     <div className="text-xs text-gray-600 font-medium">
@@ -458,6 +506,40 @@ function StockTable({ data, onEdit, onDelete, onViewHistory, onBulkDelete }) {
                                 </div>
                             </div>
                         </div>
+
+                        <div className="mb-4 bg-gradient-to-r from-green-50 to-green-100 rounded-lg p-3 border border-green-200">
+                            <div className="text-gray-600 mb-1 text-xs font-semibold">
+                                Total Cost
+                            </div>
+                            <div className="font-bold text-green-700 text-lg">
+                                Rp{" "}
+                                {(
+                                    parseFloat(item.buyPrice) *
+                                    parseFloat(item.quantity)
+                                ).toLocaleString("id-ID")}
+                            </div>
+                            <div className="text-gray-500 text-xs mt-1">
+                                {item.quantity} × Rp{" "}
+                                {item.buyPrice.toLocaleString("id-ID")}
+                            </div>
+                        </div>
+
+                        {/* Deskripsi Pembagian */}
+                        {item.is_divisible && item.division_description && (
+                            <div className="mb-4 bg-purple-50 border border-purple-200 rounded-lg p-3">
+                                <div className="text-xs font-semibold text-purple-700 mb-1">
+                                    Deskripsi Pembagian
+                                </div>
+                                <div className="text-xs text-gray-700">
+                                    {item.division_description}
+                                </div>
+                                {item.max_divisions && (
+                                    <div className="text-xs text-gray-500 mt-1">
+                                        Maksimal: {item.max_divisions} bagian
+                                    </div>
+                                )}
+                            </div>
+                        )}
 
                         <div className="mb-4">
                             <ConversionDisplay item={item} />

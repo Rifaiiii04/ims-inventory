@@ -1021,6 +1021,166 @@ def test_ollama():
             "error": str(e)
         }), 500
 
+@app.route('/predict-expiration', methods=['POST'])
+def predict_expiration():
+    """
+    Predict expiration date for a single material using AI
+    Expects JSON: {
+        "nama_bahan": "string",
+        "kategori": "string",
+        "stok_bahan": float,
+        "satuan": "string",
+        "harga_beli": float,
+        "min_stok": float
+    }
+    Returns: {
+        "success": bool,
+        "data": {
+            "expired_date": "YYYY-MM-DD",
+            "reason": "string",
+            "confidence": float (0-100)
+        }
+    }
+    """
+    try:
+        if not is_ollama_available():
+            config = get_ollama_config()
+            return jsonify({
+                "success": False,
+                "error": f"Ollama not available at {config['url']}"
+            }), 503
+        
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                "success": False,
+                "error": "No data provided"
+            }), 400
+        
+        # Validate required fields
+        required_fields = ['nama_bahan', 'kategori', 'stok_bahan', 'satuan']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({
+                    "success": False,
+                    "error": f"Missing required field: {field}"
+                }), 400
+        
+        # Build prompt for AI
+        bahan_data = {
+            'nama_bahan': data.get('nama_bahan', ''),
+            'kategori': data.get('kategori', 'Tidak ada kategori'),
+            'stok_bahan': float(data.get('stok_bahan', 0)),
+            'satuan': data.get('satuan', ''),
+            'harga_beli': float(data.get('harga_beli', 0)),
+            'min_stok': float(data.get('min_stok', 0))
+        }
+        
+        prompt = f"""Anda adalah AI assistant untuk sistem Inventory Management System (IMS) untuk UMKM angkringan. 
+
+Tugas Anda adalah memprediksi kapan bahan makanan akan expired berdasarkan informasi berikut:
+
+Nama Bahan: {bahan_data['nama_bahan']}
+Kategori: {bahan_data['kategori']}
+Stok Saat Ini: {bahan_data['stok_bahan']} {bahan_data['satuan']}
+Harga Beli: Rp {bahan_data['harga_beli']:,.0f}
+Batas Minimum Stok: {bahan_data['min_stok']} {bahan_data['satuan']}
+
+Berdasarkan informasi di atas, prediksikan:
+1. Tanggal kapan bahan ini kemungkinan akan expired (format: YYYY-MM-DD)
+2. Alasan prediksi (jelaskan mengapa tanggal tersebut dipilih)
+3. Skor kepercayaan (0-100, seberapa yakin prediksi ini)
+
+Jawab dalam format JSON berikut (WAJIB):
+{{
+  "expired_date": "YYYY-MM-DD",
+  "reason": "Alasan prediksi yang jelas",
+  "confidence": 85
+}}
+
+Jawab HANYA dengan JSON, tanpa penjelasan tambahan."""
+        
+        # Call Ollama
+        logger.info("Predicting expiration for: %s", bahan_data['nama_bahan'])
+        ai_response = call_ollama_api(prompt, timeout=60)
+        
+        if not ai_response:
+            return jsonify({
+                "success": False,
+                "error": "AI service returned no response"
+            }), 500
+        
+        # Parse AI response
+        result = parse_expiration_response(ai_response, bahan_data)
+        
+        return jsonify({
+            "success": True,
+            "data": result
+        })
+        
+    except Exception as e:
+        logger.error("predict_expiration error: %s", e)
+        traceback.print_exc()
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "message": "Terjadi kesalahan saat memprediksi expired."
+        }), 500
+
+def parse_expiration_response(ai_response: str, bahan_data: Dict) -> Dict:
+    """Parse AI response to extract expiration prediction"""
+    from datetime import datetime, timedelta
+    
+    default_date = (datetime.now() + timedelta(days=7)).strftime('%Y-%m-%d')
+    default_reason = 'Prediksi berdasarkan kategori dan karakteristik bahan'
+    default_confidence = 50.0
+    
+    # Try to extract JSON from response
+    import re
+    json_match = re.search(r'\{[^}]+\}', ai_response)
+    if json_match:
+        try:
+            parsed = json.loads(json_match.group(0))
+            if parsed and 'expired_date' in parsed:
+                # Validate date
+                try:
+                    date_obj = datetime.strptime(parsed['expired_date'], '%Y-%m-%d')
+                    if date_obj > datetime.now():
+                        return {
+                            'expired_date': parsed['expired_date'],
+                            'reason': parsed.get('reason', default_reason),
+                            'confidence': min(100.0, max(0.0, float(parsed.get('confidence', default_confidence))))
+                        }
+                except ValueError:
+                    logger.warning("Invalid date format in AI response: %s", parsed['expired_date'])
+        except json.JSONDecodeError as e:
+            logger.warning("Failed to parse AI JSON response: %s", e)
+    
+    # Fallback: try to extract date from text
+    date_match = re.search(r'(\d{4}-\d{2}-\d{2})', ai_response)
+    if date_match:
+        try:
+            date_obj = datetime.strptime(date_match.group(1), '%Y-%m-%d')
+            if date_obj > datetime.now():
+                # Try to extract reason
+                reason_match = re.search(r'(?:alasan|reason)[:\s]+(.+?)(?:\.|$)', ai_response, re.IGNORECASE)
+                reason = reason_match.group(1).strip() if reason_match else default_reason
+                
+                return {
+                    'expired_date': date_match.group(1),
+                    'reason': reason,
+                    'confidence': default_confidence
+                }
+        except ValueError:
+            pass
+    
+    # Default fallback
+    return {
+        'expired_date': default_date,
+        'reason': default_reason,
+        'confidence': default_confidence
+    }
+
 if __name__ == '__main__':
     logger.info("Starting OCR Service (EasyOCR + Ollama AI)")
     logger.info("Service endpoints: process-photo, health, test-ollama")

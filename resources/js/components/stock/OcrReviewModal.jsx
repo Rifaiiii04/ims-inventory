@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import LoadingButton from "../common/LoadingButton";
 
 function OcrReviewModal({
     isOpen,
@@ -9,23 +10,57 @@ function OcrReviewModal({
 }) {
     const [selectedItems, setSelectedItems] = useState([]);
     const [itemDetails, setItemDetails] = useState({});
+    const [formattedPrices, setFormattedPrices] = useState({});
+    const [quantityErrors, setQuantityErrors] = useState({});
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     // Initialize item details when modal opens
-    React.useEffect(() => {
+    useEffect(() => {
         if (isOpen && ocrItems.length > 0) {
             const initialDetails = {};
+            const initialFormattedPrices = {};
             ocrItems.forEach((item, index) => {
                 initialDetails[index] = {
                     category_id: "",
-                    unit: "pcs",
-                    minStock: 10,
+                    unit: item.unit || "pcs",
+                    minStock: item.minStock || 10,
                     ...item,
                 };
+                // Format harga jika ada
+                if (item.harga) {
+                    const harga = parseFloat(item.harga) || 0;
+                    if (harga > 0) {
+                        initialFormattedPrices[
+                            index
+                        ] = `Rp ${new Intl.NumberFormat("id-ID").format(
+                            harga
+                        )}`;
+                    }
+                }
             });
             setItemDetails(initialDetails);
+            setFormattedPrices(initialFormattedPrices);
             setSelectedItems(ocrItems.map((_, index) => index));
         }
     }, [isOpen, ocrItems]);
+
+    // Validasi quantity vs minStock untuk setiap item
+    useEffect(() => {
+        const errors = {};
+        Object.keys(itemDetails).forEach((index) => {
+            const item = itemDetails[index];
+            if (item.jumlah && item.minStock) {
+                const quantity = parseFloat(item.jumlah) || 0;
+                const minStock = parseFloat(item.minStock) || 0;
+                if (quantity < minStock) {
+                    errors[
+                        index
+                    ] = `Jumlah tidak boleh kurang dari Minimum Stock (${minStock})`;
+                }
+            }
+        });
+        setQuantityErrors(errors);
+    }, [itemDetails]);
 
     const handleItemToggle = (index) => {
         setSelectedItems((prev) =>
@@ -43,10 +78,75 @@ function OcrReviewModal({
                 [field]: value,
             },
         }));
+
+        // Handle format harga untuk field harga
+        if (field === "harga") {
+            const numValue = parseFloat(value) || 0;
+            setFormattedPrices((prev) => ({
+                ...prev,
+                [index]:
+                    numValue > 0
+                        ? `Rp ${new Intl.NumberFormat("id-ID").format(
+                              numValue
+                          )}`
+                        : "",
+            }));
+        }
+    };
+
+    const handlePriceChange = (index, e) => {
+        const inputValue = e.target.value;
+        // Hapus semua karakter non-digit
+        let numericValue = inputValue.replace(/[^\d]/g, "");
+        const numValue = numericValue === "" ? "" : parseFloat(numericValue);
+
+        handleItemDetailChange(
+            index,
+            "harga",
+            numValue === "" ? "" : numValue.toString()
+        );
+    };
+
+    const handlePriceFocus = (index) => {
+        const item = itemDetails[index];
+        if (item?.harga) {
+            const numValue = parseFloat(item.harga) || 0;
+            if (numValue > 0) {
+                setFormattedPrices((prev) => ({
+                    ...prev,
+                    [index]: `Rp ${new Intl.NumberFormat("id-ID").format(
+                        numValue
+                    )}`,
+                }));
+            }
+        }
+    };
+
+    const handlePriceBlur = (index) => {
+        const item = itemDetails[index];
+        if (item?.harga) {
+            const numValue = parseFloat(item.harga) || 0;
+            if (numValue > 0) {
+                setFormattedPrices((prev) => ({
+                    ...prev,
+                    [index]: `Rp ${new Intl.NumberFormat("id-ID").format(
+                        numValue
+                    )}`,
+                }));
+            }
+        }
     };
 
     const handleConfirm = () => {
-        // Validasi: pastikan semua item yang dipilih punya category_id
+        // Validasi: pastikan semua item yang dipilih punya category_id dan tidak ada error
+        const hasErrors = selectedItems.some((index) => quantityErrors[index]);
+        if (hasErrors) {
+            alert(
+                "Terdapat error pada beberapa item. Silakan perbaiki terlebih dahulu."
+            );
+            return;
+        }
+
         const itemsToAdd = selectedItems.map((index) => {
             const item = itemDetails[index];
             // Jika category_id kosong, gunakan category pertama
@@ -55,15 +155,33 @@ function OcrReviewModal({
             }
             return item;
         });
-        
+
         // Filter item yang tidak valid (nama_barang kosong)
-        const validItems = itemsToAdd.filter(item => item.nama_barang && item.nama_barang.trim() !== '');
-        
+        const validItems = itemsToAdd.filter(
+            (item) => item.nama_barang && item.nama_barang.trim() !== ""
+        );
+
         if (validItems.length === 0) {
-            alert('Tidak ada item yang valid untuk ditambahkan. Pastikan nama barang tidak kosong.');
+            alert(
+                "Tidak ada item yang valid untuk ditambahkan. Pastikan nama barang tidak kosong."
+            );
             return;
         }
-        
+
+        // Validasi quantity vs minStock untuk setiap item
+        const invalidItems = validItems.filter((item) => {
+            const quantity = parseFloat(item.jumlah) || 0;
+            const minStock = parseFloat(item.minStock) || 0;
+            return quantity < minStock;
+        });
+
+        if (invalidItems.length > 0) {
+            alert(
+                "Beberapa item memiliki jumlah yang kurang dari Minimum Stock. Silakan perbaiki terlebih dahulu."
+            );
+            return;
+        }
+
         onConfirmAdd(validItems);
         onClose();
     };
@@ -146,10 +264,13 @@ function OcrReviewModal({
                                         Kategori
                                     </th>
                                     <th className="border border-gray-300 px-3 py-2 text-left text-sm font-semibold">
-                                        Harga (Rp)
+                                        Harga Beli
                                     </th>
                                     <th className="border border-gray-300 px-3 py-2 text-left text-sm font-semibold">
                                         Jumlah
+                                    </th>
+                                    <th className="border border-gray-300 px-3 py-2 text-left text-sm font-semibold">
+                                        Total Cost
                                     </th>
                                     <th className="border border-gray-300 px-3 py-2 text-left text-sm font-semibold">
                                         Satuan
@@ -235,25 +356,28 @@ function OcrReviewModal({
                                             </select>
                                         </td>
 
-                                        {/* Harga */}
+                                        {/* Harga Beli */}
                                         <td className="border border-gray-300 px-3 py-2">
                                             <input
-                                                type="number"
+                                                type="text"
                                                 value={
-                                                    itemDetails[index]?.harga ||
-                                                    ""
+                                                    formattedPrices[index] || ""
                                                 }
                                                 onChange={(e) =>
-                                                    handleItemDetailChange(
-                                                        index,
-                                                        "harga",
-                                                        e.target.value
-                                                    )
+                                                    handlePriceChange(index, e)
+                                                }
+                                                onFocus={() =>
+                                                    handlePriceFocus(index)
+                                                }
+                                                onBlur={() =>
+                                                    handlePriceBlur(index)
                                                 }
                                                 className="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:border-green-500 focus:outline-none"
-                                                placeholder="0"
-                                                min="0"
+                                                placeholder="Rp 0"
                                             />
+                                            <div className="text-xs text-gray-500 mt-1">
+                                                per satuan
+                                            </div>
                                         </td>
 
                                         {/* Jumlah */}
@@ -271,10 +395,70 @@ function OcrReviewModal({
                                                         e.target.value
                                                     )
                                                 }
-                                                className="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:border-green-500 focus:outline-none"
+                                                className={`w-full px-2 py-1 border rounded text-sm focus:outline-none ${
+                                                    quantityErrors[index]
+                                                        ? "border-red-500 focus:border-red-500"
+                                                        : "border-gray-300 focus:border-green-500"
+                                                }`}
                                                 placeholder="0"
-                                                min="0"
+                                                min={
+                                                    itemDetails[index]?.minStock
+                                                        ? itemDetails[index]
+                                                              .minStock
+                                                        : "0"
+                                                }
                                             />
+                                            {quantityErrors[index] && (
+                                                <div className="text-xs text-red-600 mt-1">
+                                                    {quantityErrors[index]}
+                                                </div>
+                                            )}
+                                        </td>
+
+                                        {/* Total Cost */}
+                                        <td className="border border-gray-300 px-3 py-2">
+                                            {itemDetails[index]?.harga &&
+                                            itemDetails[index]?.jumlah ? (
+                                                <div className="bg-green-50 border border-green-200 rounded p-2">
+                                                    <div className="text-xs text-gray-600 mb-1 font-semibold">
+                                                        Total Cost
+                                                    </div>
+                                                    <div className="font-bold text-green-700 text-sm">
+                                                        Rp{" "}
+                                                        {(
+                                                            parseFloat(
+                                                                itemDetails[
+                                                                    index
+                                                                ]?.harga || 0
+                                                            ) *
+                                                            parseFloat(
+                                                                itemDetails[
+                                                                    index
+                                                                ]?.jumlah || 0
+                                                            )
+                                                        ).toLocaleString(
+                                                            "id-ID"
+                                                        )}
+                                                    </div>
+                                                    <div className="text-xs text-gray-500 mt-1">
+                                                        {
+                                                            itemDetails[index]
+                                                                ?.jumlah
+                                                        }{" "}
+                                                        × Rp{" "}
+                                                        {parseFloat(
+                                                            itemDetails[index]
+                                                                ?.harga || 0
+                                                        ).toLocaleString(
+                                                            "id-ID"
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <div className="text-xs text-gray-400">
+                                                    -
+                                                </div>
+                                            )}
                                         </td>
 
                                         {/* Satuan */}
@@ -336,23 +520,27 @@ function OcrReviewModal({
 
                 {/* Modal Footer */}
                 <div className="flex gap-3 p-6 border-t border-gray-200">
-                    <button
+                    <LoadingButton
                         type="button"
                         onClick={onClose}
-                        className="flex-1 px-4 py-2 border-2 border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-semibold transition-colors text-sm"
+                        disabled={isSubmitting}
+                        variant="secondary"
+                        className="flex-1"
                     >
                         Batal
-                    </button>
-                    <button
+                    </LoadingButton>
+                    <LoadingButton
                         type="button"
                         onClick={handleConfirm}
-                        disabled={selectedItems.length === 0}
-                        className="flex-1 px-4 py-2 bg-gradient-to-r from-green-600 to-green-500 text-white rounded-lg hover:from-green-700 hover:to-green-600 font-semibold shadow-lg transition-all text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                        disabled={selectedItems.length === 0 || isSubmitting}
+                        loading={isSubmitting}
+                        variant="success"
+                        className="flex-1"
                     >
                         {selectedItems.length > 0
                             ? `Tambah ${selectedItems.length} Item ke Stok`
                             : "Pilih Item Terlebih Dahulu"}
-                    </button>
+                    </LoadingButton>
                 </div>
             </div>
         </div>

@@ -8,6 +8,7 @@ use App\Models\TblKategori;
 use App\Models\TblStockHistory;
 use App\Models\TblNotifikasi;
 use App\Traits\StockHistoryTrait;
+use App\Http\Controllers\Api\NotificationController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
@@ -32,10 +33,14 @@ class StockController extends Controller
                     'id' => $stock->id_bahan,
                     'name' => $stock->nama_bahan,
                     'category' => $stock->kategori->nama_kategori ?? 'Tidak ada kategori',
+                    'category_id' => $stock->id_kategori,
                     'buyPrice' => (float)$stock->harga_beli,
                     'quantity' => (float)$stock->stok_bahan,
                     'unit' => $stock->satuan,
                     'minStock' => (float)$stock->min_stok,
+                    'is_divisible' => (bool)$stock->is_divisible,
+                    'max_divisions' => $stock->max_divisions,
+                    'division_description' => $stock->division_description,
                     'lastUpdated' => $stock->updated_at->format('Y-m-d'),
                     'updatedBy' => $stock->updated_by ? 'User' : 'System',
                     'isLowStock' => $stock->stok_bahan < $stock->min_stok
@@ -76,11 +81,12 @@ class StockController extends Controller
                 'id' => $stock->id_bahan,
                 'name' => $stock->nama_bahan,
                 'category' => $stock->kategori->nama_kategori ?? 'Tidak ada kategori',
+                'category_id' => $stock->id_kategori,
                 'buyPrice' => (float)$stock->harga_beli,
                 'quantity' => (float)$stock->stok_bahan,
                 'unit' => $stock->satuan,
                 'minStock' => (float)$stock->min_stok,
-                'is_divisible' => $stock->is_divisible,
+                'is_divisible' => (bool)$stock->is_divisible,
                 'max_divisions' => $stock->max_divisions,
                 'division_description' => $stock->division_description,
                 'lastUpdated' => $stock->updated_at->format('Y-m-d'),
@@ -194,6 +200,24 @@ class StockController extends Controller
                 // Kirim notifikasi jika stok menipis
                 $this->sendStockNotification($existingStock);
 
+                // Smart update expired prediction setelah restock (non-blocking)
+                try {
+                    $notificationController = app(NotificationController::class);
+                    $predictionResult = $notificationController->smartUpdateExpiredPrediction($existingStock->id_bahan);
+                    if ($predictionResult['success']) {
+                        Log::info('Expired prediction smart updated after restock', [
+                            'bahan_id' => $existingStock->id_bahan,
+                            'action' => $predictionResult['action'] ?? 'unknown'
+                        ]);
+                    }
+                } catch (\Exception $e) {
+                    // Non-blocking: log error tapi tidak gagalkan restock
+                    Log::warning('Failed to smart update expired prediction after restock', [
+                        'bahan_id' => $existingStock->id_bahan,
+                        'error' => $e->getMessage()
+                    ]);
+                }
+
                 return response()->json([
                     'success' => true,
                     'message' => "Stok '{$existingStock->nama_bahan}' sudah ada. Quantity ditambahkan: +{$request->quantity} {$request->unit}. Total stok sekarang: {$newQuantity} {$request->unit}",
@@ -253,6 +277,24 @@ class StockController extends Controller
 
                     // Kirim notifikasi jika stok menipis
                     $this->sendStockNotification($doubleCheck);
+
+                    // Smart update expired prediction setelah restock (non-blocking)
+                    try {
+                        $notificationController = app(NotificationController::class);
+                        $predictionResult = $notificationController->smartUpdateExpiredPrediction($doubleCheck->id_bahan);
+                        if ($predictionResult['success']) {
+                            Log::info('Expired prediction smart updated after restock (double check)', [
+                                'bahan_id' => $doubleCheck->id_bahan,
+                                'action' => $predictionResult['action'] ?? 'unknown'
+                            ]);
+                        }
+                    } catch (\Exception $e) {
+                        // Non-blocking: log error tapi tidak gagalkan restock
+                        Log::warning('Failed to smart update expired prediction after restock (double check)', [
+                            'bahan_id' => $doubleCheck->id_bahan,
+                            'error' => $e->getMessage()
+                        ]);
+                    }
                     
                     return response()->json([
                         'success' => true,
@@ -308,6 +350,27 @@ class StockController extends Controller
 
             // Kirim notifikasi jika stok menipis
             $this->sendStockNotification($stock);
+
+            // Smart update expired prediction untuk bahan baru (non-blocking)
+            // Hanya jika stok > 0
+            if ($stock->stok_bahan > 0) {
+                try {
+                    $notificationController = app(NotificationController::class);
+                    $predictionResult = $notificationController->smartUpdateExpiredPrediction($stock->id_bahan);
+                    if ($predictionResult['success']) {
+                        Log::info('Expired prediction created for new bahan', [
+                            'bahan_id' => $stock->id_bahan,
+                            'action' => $predictionResult['action'] ?? 'created'
+                        ]);
+                    }
+                } catch (\Exception $e) {
+                    // Non-blocking: log error tapi tidak gagalkan create
+                    Log::warning('Failed to create expired prediction for new bahan', [
+                        'bahan_id' => $stock->id_bahan,
+                        'error' => $e->getMessage()
+                    ]);
+                }
+            }
 
             return response()->json([
                 'success' => true,
@@ -379,6 +442,9 @@ class StockController extends Controller
 
             // Simpan data lama untuk history
             $oldData = $stock->toArray();
+            $oldQuantity = (float)$stock->stok_bahan;
+            $newQuantity = (float)$request->quantity;
+            $isStockIncrease = $newQuantity > $oldQuantity;
             
             $stock->update([
                 'nama_bahan' => $request->name,
@@ -414,6 +480,29 @@ class StockController extends Controller
 
             // Kirim notifikasi jika stok menipis
             $this->sendStockNotification($stock);
+
+            // Smart update expired prediction jika stok bertambah (restock) atau stok > 0
+            // Hanya update jika stok bertambah atau sudah ada stok
+            if (($isStockIncrease || $newQuantity > 0) && $newQuantity > 0) {
+                try {
+                    $notificationController = app(NotificationController::class);
+                    $predictionResult = $notificationController->smartUpdateExpiredPrediction($stock->id_bahan);
+                    if ($predictionResult['success']) {
+                        Log::info('Expired prediction smart updated after stock update', [
+                            'bahan_id' => $stock->id_bahan,
+                            'action' => $predictionResult['action'] ?? 'unknown',
+                            'old_quantity' => $oldQuantity,
+                            'new_quantity' => $newQuantity
+                        ]);
+                    }
+                } catch (\Exception $e) {
+                    // Non-blocking: log error tapi tidak gagalkan update
+                    Log::warning('Failed to smart update expired prediction after stock update', [
+                        'bahan_id' => $stock->id_bahan,
+                        'error' => $e->getMessage()
+                    ]);
+                }
+            }
 
             return response()->json([
                 'success' => true,

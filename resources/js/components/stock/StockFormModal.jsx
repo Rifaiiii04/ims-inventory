@@ -4,6 +4,7 @@ import InputModeToggle from "./InputModeToggle";
 import ManualInputForm from "./ManualInputForm";
 import PhotoInputForm from "./PhotoInputForm";
 import OcrReviewModal from "./OcrReviewModal";
+import LoadingButton from "../common/LoadingButton";
 
 function StockFormModal({ stock, onClose, onSubmit, categories = [] }) {
     const [formData, setFormData] = useState({
@@ -26,10 +27,43 @@ function StockFormModal({ stock, onClose, onSubmit, categories = [] }) {
 
     const [inputMode, setInputMode] = useState("manual"); // 'manual' or 'photo'
     const [showOcrReview, setShowOcrReview] = useState(false);
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     useEffect(() => {
         if (stock) {
-            setFormData(stock);
+            // Pastikan semua field ter-load dengan benar, termasuk boolean dan null values
+            // ID bisa dari stock.id (dari API response) atau stock.id_bahan (fallback)
+            const stockId = stock.id || stock.id_bahan || "";
+
+            setFormData({
+                id: stockId,
+                name: stock.name || "",
+                category_id: stock.category_id || stock.id_kategori || "",
+                buyPrice: stock.buyPrice || stock.harga_beli || "",
+                quantity: stock.quantity || stock.stok_bahan || "",
+                unit: stock.unit || stock.satuan || "",
+                minStock: stock.minStock || stock.min_stok || "",
+                is_divisible:
+                    stock.is_divisible === true ||
+                    stock.is_divisible === 1 ||
+                    stock.is_divisible === "1",
+                max_divisions: stock.max_divisions || "",
+                division_description: stock.division_description || "",
+            });
+        } else {
+            // Reset form jika tidak ada stock (mode tambah)
+            setFormData({
+                id: "",
+                name: "",
+                category_id: "",
+                buyPrice: "",
+                quantity: "",
+                unit: "",
+                minStock: "",
+                is_divisible: false,
+                max_divisions: "",
+                division_description: "",
+            });
         }
     }, [stock]);
 
@@ -41,9 +75,77 @@ function StockFormModal({ stock, onClose, onSubmit, categories = [] }) {
         }));
     };
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
-        onSubmit(formData);
+        e.stopPropagation();
+
+        // Pastikan hanya mode manual yang bisa submit langsung
+        if (inputMode !== "manual") {
+            return;
+        }
+
+        // Validasi field required
+        if (!formData.name || !formData.name.trim()) {
+            alert("Nama Stok harus diisi");
+            return;
+        }
+
+        if (!formData.category_id) {
+            alert("Kategori harus dipilih");
+            return;
+        }
+
+        if (!formData.buyPrice || parseFloat(formData.buyPrice) <= 0) {
+            alert("Harga Beli harus diisi dan lebih dari 0");
+            return;
+        }
+
+        if (!formData.quantity || parseFloat(formData.quantity) <= 0) {
+            alert("Jumlah harus diisi dan lebih dari 0");
+            return;
+        }
+
+        if (!formData.unit || !formData.unit.trim()) {
+            alert("Satuan harus diisi");
+            return;
+        }
+
+        if (formData.minStock === "" || parseFloat(formData.minStock) < 0) {
+            alert("Minimum Stock harus diisi dan tidak boleh negatif");
+            return;
+        }
+
+        // Validasi: Jumlah tidak boleh kurang dari Minimum Stock (hanya untuk mode tambah)
+        if (!stock && formData.quantity && formData.minStock) {
+            const quantity = parseFloat(formData.quantity) || 0;
+            const minStock = parseFloat(formData.minStock) || 0;
+
+            if (quantity < minStock) {
+                alert(
+                    `Jumlah tidak boleh kurang dari Minimum Stock (${minStock}). Silakan perbaiki input Anda.`
+                );
+                return;
+            }
+        }
+
+        // Validasi: jika mode edit, pastikan ID ada
+        if (stock && !formData.id) {
+            alert(
+                "Error: ID stok tidak ditemukan. Silakan tutup form dan coba lagi."
+            );
+            setIsSubmitting(false);
+            return;
+        }
+
+        setIsSubmitting(true);
+        try {
+            await onSubmit(formData);
+        } catch (error) {
+            console.error("Error submitting form:", error);
+            alert("Terjadi kesalahan saat menyimpan data. Silakan coba lagi.");
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
     const handleImageUpload = async (file) => {
@@ -111,7 +213,8 @@ function StockFormModal({ stock, onClose, onSubmit, categories = [] }) {
 
             if (error.response?.status === 503) {
                 // OCR service is not available
-                errorMessage = error.response.data?.message || 
+                errorMessage =
+                    error.response.data?.message ||
                     "OCR service tidak tersedia. Pastikan Python OCR service berjalan di port 5000. Jalankan: cd python_ocr_service && python ocr_service_hybrid.py";
             } else if (error.response?.status === 500) {
                 // Get detailed error message from response
@@ -121,24 +224,33 @@ function StockFormModal({ stock, onClose, onSubmit, categories = [] }) {
                 } else if (errorData?.error) {
                     errorMessage = errorData.error;
                 } else {
-                    errorMessage = "Photo processing service error. Check server logs.";
+                    errorMessage =
+                        "Photo processing service error. Check server logs.";
                 }
-                
+
                 // Add details if available
                 if (errorData?.details) {
-                    console.error("OCR Error Details:", JSON.stringify(errorData.details, null, 2));
+                    console.error(
+                        "OCR Error Details:",
+                        JSON.stringify(errorData.details, null, 2)
+                    );
                 }
-                
+
                 // Log full error response for debugging
-                console.error("Full OCR Error Response:", JSON.stringify(errorData, null, 2));
+                console.error(
+                    "Full OCR Error Response:",
+                    JSON.stringify(errorData, null, 2)
+                );
             } else if (error.response?.status === 400) {
                 errorMessage =
                     error.response.data?.message || "Invalid image format.";
             } else if (error.response?.status === 504) {
-                errorMessage = error.response.data?.message || 
+                errorMessage =
+                    error.response.data?.message ||
                     "OCR processing timeout. Coba lagi dengan foto yang lebih kecil atau jelas.";
             } else if (error.code === "ERR_NETWORK") {
-                errorMessage = "Cannot connect to photo processing service. Pastikan OCR service berjalan.";
+                errorMessage =
+                    "Cannot connect to photo processing service. Pastikan OCR service berjalan.";
             } else if (error.response?.data?.message) {
                 errorMessage = error.response.data.message;
             }
@@ -166,11 +278,13 @@ function StockFormModal({ stock, onClose, onSubmit, categories = [] }) {
             for (const item of itemsToAdd) {
                 // Ensure data types are correct for backend validation
                 const stockData = {
-                    name: String(item.nama_barang || '').trim(),
-                    category_id: item.category_id || (categories.length > 0 ? categories[0].id : 1),
+                    name: String(item.nama_barang || "").trim(),
+                    category_id:
+                        item.category_id ||
+                        (categories.length > 0 ? categories[0].id : 1),
                     buyPrice: parseFloat(item.harga) || 0,
                     quantity: parseFloat(item.jumlah) || 1,
-                    unit: String(item.unit || 'pcs').trim(),
+                    unit: String(item.unit || "pcs").trim(),
                     minStock: parseFloat(item.minStock) || 10,
                     is_divisible: false,
                     max_divisions: null,
@@ -179,7 +293,7 @@ function StockFormModal({ stock, onClose, onSubmit, categories = [] }) {
 
                 // Validate required fields
                 if (!stockData.name) {
-                    console.warn('Skipping item with empty name:', item);
+                    console.warn("Skipping item with empty name:", item);
                     continue;
                 }
 
@@ -245,6 +359,7 @@ function StockFormModal({ stock, onClose, onSubmit, categories = [] }) {
                             formData={formData}
                             onChange={handleChange}
                             categories={categories}
+                            isEditMode={!!stock}
                         />
                     )}
 
@@ -259,19 +374,25 @@ function StockFormModal({ stock, onClose, onSubmit, categories = [] }) {
 
                     {/* Modal Footer */}
                     <div className="flex gap-3 mt-6">
-                        <button
+                        <LoadingButton
                             type="button"
                             onClick={onClose}
-                            className="flex-1 px-4 py-2 border-2 border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-semibold transition-colors text-sm"
+                            disabled={isSubmitting}
+                            variant="secondary"
+                            className="flex-1"
                         >
                             Batal
-                        </button>
-                        <button
-                            type="submit"
-                            className="flex-1 px-4 py-2 bg-gradient-to-r from-green-600 to-green-500 text-white rounded-lg hover:from-green-700 hover:to-green-600 font-semibold shadow-lg transition-all text-sm"
-                        >
-                            {stock ? "Update" : "Simpan"}
-                        </button>
+                        </LoadingButton>
+                        {inputMode === "manual" && (
+                            <LoadingButton
+                                type="submit"
+                                loading={isSubmitting}
+                                variant="success"
+                                className="flex-1"
+                            >
+                                {stock ? "Update" : "Simpan"}
+                            </LoadingButton>
+                        )}
                     </div>
                 </form>
             </div>

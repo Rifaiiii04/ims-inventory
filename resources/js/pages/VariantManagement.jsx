@@ -234,13 +234,46 @@ function VariantManagement() {
                         )}
 
                         {/* Variant Table */}
-                        {variantData && variantData.length > 0 && (
+                        {variantData && (
                             <div className="overflow-x-auto">
                                 <VariantTable
                                     data={filteredVariants}
                                     onEdit={handleEditVariant}
                                     onDelete={handleDeleteVariant}
                                 />
+                            </div>
+                        )}
+
+                        {/* No Data State */}
+                        {variantData && variantData.length === 0 && !error && (
+                            <div className="text-center py-12">
+                                <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                                    <svg
+                                        className="w-8 h-8 text-gray-400"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        viewBox="0 0 24 24"
+                                    >
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            strokeWidth={2}
+                                            d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"
+                                        />
+                                    </svg>
+                                </div>
+                                <h3 className="text-lg font-bold text-gray-700 mb-2">
+                                    Belum ada varian
+                                </h3>
+                                <p className="text-gray-500 text-sm mb-4">
+                                    Mulai dengan menambahkan varian pertama
+                                </p>
+                                <button
+                                    onClick={() => setShowFormModal(true)}
+                                    className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                                >
+                                    Tambah Varian
+                                </button>
                             </div>
                         )}
                     </div>

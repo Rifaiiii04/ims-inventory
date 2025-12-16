@@ -82,6 +82,25 @@ function StockTableModern({ data, onEdit, onDelete, onViewHistory }) {
             ),
         },
         {
+            header: "Total Cost",
+            accessor: "totalCost",
+            render: (value, item) => (
+                <div>
+                    <div className="text-sm font-bold text-green-600">
+                        Rp{" "}
+                        {(
+                            parseFloat(item.buyPrice) *
+                            parseFloat(item.quantity)
+                        ).toLocaleString("id-ID")}
+                    </div>
+                    <div className="text-xs text-gray-500">
+                        {item.quantity} × Rp{" "}
+                        {item.buyPrice.toLocaleString("id-ID")}
+                    </div>
+                </div>
+            ),
+        },
+        {
             header: "Satuan",
             accessor: "unit",
             render: (value) => (
@@ -178,6 +197,21 @@ function StockTableModern({ data, onEdit, onDelete, onViewHistory }) {
                     <div className="font-semibold text-gray-700">
                         {item.unit}
                     </div>
+                </div>
+            </div>
+
+            <div className="mb-4 bg-gradient-to-r from-green-50 to-green-100 rounded-lg p-3 border border-green-200">
+                <div className="text-gray-600 mb-1 text-xs font-semibold">
+                    Total Cost
+                </div>
+                <div className="font-bold text-green-700 text-lg">
+                    Rp{" "}
+                    {(
+                        parseFloat(item.buyPrice) * parseFloat(item.quantity)
+                    ).toLocaleString("id-ID")}
+                </div>
+                <div className="text-gray-500 text-xs mt-1">
+                    {item.quantity} × Rp {item.buyPrice.toLocaleString("id-ID")}
                 </div>
             </div>
 

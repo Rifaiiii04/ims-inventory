@@ -28,6 +28,8 @@ use App\Http\Controllers\Api\ReportController;
 
 // Public routes
 Route::post('/auth/login', [AuthController::class, 'login']);
+// Public notification settings (read-only, returns default if not authenticated)
+Route::get('/notifications/settings', [NotificationController::class, 'getSettings']);
 
 // Temporary public routes for testing (without api middleware)
 Route::middleware(['throttle:api'])->group(function () {
@@ -106,13 +108,19 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/whatsapp/send-notification', [WhatsAppAgentController::class, 'sendLowStockNotification']);
     
     // Notification routes - specific routes must come before apiResource to avoid route conflicts
-    Route::get('/notifications/settings', [NotificationController::class, 'getSettings']);
+    // GET settings is public (moved above), PUT settings requires auth
     Route::put('/notifications/settings', [NotificationController::class, 'updateSettings']);
     Route::post('/notifications/mark-all-read', [NotificationController::class, 'markAllAsRead']);
     Route::get('/notifications/unread-count', [NotificationController::class, 'getUnreadCount']);
     Route::post('/notifications/low-stock', [NotificationController::class, 'createLowStockNotification']);
     Route::post('/notifications/trigger-all', [NotificationController::class, 'triggerNotification']);
     Route::post('/notifications/process-scheduled', [NotificationController::class, 'processScheduledNotifications']);
+    // Expired predictions routes (must be inside auth middleware)
+    Route::post('/notifications/generate-expired-predictions', [NotificationController::class, 'generateExpiredPredictions']);
+    Route::get('/notifications/expired-predictions', [NotificationController::class, 'getExpiredPredictions']);
+    Route::delete('/notifications/expired-predictions/{id}', [NotificationController::class, 'deleteExpiredPrediction']);
+    Route::post('/notifications/expired-predictions/bulk-delete', [NotificationController::class, 'deleteExpiredPredictionsBulk']);
+    Route::post('/notifications/expired-predictions/delete-all', [NotificationController::class, 'deleteAllExpiredPredictions']);
     Route::apiResource('notifications', NotificationController::class);
     Route::post('/notifications/{id}/trigger', [NotificationController::class, 'triggerNotification']);
     

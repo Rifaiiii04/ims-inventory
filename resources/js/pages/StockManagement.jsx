@@ -33,22 +33,44 @@ function StockManagement() {
 
     // Handle tambah stok baru
     const handleAddStock = async (newStock) => {
-        const result = await createStock(newStock);
-        if (result.success) {
-            setShowFormModal(false);
-        } else {
-            alert(result.message);
+        try {
+            const result = await createStock(newStock);
+            if (result.success) {
+                setShowFormModal(false);
+            } else {
+                alert(result.message);
+            }
+        } catch (error) {
+            console.error("Error adding stock:", error);
+            alert("Terjadi kesalahan saat menambahkan stok");
         }
     };
 
     // Handle update stok
     const handleUpdateStock = async (updatedStock) => {
-        const result = await updateStock(updatedStock.id, updatedStock);
-        if (result.success) {
-            setEditingStock(null);
-            setShowFormModal(false);
-        } else {
-            alert(result.message);
+        try {
+            // Validasi: pastikan ID ada
+            if (!updatedStock.id) {
+                console.error(
+                    "Error: Stock ID tidak ditemukan dalam formData:",
+                    updatedStock
+                );
+                alert(
+                    "Error: ID stok tidak ditemukan. Silakan tutup form dan coba lagi."
+                );
+                return;
+            }
+
+            const result = await updateStock(updatedStock.id, updatedStock);
+            if (result.success) {
+                setEditingStock(null);
+                setShowFormModal(false);
+            } else {
+                alert(result.message);
+            }
+        } catch (error) {
+            console.error("Error updating stock:", error);
+            alert("Terjadi kesalahan saat memperbarui stok");
         }
     };
 
@@ -281,7 +303,7 @@ function StockManagement() {
                             )}
 
                         {/* Stock Table */}
-                        {!loading && stockData && stockData.length > 0 && (
+                        {!loading && stockData && (
                             <div className="overflow-x-auto">
                                 <StockTable
                                     data={filteredStocks}
@@ -317,6 +339,12 @@ function StockManagement() {
                                 <p className="text-gray-500 text-sm mb-4">
                                     Mulai dengan menambahkan stok baru
                                 </p>
+                                <button
+                                    onClick={() => setShowFormModal(true)}
+                                    className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                                >
+                                    Tambah Stok
+                                </button>
                             </div>
                         )}
                     </div>
