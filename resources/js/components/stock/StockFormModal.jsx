@@ -5,8 +5,11 @@ import ManualInputForm from "./ManualInputForm";
 import PhotoInputForm from "./PhotoInputForm";
 import OcrReviewModal from "./OcrReviewModal";
 import LoadingButton from "../common/LoadingButton";
+import { useToast } from "../../hooks/useToast";
 
 function StockFormModal({ stock, onClose, onSubmit, categories = [] }) {
+    const { showToast, ToastContainer } = useToast();
+
     const [formData, setFormData] = useState({
         name: "",
         category_id: "",
@@ -86,32 +89,35 @@ function StockFormModal({ stock, onClose, onSubmit, categories = [] }) {
 
         // Validasi field required
         if (!formData.name || !formData.name.trim()) {
-            alert("Nama Stok harus diisi");
+            showToast("Nama Stok harus diisi", "warning");
             return;
         }
 
         if (!formData.category_id) {
-            alert("Kategori harus dipilih");
+            showToast("Kategori harus dipilih", "warning");
             return;
         }
 
         if (!formData.buyPrice || parseFloat(formData.buyPrice) <= 0) {
-            alert("Harga Beli harus diisi dan lebih dari 0");
+            showToast("Harga Beli harus diisi dan lebih dari 0", "warning");
             return;
         }
 
         if (!formData.quantity || parseFloat(formData.quantity) <= 0) {
-            alert("Jumlah harus diisi dan lebih dari 0");
+            showToast("Jumlah harus diisi dan lebih dari 0", "warning");
             return;
         }
 
         if (!formData.unit || !formData.unit.trim()) {
-            alert("Satuan harus diisi");
+            showToast("Satuan harus diisi", "warning");
             return;
         }
 
         if (formData.minStock === "" || parseFloat(formData.minStock) < 0) {
-            alert("Minimum Stock harus diisi dan tidak boleh negatif");
+            showToast(
+                "Minimum Stock harus diisi dan tidak boleh negatif",
+                "warning"
+            );
             return;
         }
 
@@ -121,8 +127,9 @@ function StockFormModal({ stock, onClose, onSubmit, categories = [] }) {
             const minStock = parseFloat(formData.minStock) || 0;
 
             if (quantity < minStock) {
-                alert(
-                    `Jumlah tidak boleh kurang dari Minimum Stock (${minStock}). Silakan perbaiki input Anda.`
+                showToast(
+                    `Jumlah tidak boleh kurang dari Minimum Stock (${minStock}). Silakan perbaiki input Anda.`,
+                    "warning"
                 );
                 return;
             }
@@ -130,8 +137,9 @@ function StockFormModal({ stock, onClose, onSubmit, categories = [] }) {
 
         // Validasi: jika mode edit, pastikan ID ada
         if (stock && !formData.id) {
-            alert(
-                "Error: ID stok tidak ditemukan. Silakan tutup form dan coba lagi."
+            showToast(
+                "Error: ID stok tidak ditemukan. Silakan tutup form dan coba lagi.",
+                "error"
             );
             setIsSubmitting(false);
             return;
@@ -142,7 +150,10 @@ function StockFormModal({ stock, onClose, onSubmit, categories = [] }) {
             await onSubmit(formData);
         } catch (error) {
             console.error("Error submitting form:", error);
-            alert("Terjadi kesalahan saat menyimpan data. Silakan coba lagi.");
+            showToast(
+                "Terjadi kesalahan saat menyimpan data. Silakan coba lagi.",
+                "error"
+            );
         } finally {
             setIsSubmitting(false);
         }
@@ -412,17 +423,19 @@ function StockFormModal({ stock, onClose, onSubmit, categories = [] }) {
             // Show summary
             if (errors.length > 0) {
                 const errorMsg = errors
-                    .map((e) => `- ${e.item}: ${e.error}`)
-                    .join("\n");
-                alert(
-                    `Berhasil menambahkan ${results.length} item.\n\n` +
-                        `Gagal menambahkan ${errors.length} item:\n${errorMsg}`
+                    .map((e) => `${e.item}: ${e.error}`)
+                    .join(", ");
+                showToast(
+                    `Berhasil menambahkan ${results.length} item. ${errors.length} item gagal: ${errorMsg}`,
+                    "warning",
+                    8000
                 );
             } else {
                 // All successful
                 if (results.length > 0) {
-                    alert(
-                        `Berhasil menambahkan ${results.length} item ke stok!`
+                    showToast(
+                        `Berhasil menambahkan ${results.length} item ke stok!`,
+                        "success"
                     );
                 }
             }
@@ -437,9 +450,10 @@ function StockFormModal({ stock, onClose, onSubmit, categories = [] }) {
             onClose();
         } catch (error) {
             console.error("Error adding OCR items:", error);
-            alert(
+            showToast(
                 "Terjadi kesalahan saat menambahkan item ke stok: " +
-                    (error.message || error)
+                    (error.message || error),
+                "error"
             );
         } finally {
             setIsSubmitting(false);
@@ -447,86 +461,89 @@ function StockFormModal({ stock, onClose, onSubmit, categories = [] }) {
     };
 
     return (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto">
-                {/* Modal Header */}
-                <div className="bg-gradient-to-r from-green-600 to-green-500 text-white p-6 rounded-t-2xl">
-                    <div className="flex justify-between items-center">
-                        <h2 className="text-xl font-bold">
-                            {stock ? "Edit Stok" : "Tambah Stok Baru"}
-                        </h2>
-                        <button
-                            onClick={onClose}
-                            className="text-white hover:bg-white/20 p-2 rounded-lg transition-colors"
-                        >
-                            <svg
-                                xmlns="http://www.w3.org/2000/svg"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                strokeWidth={2}
-                                stroke="currentColor"
-                                className="size-6"
+        <>
+            <ToastContainer />
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto">
+                    {/* Modal Header */}
+                    <div className="bg-gradient-to-r from-green-600 to-green-500 text-white p-6 rounded-t-2xl">
+                        <div className="flex justify-between items-center">
+                            <h2 className="text-xl font-bold">
+                                {stock ? "Edit Stok" : "Tambah Stok Baru"}
+                            </h2>
+                            <button
+                                onClick={onClose}
+                                className="text-white hover:bg-white/20 p-2 rounded-lg transition-colors"
                             >
-                                <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    d="M6 18L18 6M6 6l12 12"
-                                />
-                            </svg>
-                        </button>
+                                <svg
+                                    xmlns="http://www.w3.org/2000/svg"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    strokeWidth={2}
+                                    stroke="currentColor"
+                                    className="size-6"
+                                >
+                                    <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        d="M6 18L18 6M6 6l12 12"
+                                    />
+                                </svg>
+                            </button>
+                        </div>
                     </div>
-                </div>
 
-                {/* Modal Body */}
-                <form onSubmit={handleSubmit} className="p-6">
-                    {/* Input Mode Toggle */}
-                    <InputModeToggle
-                        inputMode={inputMode}
-                        onModeChange={setInputMode}
-                    />
-
-                    {/* Manual Input Mode */}
-                    {inputMode === "manual" && (
-                        <ManualInputForm
-                            formData={formData}
-                            onChange={handleChange}
-                            categories={categories}
-                            isEditMode={!!stock}
+                    {/* Modal Body */}
+                    <form onSubmit={handleSubmit} className="p-6">
+                        {/* Input Mode Toggle */}
+                        <InputModeToggle
+                            inputMode={inputMode}
+                            onModeChange={setInputMode}
                         />
-                    )}
 
-                    {/* Photo Input Mode */}
-                    {inputMode === "photo" && (
-                        <PhotoInputForm
-                            onImageUpload={handleImageUpload}
-                            isProcessing={ocrData.isProcessing}
-                            error={ocrData.error}
-                        />
-                    )}
-
-                    {/* Modal Footer */}
-                    <div className="flex gap-3 mt-6">
-                        <LoadingButton
-                            type="button"
-                            onClick={onClose}
-                            disabled={isSubmitting}
-                            variant="secondary"
-                            className="flex-1"
-                        >
-                            Batal
-                        </LoadingButton>
+                        {/* Manual Input Mode */}
                         {inputMode === "manual" && (
+                            <ManualInputForm
+                                formData={formData}
+                                onChange={handleChange}
+                                categories={categories}
+                                isEditMode={!!stock}
+                            />
+                        )}
+
+                        {/* Photo Input Mode */}
+                        {inputMode === "photo" && (
+                            <PhotoInputForm
+                                onImageUpload={handleImageUpload}
+                                isProcessing={ocrData.isProcessing}
+                                error={ocrData.error}
+                            />
+                        )}
+
+                        {/* Modal Footer */}
+                        <div className="flex gap-3 mt-6">
                             <LoadingButton
-                                type="submit"
-                                loading={isSubmitting}
-                                variant="success"
+                                type="button"
+                                onClick={onClose}
+                                disabled={isSubmitting}
+                                variant="secondary"
                                 className="flex-1"
                             >
-                                {stock ? "Update" : "Simpan"}
+                                Batal
                             </LoadingButton>
-                        )}
-                    </div>
-                </form>
+                            {inputMode === "manual" && (
+                                <LoadingButton
+                                    type="submit"
+                                    loading={isSubmitting}
+                                    variant="success"
+                                    className="flex-1"
+                                >
+                                    {stock ? "Update" : "Simpan"}
+                                </LoadingButton>
+                            )}
+                        </div>
+                    </form>
+                </div>
             </div>
 
             {/* OCR Review Modal */}
@@ -537,7 +554,7 @@ function StockFormModal({ stock, onClose, onSubmit, categories = [] }) {
                 onConfirmAdd={handleOcrConfirmAdd}
                 categories={categories}
             />
-        </div>
+        </>
     );
 }
 

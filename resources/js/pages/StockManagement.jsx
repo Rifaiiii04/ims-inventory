@@ -8,6 +8,7 @@ import LowStockAlert from "../components/stock/LowStockAlert";
 import { useStock } from "../hooks/useStock";
 import { ManagementPageSkeleton } from "../components/common/SkeletonLoader";
 import MobileSidebarToggle from "../components/sidebar/MobileSidebarToggle";
+import { useToast } from "../hooks/useToast";
 
 function StockManagement() {
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -16,6 +17,9 @@ function StockManagement() {
     const [editingStock, setEditingStock] = useState(null);
     const [selectedStockHistory, setSelectedStockHistory] = useState(null);
     const [searchTerm, setSearchTerm] = useState("");
+
+    // Toast notification
+    const { showToast, ToastContainer } = useToast();
 
     // Use stock hook for real data
     const {
@@ -37,15 +41,20 @@ function StockManagement() {
             const result = await createStock(newStock);
             if (result.success) {
                 setShowFormModal(false);
+                showToast(
+                    result.message || "Stok berhasil ditambahkan",
+                    "success"
+                );
             } else {
                 console.error("Error creating stock:", result);
-                alert(
-                    result.message || "Terjadi kesalahan saat menambahkan stok"
+                showToast(
+                    result.message || "Terjadi kesalahan saat menambahkan stok",
+                    "error"
                 );
             }
         } catch (error) {
             console.error("Error adding stock:", error);
-            alert("Terjadi kesalahan saat menambahkan stok");
+            showToast("Terjadi kesalahan saat menambahkan stok", "error");
         }
     };
 
@@ -58,8 +67,9 @@ function StockManagement() {
                     "Error: Stock ID tidak ditemukan dalam formData:",
                     updatedStock
                 );
-                alert(
-                    "Error: ID stok tidak ditemukan. Silakan tutup form dan coba lagi."
+                showToast(
+                    "Error: ID stok tidak ditemukan. Silakan tutup form dan coba lagi.",
+                    "error"
                 );
                 return;
             }
@@ -68,21 +78,27 @@ function StockManagement() {
             if (result.success) {
                 setEditingStock(null);
                 setShowFormModal(false);
+                showToast(
+                    result.message || "Stok berhasil diperbarui",
+                    "success"
+                );
             } else {
-                alert(result.message);
+                showToast(result.message, "error");
             }
         } catch (error) {
             console.error("Error updating stock:", error);
-            alert("Terjadi kesalahan saat memperbarui stok");
+            showToast("Terjadi kesalahan saat memperbarui stok", "error");
         }
     };
 
     // Handle hapus stok
     const handleDeleteStock = async (id) => {
-        if (confirm("Apakah Anda yakin ingin menghapus stok ini?")) {
+        if (window.confirm("Apakah Anda yakin ingin menghapus stok ini?")) {
             const result = await deleteStock(id);
-            if (!result.success) {
-                alert(result.message);
+            if (result.success) {
+                showToast("Stok berhasil dihapus", "success");
+            } else {
+                showToast(result.message, "error");
             }
         }
     };
@@ -99,15 +115,16 @@ function StockManagement() {
                               : ""
                       }`
                     : result.message;
-                alert(message);
+                showToast(message, "success");
             } else {
-                alert(
-                    result.message || "Terjadi kesalahan saat menghapus stok"
+                showToast(
+                    result.message || "Terjadi kesalahan saat menghapus stok",
+                    "error"
                 );
             }
         } catch (error) {
             console.error("Error bulk deleting stocks:", error);
-            alert("Terjadi kesalahan saat menghapus stok");
+            showToast("Terjadi kesalahan saat menghapus stok", "error");
         }
     };
 
@@ -137,6 +154,7 @@ function StockManagement() {
 
     return (
         <>
+            <ToastContainer />
             <div className="w-screen h-screen flex flex-col lg:flex-row bg-gradient-to-br from-gray-50 to-gray-100">
                 <MobileSidebarToggle
                     isMobileMenuOpen={isMobileMenuOpen}
