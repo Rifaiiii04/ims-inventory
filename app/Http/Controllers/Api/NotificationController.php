@@ -1445,8 +1445,9 @@ class NotificationController extends Controller
             }
 
             // Call Python service for single prediction
+            // Use shorter timeout to prevent PHP execution timeout (60s limit)
             try {
-                $response = Http::timeout(300)->post($this->getExpiredPredictionServiceUrl() . '/predict-expiration', [
+                $response = Http::timeout(15)->post($this->getExpiredPredictionServiceUrl() . '/predict-expiration', [
                     'bahan' => $bahanData
                 ]);
 

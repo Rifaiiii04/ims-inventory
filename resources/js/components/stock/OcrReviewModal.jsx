@@ -23,7 +23,7 @@ function OcrReviewModal({
                 initialDetails[index] = {
                     category_id: "",
                     unit: item.unit || "pcs",
-                    minStock: item.minStock || 10,
+                    minStock: item.minStock || 0,
                     ...item,
                 };
                 // Format harga jika ada
@@ -44,7 +44,7 @@ function OcrReviewModal({
         }
     }, [isOpen, ocrItems]);
 
-    // Validasi quantity vs minStock untuk setiap item
+    // Validasi quantity vs minStock untuk setiap item (hanya jika minStock > 0)
     useEffect(() => {
         const errors = {};
         Object.keys(itemDetails).forEach((index) => {
@@ -52,7 +52,8 @@ function OcrReviewModal({
             if (item.jumlah && item.minStock) {
                 const quantity = parseFloat(item.jumlah) || 0;
                 const minStock = parseFloat(item.minStock) || 0;
-                if (quantity < minStock) {
+                // Hanya validasi jika minStock > 0
+                if (minStock > 0 && quantity < minStock) {
                     errors[
                         index
                     ] = `Jumlah tidak boleh kurang dari Minimum Stock (${minStock})`;
@@ -137,7 +138,7 @@ function OcrReviewModal({
         }
     };
 
-    const handleConfirm = () => {
+    const handleConfirm = async () => {
         // Validasi: pastikan semua item yang dipilih punya category_id dan tidak ada error
         const hasErrors = selectedItems.some((index) => quantityErrors[index]);
         if (hasErrors) {
@@ -148,19 +149,33 @@ function OcrReviewModal({
         }
 
         const itemsToAdd = selectedItems.map((index) => {
-            const item = itemDetails[index];
+            const item = { ...itemDetails[index] };
             // Jika category_id kosong, gunakan category pertama
             if (!item.category_id && categories.length > 0) {
                 item.category_id = categories[0].id_kategori;
             }
+            // Pastikan category_id adalah number yang valid
+            if (item.category_id) {
+                const parsedId = parseInt(item.category_id);
+                if (!isNaN(parsedId) && parsedId > 0) {
+                    item.category_id = parsedId;
+                } else {
+                    // If invalid, try to get from categories
+                    if (categories.length > 0) {
+                        item.category_id = parseInt(categories[0].id_kategori);
+                    } else {
+                        item.category_id = null;
+                    }
+                }
+            }
             return item;
         });
-
+        
         // Filter item yang tidak valid (nama_barang kosong)
         const validItems = itemsToAdd.filter(
             (item) => item.nama_barang && item.nama_barang.trim() !== ""
         );
-
+        
         if (validItems.length === 0) {
             alert(
                 "Tidak ada item yang valid untuk ditambahkan. Pastikan nama barang tidak kosong."
@@ -172,25 +187,39 @@ function OcrReviewModal({
         const invalidItems = validItems.filter((item) => {
             const quantity = parseFloat(item.jumlah) || 0;
             const minStock = parseFloat(item.minStock) || 0;
-            return quantity < minStock;
+            return minStock > 0 && quantity < minStock;
         });
 
         if (invalidItems.length > 0) {
+            const itemNames = invalidItems
+                .map((item) => item.nama_barang)
+                .join(", ");
             alert(
-                "Beberapa item memiliki jumlah yang kurang dari Minimum Stock. Silakan perbaiki terlebih dahulu."
+                `Beberapa item memiliki jumlah yang kurang dari Minimum Stock:\n${itemNames}\n\nSilakan perbaiki terlebih dahulu.`
             );
             return;
         }
-
-        onConfirmAdd(validItems);
+        
+        setIsSubmitting(true);
+        try {
+            await onConfirmAdd(validItems);
         onClose();
+        } catch (error) {
+            console.error("Error confirming OCR items:", error);
+            alert(
+                "Terjadi kesalahan saat menambahkan item: " +
+                    (error.message || error)
+            );
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-2 md:p-4">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[95vh] md:max-h-[90vh] overflow-y-auto">
                 {/* Modal Header */}
                 <div className="bg-gradient-to-r from-blue-600 to-blue-500 text-white p-6 rounded-t-2xl">
                     <div className="flex justify-between items-center">
@@ -230,8 +259,259 @@ function OcrReviewModal({
                         </div>
                     </div>
 
-                    {/* Table View */}
-                    <div className="overflow-x-auto">
+                    {/* Mobile Card View - Visible on mobile, hidden on desktop */}
+                    <div className="md:hidden space-y-4">
+                        {/* Select All Checkbox */}
+                        <div className="flex items-center gap-2 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                            <input
+                                type="checkbox"
+                                checked={
+                                    selectedItems.length === ocrItems.length &&
+                                    ocrItems.length > 0
+                                }
+                                onChange={(e) => {
+                                    if (e.target.checked) {
+                                        setSelectedItems(
+                                            ocrItems.map((_, index) => index)
+                                        );
+                                    } else {
+                                        setSelectedItems([]);
+                                    }
+                                }}
+                                className="w-5 h-5 text-green-600"
+                            />
+                            <label className="text-sm font-semibold text-gray-700">
+                                Pilih Semua ({selectedItems.length}/
+                                {ocrItems.length})
+                            </label>
+                        </div>
+
+                        {/* Item Cards */}
+                        {ocrItems.map((item, index) => (
+                            <div
+                                key={index}
+                                className={`border-2 rounded-xl p-4 transition-all ${
+                                    selectedItems.includes(index)
+                                        ? "border-green-500 bg-green-50"
+                                        : "border-gray-200 bg-white"
+                                }`}
+                            >
+                                {/* Card Header */}
+                                <div className="flex items-start justify-between mb-3">
+                                    <div className="flex items-center gap-3 flex-1">
+                                        <input
+                                            type="checkbox"
+                                            checked={selectedItems.includes(
+                                                index
+                                            )}
+                                            onChange={() =>
+                                                handleItemToggle(index)
+                                            }
+                                            className="w-5 h-5 text-green-600 mt-1"
+                                        />
+                                        <div className="flex-1">
+                                            <label className="text-xs font-semibold text-gray-500 mb-1 block">
+                                                Nama Barang
+                                            </label>
+                                            <input
+                                                type="text"
+                                                value={
+                                                    itemDetails[index]
+                                                        ?.nama_barang || ""
+                                                }
+                                                onChange={(e) =>
+                                                    handleItemDetailChange(
+                                                        index,
+                                                        "nama_barang",
+                                                        e.target.value
+                                                    )
+                                                }
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:border-green-500 focus:outline-none focus:ring-2 focus:ring-green-200"
+                                                placeholder="Nama barang"
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Card Body - Grid Layout */}
+                                <div className="grid grid-cols-2 gap-3 mb-3">
+                                    {/* Kategori */}
+                                    <div>
+                                        <label className="text-xs font-semibold text-gray-500 mb-1 block">
+                                            Kategori
+                                        </label>
+                                        <select
+                                            value={
+                                                itemDetails[index]
+                                                    ?.category_id || ""
+                                            }
+                                            onChange={(e) =>
+                                                handleItemDetailChange(
+                                                    index,
+                                                    "category_id",
+                                                    e.target.value
+                                                )
+                                            }
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:border-green-500 focus:outline-none focus:ring-2 focus:ring-green-200"
+                                        >
+                                            <option value="">Pilih</option>
+                                            {categories.map((category) => (
+                                                <option
+                                                    key={category.id_kategori}
+                                                    value={category.id_kategori}
+                                                >
+                                                    {category.nama_kategori}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+
+                                    {/* Satuan */}
+                                    <div>
+                                        <label className="text-xs font-semibold text-gray-500 mb-1 block">
+                                            Satuan
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={
+                                                itemDetails[index]?.unit || ""
+                                            }
+                                            onChange={(e) =>
+                                                handleItemDetailChange(
+                                                    index,
+                                                    "unit",
+                                                    e.target.value
+                                                )
+                                            }
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:border-green-500 focus:outline-none focus:ring-2 focus:ring-green-200"
+                                            placeholder="pcs"
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Harga Beli */}
+                                <div className="mb-3">
+                                    <label className="text-xs font-semibold text-gray-500 mb-1 block">
+                                        Harga Beli (per satuan)
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={formattedPrices[index] || ""}
+                                        onChange={(e) =>
+                                            handlePriceChange(index, e)
+                                        }
+                                        onFocus={() => handlePriceFocus(index)}
+                                        onBlur={() => handlePriceBlur(index)}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:border-green-500 focus:outline-none focus:ring-2 focus:ring-green-200"
+                                        placeholder="Rp 0"
+                                    />
+                                </div>
+
+                                {/* Jumlah dan Min Stock - Side by Side */}
+                                <div className="grid grid-cols-2 gap-3 mb-3">
+                                    {/* Jumlah */}
+                                    <div>
+                                        <label className="text-xs font-semibold text-gray-500 mb-1 block">
+                                            Jumlah
+                                        </label>
+                                        <input
+                                            type="number"
+                                            value={
+                                                itemDetails[index]?.jumlah || ""
+                                            }
+                                            onChange={(e) =>
+                                                handleItemDetailChange(
+                                                    index,
+                                                    "jumlah",
+                                                    e.target.value
+                                                )
+                                            }
+                                            className={`w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 ${
+                                                quantityErrors[index]
+                                                    ? "border-red-500 focus:border-red-500 focus:ring-red-200"
+                                                    : "border-gray-300 focus:border-green-500 focus:ring-green-200"
+                                            }`}
+                                            placeholder="0"
+                                            min={
+                                                itemDetails[index]?.minStock
+                                                    ? itemDetails[index]
+                                                          .minStock
+                                                    : "0"
+                                            }
+                                        />
+                                        {quantityErrors[index] && (
+                                            <div className="text-xs text-red-600 mt-1">
+                                                {quantityErrors[index]}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Min Stock */}
+                                    <div>
+                                        <label className="text-xs font-semibold text-gray-500 mb-1 block">
+                                            Min Stock
+                                        </label>
+                                        <input
+                                            type="number"
+                                            value={
+                                                itemDetails[index]?.minStock ||
+                                                ""
+                                            }
+                                            onChange={(e) =>
+                                                handleItemDetailChange(
+                                                    index,
+                                                    "minStock",
+                                                    e.target.value
+                                                )
+                                            }
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:border-green-500 focus:outline-none focus:ring-2 focus:ring-green-200"
+                                            placeholder="10"
+                                            min="0"
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Total Cost */}
+                                {itemDetails[index]?.harga &&
+                                itemDetails[index]?.jumlah ? (
+                                    <div className="bg-gradient-to-r from-green-50 to-green-100 border border-green-200 rounded-lg p-3">
+                                        <div className="text-xs text-gray-600 mb-1 font-semibold">
+                                            Total Cost
+                                        </div>
+                                        <div className="font-bold text-green-700 text-lg">
+                                            Rp{" "}
+                                            {(
+                                                parseFloat(
+                                                    itemDetails[index]?.harga ||
+                                                        0
+                                                ) *
+                                                parseFloat(
+                                                    itemDetails[index]
+                                                        ?.jumlah || 0
+                                                )
+                                            ).toLocaleString("id-ID")}
+                                        </div>
+                                        <div className="text-xs text-gray-500 mt-1">
+                                            {itemDetails[index]?.jumlah} × Rp{" "}
+                                            {parseFloat(
+                                                itemDetails[index]?.harga || 0
+                                            ).toLocaleString("id-ID")}
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-center">
+                                        <div className="text-xs text-gray-400">
+                                            Masukkan harga dan jumlah untuk
+                                            melihat total cost
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* Desktop Table View - Hidden on mobile, visible on desktop */}
+                    <div className="hidden md:block overflow-x-auto">
                         <table className="w-full border-collapse border border-gray-300">
                             <thead>
                                 <tr className="bg-gray-50">

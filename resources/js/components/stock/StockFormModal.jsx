@@ -274,30 +274,157 @@ function StockFormModal({ stock, onClose, onSubmit, categories = [] }) {
 
     const handleOcrConfirmAdd = async (itemsToAdd) => {
         try {
+            setIsSubmitting(true);
+            const results = [];
+            const errors = [];
+
             // Add each item to stock
-            for (const item of itemsToAdd) {
-                // Ensure data types are correct for backend validation
-                const stockData = {
-                    name: String(item.nama_barang || "").trim(),
-                    category_id:
-                        item.category_id ||
-                        (categories.length > 0 ? categories[0].id : 1),
-                    buyPrice: parseFloat(item.harga) || 0,
-                    quantity: parseFloat(item.jumlah) || 1,
-                    unit: String(item.unit || "pcs").trim(),
-                    minStock: parseFloat(item.minStock) || 10,
-                    is_divisible: false,
-                    max_divisions: null,
-                    division_description: null,
-                };
+            for (let i = 0; i < itemsToAdd.length; i++) {
+                const item = itemsToAdd[i];
 
-                // Validate required fields
-                if (!stockData.name) {
-                    console.warn("Skipping item with empty name:", item);
-                    continue;
+                try {
+                    // Validate required fields first
+                    if (!item.nama_barang || !item.nama_barang.trim()) {
+                        console.warn("Skipping item with empty name:", item);
+                        errors.push({
+                            item: item.nama_barang || `Item ${i + 1}`,
+                            error: "Nama barang kosong",
+                        });
+                        continue;
+                    }
+
+                    // Ensure category_id is valid - this is required by backend
+                    let categoryId = item.category_id;
+
+                    // Convert to number if it's a string
+                    if (categoryId) {
+                        categoryId = parseInt(categoryId);
+                        if (isNaN(categoryId) || categoryId <= 0) {
+                            categoryId = null; // Reset if invalid
+                        }
+                    }
+
+                    // If no valid category_id, try to get from categories array
+                    if (!categoryId && categories.length > 0) {
+                        categoryId = parseInt(categories[0].id_kategori);
+                        if (isNaN(categoryId) || categoryId <= 0) {
+                            categoryId = null;
+                        }
+                    }
+
+                    // If still no category_id, skip this item
+                    if (!categoryId) {
+                        console.warn("Skipping item with no valid category:", {
+                            item: item.nama_barang,
+                            itemCategoryId: item.category_id,
+                            categoriesAvailable: categories.length,
+                            firstCategory: categories[0]?.id_kategori,
+                        });
+                        errors.push({
+                            item: item.nama_barang || `Item ${i + 1}`,
+                            error: "Kategori tidak tersedia. Silakan pilih kategori terlebih dahulu.",
+                        });
+                        continue;
+                    }
+
+                    // Ensure data types are correct for backend validation
+                    const stockData = {
+                        name: String(item.nama_barang || "").trim(),
+                        category_id: categoryId,
+                        buyPrice: parseFloat(item.harga) || 0,
+                        quantity: parseFloat(item.jumlah) || 1,
+                        unit: String(item.unit || "pcs").trim(),
+                        minStock: parseFloat(item.minStock) || 0,
+                        is_divisible: false,
+                        max_divisions: null,
+                        division_description: null,
+                        // Skip expired prediction untuk batch operations (prevent timeout)
+                        skip_expired_prediction: itemsToAdd.length > 1,
+                    };
+
+                    // Ensure all numeric fields are properly formatted
+                    stockData.buyPrice = parseFloat(stockData.buyPrice) || 0;
+                    stockData.quantity = parseFloat(stockData.quantity) || 1;
+                    stockData.minStock = parseFloat(stockData.minStock) || 0;
+
+                    // Ensure unit is not empty
+                    if (!stockData.unit || stockData.unit.trim() === "") {
+                        stockData.unit = "pcs";
+                    }
+
+                    // Final validation: ensure category_id is a valid positive integer
+                    if (!stockData.category_id || stockData.category_id <= 0) {
+                        console.error(
+                            "Invalid category_id in stockData:",
+                            stockData
+                        );
+                        errors.push({
+                            item: stockData.name,
+                            error: "Kategori tidak valid",
+                        });
+                        continue;
+                    }
+
+                    // Verify category exists in categories array (double check)
+                    const categoryExists = categories.some(
+                        (cat) =>
+                            parseInt(cat.id_kategori) === stockData.category_id
+                    );
+                    if (!categoryExists && categories.length > 0) {
+                        console.warn(
+                            `Category ${stockData.category_id} not found in categories array, using first category`
+                        );
+                        stockData.category_id = parseInt(
+                            categories[0].id_kategori
+                        );
+                    }
+
+                    console.log(
+                        `[${i + 1}/${itemsToAdd.length}] Sending stock data:`,
+                        stockData,
+                        `Categories available: ${categories.length}`,
+                        `Category IDs: ${categories
+                            .map((c) => c.id_kategori)
+                            .join(", ")}`
+                    );
+                    const result = await onSubmit(stockData);
+
+                    if (result && !result.success) {
+                        errors.push({
+                            item: stockData.name,
+                            error: result.message || "Gagal menambahkan stok",
+                        });
+                    } else {
+                        results.push({
+                            item: stockData.name,
+                            success: true,
+                        });
+                    }
+                } catch (error) {
+                    console.error(`Error adding item ${i + 1}:`, error);
+                    errors.push({
+                        item: item.nama_barang || `Item ${i + 1}`,
+                        error: error.message || "Terjadi kesalahan",
+                    });
                 }
+            }
 
-                await onSubmit(stockData);
+            // Show summary
+            if (errors.length > 0) {
+                const errorMsg = errors
+                    .map((e) => `- ${e.item}: ${e.error}`)
+                    .join("\n");
+                alert(
+                    `Berhasil menambahkan ${results.length} item.\n\n` +
+                        `Gagal menambahkan ${errors.length} item:\n${errorMsg}`
+                );
+            } else {
+                // All successful
+                if (results.length > 0) {
+                    alert(
+                        `Berhasil menambahkan ${results.length} item ke stok!`
+                    );
+                }
             }
 
             // Reset OCR data and close modals
@@ -310,7 +437,12 @@ function StockFormModal({ stock, onClose, onSubmit, categories = [] }) {
             onClose();
         } catch (error) {
             console.error("Error adding OCR items:", error);
-            alert("Terjadi kesalahan saat menambahkan item ke stok");
+            alert(
+                "Terjadi kesalahan saat menambahkan item ke stok: " +
+                    (error.message || error)
+            );
+        } finally {
+            setIsSubmitting(false);
         }
     };
 

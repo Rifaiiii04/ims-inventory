@@ -238,7 +238,7 @@ class OcrController extends Controller
                     : 0, // Default to 0 if harga is null/empty
                 'unit' => $this->validateUnit($item['unit'] ?? 'pcs'),
                 'category_id' => $this->validateCategoryId($item['category_id'] ?? 1),
-                'minStock' => $this->validateMinStock($item['minStock'] ?? 10)
+                'minStock' => $this->validateMinStock($item['minStock'] ?? 0)
             ];
             
             // Only add if nama_barang is not empty (harga can be 0, user can fill it later)

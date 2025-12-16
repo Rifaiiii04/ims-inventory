@@ -47,6 +47,8 @@ export const useStock = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const hasInitialData = useRef(false);
+    const isFetchingAlerts = useRef(false);
+    const isFetchingCategories = useRef(false);
 
     // Load cached data immediately
     useEffect(() => {
@@ -111,61 +113,224 @@ export const useStock = () => {
     };
 
     const fetchLowStockAlerts = async (forceRefresh = false) => {
+        // Prevent multiple simultaneous requests
+        if (isFetchingAlerts.current && !forceRefresh) {
+            return;
+        }
+
+        // Wrap in try-catch to prevent unhandled promise rejections
+        try {
+            await fetchLowStockAlertsInternal(forceRefresh);
+        } catch (err) {
+            // Silently handle any unhandled errors
+            // This prevents React DevTools from logging network errors
+        }
+    };
+
+    const fetchLowStockAlertsInternal = async (forceRefresh = false) => {
         const cachedAlerts = getCachedData(`${CACHE_KEY}_alerts`);
         if (!forceRefresh && cachedAlerts) {
-            // Background refresh
-            try {
-                const response = await axios.get(
-                    "/api/stocks/low-stock/alerts"
-                );
-                if (response.data.success) {
-                    setLowStockAlerts(response.data.data);
-                    setCachedData(`${CACHE_KEY}_alerts`, response.data.data);
+            // Use cached data immediately
+            setLowStockAlerts(cachedAlerts);
+
+            // Background refresh - only if not already refreshing
+            const lastRefresh = getCachedData(
+                `${CACHE_KEY}_alerts_last_refresh`
+            );
+            const now = Date.now();
+            // Only refresh if last refresh was more than 30 seconds ago
+            if (!lastRefresh || now - lastRefresh > 30000) {
+                isFetchingAlerts.current = true;
+                try {
+                    const response = await axios.get(
+                        "/api/stocks/low-stock/alerts",
+                        { timeout: 5000 } // 5 second timeout
+                    );
+                    if (response.data.success) {
+                        setLowStockAlerts(response.data.data);
+                        setCachedData(
+                            `${CACHE_KEY}_alerts`,
+                            response.data.data
+                        );
+                        setCachedData(`${CACHE_KEY}_alerts_last_refresh`, now);
+                    }
+                } catch (err) {
+                    // Silently fail for background refresh - use cached data
+                    // Don't log network errors to avoid console spam
+                    const isNetworkError =
+                        err.code === "ERR_NETWORK" ||
+                        err.code === "ERR_INSUFFICIENT_RESOURCES" ||
+                        err.code === "ECONNABORTED" ||
+                        err.message?.includes("Network Error") ||
+                        err.message?.includes("ERR_INSUFFICIENT_RESOURCES");
+
+                    // Only log non-network errors
+                    if (!isNetworkError) {
+                        console.error("Error fetching low stock alerts:", err);
+                    }
+                    // Network errors are silently ignored - cached data is already set
+                } finally {
+                    isFetchingAlerts.current = false;
                 }
-            } catch (err) {
-                console.error("Error fetching low stock alerts:", err);
             }
             return;
         }
 
+        isFetchingAlerts.current = true;
         try {
-            const response = await axios.get("/api/stocks/low-stock/alerts");
+            const response = await axios.get("/api/stocks/low-stock/alerts", {
+                timeout: 10000, // 10 second timeout
+            });
             if (response.data.success) {
                 setLowStockAlerts(response.data.data);
                 setCachedData(`${CACHE_KEY}_alerts`, response.data.data);
+                setCachedData(`${CACHE_KEY}_alerts_last_refresh`, Date.now());
             }
         } catch (err) {
-            console.error("Error fetching low stock alerts:", err);
+            // Handle network errors silently - use cached data if available
+            const isNetworkError =
+                err.code === "ERR_NETWORK" ||
+                err.code === "ERR_INSUFFICIENT_RESOURCES" ||
+                err.code === "ECONNABORTED" ||
+                err.message?.includes("Network Error") ||
+                err.message?.includes("ERR_INSUFFICIENT_RESOURCES");
+
+            if (isNetworkError) {
+                // Silently use cached data if available
+                if (cachedAlerts) {
+                    setLowStockAlerts(cachedAlerts);
+                } else {
+                    // No cached data, set empty array silently
+                    setLowStockAlerts([]);
+                }
+                // Don't log network errors - they're expected in some scenarios
+            } else {
+                // Only log non-network errors (server errors, validation errors, etc.)
+                console.error("Error fetching low stock alerts:", err);
+                // Set empty array if no cached data available
+                if (!cachedAlerts) {
+                    setLowStockAlerts([]);
+                } else {
+                    // Use cached data for non-network errors too
+                    setLowStockAlerts(cachedAlerts);
+                }
+            }
+        } finally {
+            isFetchingAlerts.current = false;
         }
     };
 
     const fetchCategories = async (forceRefresh = false) => {
+        // Prevent multiple simultaneous requests
+        if (isFetchingCategories.current && !forceRefresh) {
+            return;
+        }
+
+        // Wrap in try-catch to prevent unhandled promise rejections
+        try {
+            await fetchCategoriesInternal(forceRefresh);
+        } catch (err) {
+            // Silently handle any unhandled errors
+            // This prevents React DevTools from logging network errors
+        }
+    };
+
+    const fetchCategoriesInternal = async (forceRefresh = false) => {
         const cachedCategories = getCachedData(`${CACHE_KEY}_categories`);
         if (!forceRefresh && cachedCategories) {
-            // Background refresh
-            try {
-                const response = await axios.get("/api/stocks/categories/list");
-                if (response.data.success) {
-                    setCategories(response.data.data);
-                    setCachedData(
-                        `${CACHE_KEY}_categories`,
-                        response.data.data
+            // Use cached data immediately
+            setCategories(cachedCategories);
+
+            // Background refresh - only if not already refreshing
+            const lastRefresh = getCachedData(
+                `${CACHE_KEY}_categories_last_refresh`
+            );
+            const now = Date.now();
+            // Only refresh if last refresh was more than 30 seconds ago
+            if (!lastRefresh || now - lastRefresh > 30000) {
+                isFetchingCategories.current = true;
+                try {
+                    const response = await axios.get(
+                        "/api/stocks/categories/list",
+                        { timeout: 5000 } // 5 second timeout
                     );
+                    if (response.data.success) {
+                        setCategories(response.data.data);
+                        setCachedData(
+                            `${CACHE_KEY}_categories`,
+                            response.data.data
+                        );
+                        setCachedData(
+                            `${CACHE_KEY}_categories_last_refresh`,
+                            now
+                        );
+                    }
+                } catch (err) {
+                    // Silently fail for background refresh - use cached data
+                    // Don't log network errors to avoid console spam
+                    const isNetworkError =
+                        err.code === "ERR_NETWORK" ||
+                        err.code === "ERR_INSUFFICIENT_RESOURCES" ||
+                        err.code === "ECONNABORTED" ||
+                        err.message?.includes("Network Error") ||
+                        err.message?.includes("ERR_INSUFFICIENT_RESOURCES");
+
+                    // Only log non-network errors
+                    if (!isNetworkError) {
+                        console.error("Error fetching categories:", err);
+                    }
+                    // Network errors are silently ignored - cached data is already set
+                } finally {
+                    isFetchingCategories.current = false;
                 }
-            } catch (err) {
-                console.error("Error fetching categories:", err);
             }
             return;
         }
 
+        isFetchingCategories.current = true;
         try {
-            const response = await axios.get("/api/stocks/categories/list");
+            const response = await axios.get("/api/stocks/categories/list", {
+                timeout: 10000, // 10 second timeout
+            });
             if (response.data.success) {
                 setCategories(response.data.data);
                 setCachedData(`${CACHE_KEY}_categories`, response.data.data);
+                setCachedData(
+                    `${CACHE_KEY}_categories_last_refresh`,
+                    Date.now()
+                );
             }
         } catch (err) {
-            console.error("Error fetching categories:", err);
+            // Handle network errors silently - use cached data if available
+            const isNetworkError =
+                err.code === "ERR_NETWORK" ||
+                err.code === "ERR_INSUFFICIENT_RESOURCES" ||
+                err.code === "ECONNABORTED" ||
+                err.message?.includes("Network Error") ||
+                err.message?.includes("ERR_INSUFFICIENT_RESOURCES");
+
+            if (isNetworkError) {
+                // Silently use cached data if available
+                if (cachedCategories) {
+                    setCategories(cachedCategories);
+                } else {
+                    // No cached data, set empty array silently
+                    setCategories([]);
+                }
+                // Don't log network errors - they're expected in some scenarios
+            } else {
+                // Only log non-network errors (server errors, validation errors, etc.)
+                console.error("Error fetching categories:", err);
+                // Set empty array if no cached data available
+                if (!cachedCategories) {
+                    setCategories([]);
+                } else {
+                    // Use cached data for non-network errors too
+                    setCategories(cachedCategories);
+                }
+            }
+        } finally {
+            isFetchingCategories.current = false;
         }
     };
 
@@ -181,9 +346,21 @@ export const useStock = () => {
             }
             return { success: false, message: response.data.message };
         } catch (err) {
+            console.error("Error creating stock:", err.response?.data);
             const errorMessage =
                 err.response?.data?.message ||
                 "Terjadi kesalahan saat menambahkan stok";
+            const validationErrors = err.response?.data?.errors;
+            if (validationErrors) {
+                const errorDetails = Object.values(validationErrors)
+                    .flat()
+                    .join(", ");
+                return {
+                    success: false,
+                    message: `${errorMessage}: ${errorDetails}`,
+                    errors: validationErrors,
+                };
+            }
             return { success: false, message: errorMessage };
         }
     };
@@ -260,17 +437,47 @@ export const useStock = () => {
     useEffect(() => {
         // Cek apakah ada cached data terlebih dahulu
         const cachedStocks = getCachedData(`${CACHE_KEY}_stocks`);
+        const cachedAlerts = getCachedData(`${CACHE_KEY}_alerts`);
+        const cachedCategories = getCachedData(`${CACHE_KEY}_categories`);
+
+        // Set cached data immediately if available
+        if (cachedAlerts) {
+            setLowStockAlerts(cachedAlerts);
+        }
+        if (cachedCategories) {
+            setCategories(cachedCategories);
+        }
 
         // Jika tidak ada cached data, fetch dengan loading
         // Jika ada cached data, fetch di background tanpa loading
         if (!cachedStocks) {
             fetchStocks(true);
         } else {
-            fetchStocks(false); // Background refresh
+            // Delay background refresh to avoid too many simultaneous requests
+            setTimeout(() => {
+                fetchStocks(false); // Background refresh
+            }, 500);
         }
 
-        fetchLowStockAlerts(false); // Always try background refresh for alerts
-        fetchCategories(false); // Always try background refresh for categories
+        // Delay alerts and categories fetch to avoid ERR_INSUFFICIENT_RESOURCES
+        // Use longer delays to prevent resource exhaustion
+        setTimeout(() => {
+            // Only fetch if not already fetching
+            if (!isFetchingAlerts.current) {
+                fetchLowStockAlerts(false).catch(() => {
+                    // Silently ignore errors - cached data is already set
+                });
+            }
+        }, 2000); // Increased delay to 2 seconds
+
+        setTimeout(() => {
+            // Only fetch if not already fetching
+            if (!isFetchingCategories.current) {
+                fetchCategories(false).catch(() => {
+                    // Silently ignore errors - cached data is already set
+                });
+            }
+        }, 3000); // Increased delay to 3 seconds
     }, []);
 
     return {

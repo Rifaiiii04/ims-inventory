@@ -350,7 +350,7 @@ def resolve_line(line: str,
         'harga': harga,
         'unit': unit,
         'category_id': 1,
-        'minStock': 10,
+        'minStock': 0,
         'confidence': confidence,
         'resolved_by': resolved_by
     }

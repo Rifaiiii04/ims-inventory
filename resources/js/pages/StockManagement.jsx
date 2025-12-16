@@ -38,7 +38,10 @@ function StockManagement() {
             if (result.success) {
                 setShowFormModal(false);
             } else {
-                alert(result.message);
+                console.error("Error creating stock:", result);
+                alert(
+                    result.message || "Terjadi kesalahan saat menambahkan stok"
+                );
             }
         } catch (error) {
             console.error("Error adding stock:", error);

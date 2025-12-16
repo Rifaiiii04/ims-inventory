@@ -961,23 +961,23 @@ function NotificationManagement() {
                                                                     <td className="px-6 py-4 whitespace-nowrap">
                                                                         <div className="text-sm font-semibold">
                                                                             <div className="flex items-center gap-2 flex-wrap">
-                                                                                <span
-                                                                                    className={
-                                                                                        isExpired
-                                                                                            ? "text-red-600"
-                                                                                            : isExpiringSoon
-                                                                                            ? "text-yellow-600"
-                                                                                            : "text-gray-700"
-                                                                                    }
-                                                                                >
-                                                                                    {
-                                                                                        prediction.tanggal_prediksi_expired
-                                                                                    }
-                                                                                </span>
+                                                                            <span
+                                                                                className={
+                                                                                    isExpired
+                                                                                        ? "text-red-600"
+                                                                                        : isExpiringSoon
+                                                                                        ? "text-yellow-600"
+                                                                                        : "text-gray-700"
+                                                                                }
+                                                                            >
+                                                                                {
+                                                                                    prediction.tanggal_prediksi_expired
+                                                                                }
+                                                                            </span>
                                                                                 {isExpired ? (
                                                                                     <span className="px-2 py-1 text-xs font-semibold bg-red-100 text-red-700 rounded-full">
                                                                                         Expired ({Math.abs(daysUntilExpired)} hari lalu)
-                                                                                    </span>
+                                                                                </span>
                                                                                 ) : (
                                                                                     <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
                                                                                         isExpiringSoon
