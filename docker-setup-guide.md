@@ -5,26 +5,30 @@ Panduan lengkap untuk setup Docker environment agar tim dapat berkolaborasi deng
 ## 📋 Prasyarat
 
 1. **Docker Desktop** terinstall di komputer Anda
-   - Download: https://www.docker.com/products/docker-desktop
-   - Pastikan Docker Desktop sudah running
+
+    - Download: https://www.docker.com/products/docker-desktop
+    - Pastikan Docker Desktop sudah running
 
 2. **Git** terinstall (untuk clone repository)
 
 ## 🚀 Quick Start
 
 ### 1. Clone Repository
+
 ```bash
 git clone <repository-url>
 cd angkringan-ims
 ```
 
 ### 2. Setup Environment File
+
 ```bash
 # Copy file .env.example (jika ada) atau buat file .env baru
 cp .env.example .env
 ```
 
 Atau buat file `.env` dengan konfigurasi berikut:
+
 ```env
 APP_NAME=AngkringanIMS
 APP_ENV=local
@@ -47,6 +51,14 @@ OCR_SERVICE_URL=http://ocr_service:5000
 OCR_PORT=5000
 GEMINI_API_KEY=your_gemini_api_key_here
 
+OLLAMA_URL=http://ollama:11434/api/generate
+OLLAMA_PORT=11434
+OLLAMA_MODEL=gemma2:2b
+
+EXPIRED_PREDICTION_SERVICE_URL=http://expired_prediction_service:5001
+EXPIRED_PREDICTION_PORT=5001
+LOG_LEVEL=INFO
+
 N8N_PORT=5678
 N8N_USER=admin
 N8N_PASSWORD=admin123
@@ -56,11 +68,13 @@ APP_PORT=80
 ```
 
 ### 3. Generate Application Key
+
 ```bash
 docker-compose exec app php artisan key:generate
 ```
 
 ### 4. Install Dependencies
+
 ```bash
 # Install PHP dependencies
 docker-compose exec app composer install
@@ -70,6 +84,7 @@ docker-compose exec app npm install
 ```
 
 ### 5. Setup Database
+
 ```bash
 # Run migrations
 docker-compose exec app php artisan migrate
@@ -79,6 +94,7 @@ docker-compose exec app php artisan db:seed
 ```
 
 ### 6. Build Frontend Assets
+
 ```bash
 # Development build (with hot reload)
 docker-compose exec app npm run dev
@@ -91,18 +107,21 @@ docker-compose exec app npm run build
 
 Setelah menjalankan `docker-compose up`, Anda akan memiliki:
 
-| Service | Port | URL | Description |
-|---------|------|-----|-------------|
-| **Laravel App** | 9000 | - | PHP-FPM service |
-| **Nginx** | 80 | http://localhost | Web server |
-| **MySQL** | 3306 | - | Database |
-| **Redis** | 6379 | - | Cache & Queue |
-| **OCR Service** | 5000 | http://localhost:5000 | Python OCR service |
-| **n8n** | 5678 | http://localhost:5678 | Workflow automation |
+| Service                | Port  | URL                    | Description                               |
+| ---------------------- | ----- | ---------------------- | ----------------------------------------- |
+| **Laravel App**        | 9000  | -                      | PHP-FPM service                           |
+| **Nginx**              | 80    | http://localhost       | Web server                                |
+| **MySQL**              | 3306  | -                      | Database                                  |
+| **Redis**              | 6379  | -                      | Cache & Queue                             |
+| **OCR Service**        | 5000  | http://localhost:5000  | Python OCR service                        |
+| **Ollama AI**          | 11434 | http://localhost:11434 | AI model service (for expired prediction) |
+| **Expired Prediction** | 5001  | http://localhost:5001  | Python expired prediction service         |
+| **n8n**                | 5678  | http://localhost:5678  | Workflow automation                       |
 
 ## 📝 Perintah Docker yang Sering Digunakan
 
 ### Menjalankan Services
+
 ```bash
 # Start semua services
 docker-compose up -d
@@ -118,6 +137,7 @@ docker-compose down -v
 ```
 
 ### Masuk ke Container
+
 ```bash
 # Masuk ke Laravel container
 docker-compose exec app bash
@@ -127,9 +147,16 @@ docker-compose exec mysql bash
 
 # Masuk ke OCR service container
 docker-compose exec ocr_service bash
+
+# Masuk ke Expired Prediction service container
+docker-compose exec expired_prediction_service bash
+
+# Masuk ke Ollama container
+docker-compose exec ollama bash
 ```
 
 ### Laravel Commands
+
 ```bash
 # Artisan commands
 docker-compose exec app php artisan <command>
@@ -141,6 +168,7 @@ docker-compose exec app php artisan route:list
 ```
 
 ### Composer & NPM
+
 ```bash
 # Composer
 docker-compose exec app composer install
@@ -153,6 +181,7 @@ docker-compose exec app npm run build
 ```
 
 ### Database
+
 ```bash
 # Masuk ke MySQL
 docker-compose exec mysql mysql -u angkringan_user -p angkringan_ims
@@ -165,6 +194,7 @@ docker-compose exec -T mysql mysql -u angkringan_user -p angkringan_ims < backup
 ```
 
 ### Logs
+
 ```bash
 # Lihat semua logs
 docker-compose logs
@@ -174,6 +204,8 @@ docker-compose logs app
 docker-compose logs nginx
 docker-compose logs mysql
 docker-compose logs ocr_service
+docker-compose logs expired_prediction_service
+docker-compose logs ollama
 docker-compose logs n8n
 
 # Follow logs (real-time)
@@ -183,16 +215,21 @@ docker-compose logs -f app
 ## 🔧 Troubleshooting
 
 ### Port Already in Use
+
 Jika port sudah digunakan, ubah di file `.env`:
+
 ```env
 APP_PORT=8080
 DB_PORT=3307
 REDIS_PORT=6380
 OCR_PORT=5001
+OLLAMA_PORT=11435
+EXPIRED_PREDICTION_PORT=5002
 N8N_PORT=5679
 ```
 
 ### Permission Issues (Linux/Mac)
+
 ```bash
 # Fix storage permissions
 docker-compose exec app chmod -R 775 storage bootstrap/cache
@@ -200,6 +237,7 @@ docker-compose exec app chown -R www-data:www-data storage bootstrap/cache
 ```
 
 ### Rebuild Containers
+
 ```bash
 # Rebuild setelah perubahan Dockerfile
 docker-compose build
@@ -212,6 +250,7 @@ docker-compose up -d --build
 ```
 
 ### Clear Cache
+
 ```bash
 # Laravel cache
 docker-compose exec app php artisan cache:clear
@@ -228,59 +267,94 @@ docker-compose exec app composer clear-cache
 Pastikan file `.env` sudah dikonfigurasi dengan benar. Jangan commit file `.env` ke repository!
 
 ### Required Variables:
-- `APP_KEY` - Generate dengan `php artisan key:generate`
-- `GEMINI_API_KEY` - API key untuk Gemini AI (OCR service)
-- `DB_PASSWORD` - Password database
-- `N8N_PASSWORD` - Password untuk n8n
+
+-   `APP_KEY` - Generate dengan `php artisan key:generate`
+-   `GEMINI_API_KEY` - API key untuk Gemini AI (OCR service)
+-   `DB_PASSWORD` - Password database
+-   `N8N_PASSWORD` - Password untuk n8n
+
+### Optional Variables:
+
+-   `OLLAMA_MODEL` - Model AI untuk Ollama (default: `gemma2:2b`)
+    -   Model akan di-download otomatis saat pertama kali container Ollama dijalankan
+    -   Model yang tersedia: `gemma2:2b`, `llama3.2:1b`, `qwen2.5:0.5b`, dll
+    -   Untuk download model manual: `docker-compose exec ollama ollama pull gemma2:2b`
 
 ## 📦 Volumes
 
 Data persisten disimpan di Docker volumes:
-- `mysql_data` - Database data
-- `redis_data` - Redis data
-- `ocr_uploads` - Uploaded images untuk OCR
-- `n8n_data` - n8n workflows dan data
+
+-   `mysql_data` - Database data
+-   `redis_data` - Redis data
+-   `ocr_uploads` - Uploaded images untuk OCR
+-   `ollama_data` - Ollama AI models dan data
+-   `n8n_data` - n8n workflows dan data
 
 ## 🌐 Network
 
 Semua services terhubung melalui network `angkringan_network` dan dapat saling berkomunikasi menggunakan nama service sebagai hostname:
-- `mysql` - Database host
-- `redis` - Redis host
-- `app` - Laravel application
-- `ocr_service` - OCR service
-- `n8n` - n8n service
+
+-   `mysql` - Database host
+-   `redis` - Redis host
+-   `app` - Laravel application
+-   `ocr_service` - OCR service
+-   `ollama` - Ollama AI service
+-   `expired_prediction_service` - Expired prediction service
+-   `n8n` - n8n service
 
 ## 🎯 Development Workflow
 
 1. **Pull latest code**
-   ```bash
-   git pull origin main
-   ```
+
+    ```bash
+    git pull origin main
+    ```
 
 2. **Update dependencies** (jika ada perubahan)
-   ```bash
-   docker-compose exec app composer install
-   docker-compose exec app npm install
-   ```
+
+    ```bash
+    docker-compose exec app composer install
+    docker-compose exec app npm install
+    ```
 
 3. **Run migrations** (jika ada migration baru)
-   ```bash
-   docker-compose exec app php artisan migrate
-   ```
+
+    ```bash
+    docker-compose exec app php artisan migrate
+    ```
 
 4. **Start development**
-   ```bash
-   # Terminal 1: Start services
-   docker-compose up -d
-   
-   # Terminal 2: Watch frontend changes
-   docker-compose exec app npm run dev
-   ```
+
+    ```bash
+    # Terminal 1: Start services
+    docker-compose up -d
+
+    # Terminal 2: Watch frontend changes
+    docker-compose exec app npm run dev
+    ```
 
 5. **Access applications**
-   - Laravel: http://localhost
-   - n8n: http://localhost:5678
-   - OCR Service: http://localhost:5000
+
+    - Laravel: http://localhost
+    - n8n: http://localhost:5678
+    - OCR Service: http://localhost:5000
+    - Expired Prediction Service: http://localhost:5001
+    - Ollama API: http://localhost:11434
+
+6. **Setup Ollama Model (PENTING untuk Expired Prediction)**
+
+    ```bash
+    # Download model yang diperlukan (pertama kali)
+    docker-compose exec ollama ollama pull gemma2:2b
+
+    # Atau model lain yang lebih kecil (untuk testing)
+    docker-compose exec ollama ollama pull qwen2.5:0.5b
+
+    # Cek model yang sudah terinstall
+    docker-compose exec ollama ollama list
+    ```
+
+    **Catatan:** Model akan di-download otomatis saat pertama kali digunakan, tapi lebih baik download manual untuk memastikan.
 
 ## 📊 Monitoring dengan Portainer (Opsional)
 
@@ -295,24 +369,56 @@ Akses Portainer di: http://localhost:9000
 
 ## ✅ Checklist Setup Awal
 
-- [ ] Docker Desktop terinstall dan running
-- [ ] File `.env` sudah dibuat dan dikonfigurasi
-- [ ] `docker-compose up -d` berhasil
-- [ ] Application key sudah di-generate
-- [ ] Dependencies terinstall (Composer & NPM)
-- [ ] Database migrations sudah dijalankan
-- [ ] Frontend assets sudah di-build
-- [ ] Semua services dapat diakses
+-   [ ] Docker Desktop terinstall dan running
+-   [ ] File `.env` sudah dibuat dan dikonfigurasi
+-   [ ] `docker-compose up -d` berhasil
+-   [ ] Application key sudah di-generate
+-   [ ] Dependencies terinstall (Composer & NPM)
+-   [ ] Database migrations sudah dijalankan
+-   [ ] Frontend assets sudah di-build
+-   [ ] Ollama model sudah di-download (`docker-compose exec ollama ollama pull gemma2:2b`)
+-   [ ] Semua services dapat diakses
+-   [ ] Health check semua services berhasil
 
 ## 🆘 Bantuan
 
 Jika mengalami masalah:
+
 1. Cek logs: `docker-compose logs`
 2. Pastikan Docker Desktop running
 3. Pastikan port tidak conflict
 4. Rebuild containers jika perlu: `docker-compose up -d --build`
 
+### Troubleshooting Ollama & Expired Prediction Service
+
+**Ollama tidak bisa download model:**
+
+```bash
+# Cek koneksi internet container
+docker-compose exec ollama curl -I https://ollama.com
+
+# Download model manual
+docker-compose exec ollama ollama pull gemma2:2b
+```
+
+**Expired Prediction Service tidak bisa connect ke Ollama:**
+
+```bash
+# Cek apakah Ollama running
+docker-compose ps ollama
+
+# Test Ollama API dari dalam container
+docker-compose exec expired_prediction_service curl http://ollama:11434/api/tags
+
+# Cek environment variable
+docker-compose exec expired_prediction_service env | grep OLLAMA
+```
+
+**Model terlalu besar atau lambat:**
+
+-   Gunakan model yang lebih kecil seperti `qwen2.5:0.5b` atau `llama3.2:1b`
+-   Update `OLLAMA_MODEL` di file `.env`
+
 ---
 
 **Happy Coding! 🚀**
-

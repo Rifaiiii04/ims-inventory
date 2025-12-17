@@ -19,8 +19,9 @@ if (-not (Test-Path .env)) {
         exit 1
     }
     Write-Host "⚠️  Jangan lupa untuk mengisi konfigurasi di file .env!" -ForegroundColor Yellow
-    Write-Host "   - APP_KEY (generate dengan: docker-compose exec app php artisan key:generate)" -ForegroundColor Yellow
+    Write-Host "   - APP_KEY (akan di-generate otomatis)" -ForegroundColor Yellow
     Write-Host "   - GEMINI_API_KEY (untuk OCR service)" -ForegroundColor Yellow
+    Write-Host "   - OLLAMA_MODEL (default: gemma2:2b)" -ForegroundColor Yellow
 }
 
 # Start Docker containers
@@ -54,6 +55,21 @@ if (-not (Test-Path node_modules)) {
 Write-Host "🗄️  Running database migrations..." -ForegroundColor Cyan
 docker-compose exec -T app php artisan migrate --force
 
+# Setup Ollama model
+Write-Host "🤖 Setting up Ollama AI model..." -ForegroundColor Cyan
+$ollamaModel = (Get-Content .env | Select-String -Pattern "^OLLAMA_MODEL=" | ForEach-Object { $_.Line.Split('=')[1] }) -replace '^"|"$', ''
+if (-not $ollamaModel) {
+    $ollamaModel = "gemma2:2b"
+}
+Write-Host "   Model: $ollamaModel" -ForegroundColor Gray
+Write-Host "   ⏳ Downloading model (ini mungkin memakan waktu beberapa menit)..." -ForegroundColor Yellow
+docker-compose exec -T ollama ollama pull $ollamaModel 2>&1 | Out-Null
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "   ✅ Model $ollamaModel berhasil di-download" -ForegroundColor Green
+} else {
+    Write-Host "   ⚠️  Model download gagal atau sudah ada. Lanjutkan..." -ForegroundColor Yellow
+}
+
 Write-Host ""
 Write-Host "✅ Docker environment siap!" -ForegroundColor Green
 Write-Host ""
@@ -61,10 +77,13 @@ Write-Host "📋 Services yang tersedia:" -ForegroundColor Cyan
 Write-Host "   - Laravel App: http://localhost" -ForegroundColor White
 Write-Host "   - n8n: http://localhost:5678" -ForegroundColor White
 Write-Host "   - OCR Service: http://localhost:5000" -ForegroundColor White
+Write-Host "   - Expired Prediction: http://localhost:5001" -ForegroundColor White
+Write-Host "   - Ollama API: http://localhost:11434" -ForegroundColor White
 Write-Host ""
 Write-Host "📝 Useful commands:" -ForegroundColor Cyan
 Write-Host "   - View logs: docker-compose logs -f" -ForegroundColor White
 Write-Host "   - Stop: docker-compose down" -ForegroundColor White
 Write-Host "   - Rebuild: docker-compose up -d --build" -ForegroundColor White
+Write-Host "   - Download Ollama model: docker-compose exec ollama ollama pull <model>" -ForegroundColor White
 Write-Host ""
 

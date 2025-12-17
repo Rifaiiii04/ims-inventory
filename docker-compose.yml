@@ -1,4 +1,4 @@
-version: '3.8'
+version: "3.8"
 
 services:
   # MySQL Database
@@ -106,6 +106,52 @@ services:
       timeout: 10s
       retries: 3
 
+  # Ollama AI Service (for Expired Prediction)
+  ollama:
+    image: ollama/ollama:latest
+    container_name: angkringan_ollama
+    restart: unless-stopped
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - angkringan_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+
+  # Python Expired Prediction Service
+  expired_prediction_service:
+    build:
+      context: ./python_ocr_service
+      dockerfile: Dockerfile.expired_prediction
+    container_name: angkringan_expired_prediction
+    restart: unless-stopped
+    ports:
+      - "${EXPIRED_PREDICTION_PORT:-5001}:5001"
+    volumes:
+      - ./python_ocr_service:/app
+    environment:
+      - OLLAMA_URL=${OLLAMA_URL:-http://ollama:11434/api/generate}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-gemma2:2b}
+      - EXPIRED_PREDICTION_SERVICE_PORT=5001
+      - EXPIRED_PREDICTION_SERVICE_HOST=0.0.0.0
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    networks:
+      - angkringan_network
+    depends_on:
+      ollama:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
   # n8n Workflow Automation
   n8n:
     image: n8nio/n8n:latest
@@ -141,8 +187,9 @@ volumes:
     driver: local
   n8n_data:
     driver: local
+  ollama_data:
+    driver: local
 
 networks:
   angkringan_network:
     driver: bridge
-

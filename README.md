@@ -13,10 +13,12 @@ Sistem Inventory Management untuk Angkringan dibangun dengan Laravel 10, React 1
 ## Persyaratan Sistem
 
 ### Development dengan Docker (Recommended)
+
 -   Docker Desktop
 -   Git
 
 ### Development Manual
+
 -   PHP >= 8.1
 -   Composer
 -   Node.js >= 18.x
@@ -27,23 +29,65 @@ Sistem Inventory Management untuk Angkringan dibangun dengan Laravel 10, React 1
 
 ### Opsi 1: Menggunakan Docker (Recommended untuk Kolaborasi)
 
+**Langkah 1: Clone Repository dari GitHub**
+
+Pertama, clone repository ini dari GitHub:
+
+```bash
+git clone <repository-url>
+cd angkringan-ims
+```
+
+**Catatan:** Ganti `<repository-url>` dengan URL repository GitHub Anda.
+
+**Langkah 2: Setup Docker Environment**
+
 Setup Docker environment untuk development yang konsisten:
 
-#### Windows (PowerShell)
+#### Quick Setup (Recommended)
+
+**Windows (PowerShell):**
+
+```powershell
+.\setup-docker.ps1
+```
+
+**Linux/Mac (Bash):**
+
+```bash
+chmod +x setup-docker.sh
+./setup-docker.sh
+```
+
+Script ini akan otomatis:
+
+-   ✅ Setup file `.env`
+-   ✅ Start semua Docker containers
+-   ✅ Generate application key
+-   ✅ Install dependencies (Composer & NPM)
+-   ✅ Run database migrations
+-   ✅ Download Ollama AI model
+-   ✅ Health check semua services
+
+#### Quick Start (Jika sudah setup sebelumnya)
+
+**Windows:**
+
 ```powershell
 .\docker-start.ps1
 ```
 
-#### Linux/Mac (Bash)
+**Linux/Mac:**
+
 ```bash
-chmod +x docker-start.sh
 ./docker-start.sh
 ```
 
 #### Manual Docker Setup
+
 ```bash
 # 1. Copy environment file
-cp .env.example .env
+cp env.docker.example .env
 
 # 2. Edit .env dan sesuaikan konfigurasi
 
@@ -59,14 +103,20 @@ docker-compose exec app npm install
 
 # 6. Run migrations
 docker-compose exec app php artisan migrate
+
+# 7. Download Ollama model (untuk Expired Prediction)
+docker-compose exec ollama ollama pull gemma2:2b
 ```
 
 **Dokumentasi lengkap Docker:** Lihat [docker-setup-guide.md](./docker-setup-guide.md)
 
 **Services yang tersedia:**
-- Laravel App: http://localhost
-- n8n: http://localhost:5678
-- OCR Service: http://localhost:5000
+
+-   Laravel App: http://localhost
+-   n8n: http://localhost:5678
+-   OCR Service: http://localhost:5000
+-   Expired Prediction: http://localhost:5001
+-   Ollama API: http://localhost:11434
 
 ### Opsi 2: Instalasi Manual
 
@@ -161,11 +211,13 @@ Aplikasi akan berjalan di: `http://localhost:8000`
 Build assets untuk production:
 
 **Docker:**
+
 ```bash
 docker-compose exec app npm run build
 ```
 
 **Manual:**
+
 ```bash
 npm run build
 ```
