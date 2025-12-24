@@ -9,6 +9,8 @@ use App\Models\TblStockHistory;
 use App\Models\TblNotifikasi;
 use App\Traits\StockHistoryTrait;
 use App\Http\Controllers\Api\NotificationController;
+use App\Jobs\UpdateExpiredPredictionJob;
+use App\Jobs\SendStockNotificationJob;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
@@ -113,14 +115,19 @@ class StockController extends Controller
      */
     public function store(Request $request)
     {
-        // Increase execution time limit untuk batch operations
+        // Optimize: hanya set time limit jika batch operation
         $originalTimeLimit = ini_get('max_execution_time');
-        set_time_limit(120); // 2 minutes for batch operations
+        $skipExpiredPrediction = $request->has('skip_expired_prediction') && $request->skip_expired_prediction === true;
+        
+        // Hanya set time limit untuk batch operations
+        if ($skipExpiredPrediction) {
+            set_time_limit(120); // 2 minutes for batch operations
+        }
         
         DB::beginTransaction();
         
         try {
-            // Default category_id jika kosong (gunakan category pertama yang ada)
+            // Optimize category validation - single query check
             $categoryId = $request->category_id;
             
             // Convert to integer and validate
@@ -128,14 +135,11 @@ class StockController extends Controller
                 $categoryId = (int) $categoryId;
             }
             
-            // Check if category exists in database
+            // Single query untuk validasi kategori (optimize)
             if (empty($categoryId) || !is_numeric($categoryId) || $categoryId <= 0) {
-                $defaultCategory = TblKategori::first();
+                // Get default category
+                $defaultCategory = TblKategori::select('id_kategori')->first();
                 if (!$defaultCategory) {
-                    Log::warning('No categories available in database', [
-                        'request_category_id' => $request->category_id,
-                        'request_data' => $request->all()
-                    ]);
                     return response()->json([
                         'success' => false,
                         'message' => 'Kategori belum tersedia. Silakan buat kategori terlebih dahulu.'
@@ -143,15 +147,11 @@ class StockController extends Controller
                 }
                 $categoryId = $defaultCategory->id_kategori;
             } else {
-                // Verify category exists
+                // Verify category exists dengan single query
                 $categoryExists = TblKategori::where('id_kategori', $categoryId)->exists();
                 if (!$categoryExists) {
-                    Log::warning('Category ID does not exist in database', [
-                        'request_category_id' => $categoryId,
-                        'request_data' => $request->all()
-                    ]);
-                    // Try to get default category
-                    $defaultCategory = TblKategori::first();
+                    // Get default category
+                    $defaultCategory = TblKategori::select('id_kategori')->first();
                     if (!$defaultCategory) {
                         return response()->json([
                             'success' => false,
@@ -161,26 +161,9 @@ class StockController extends Controller
                     $categoryId = $defaultCategory->id_kategori;
                 }
             }
-
+            
             // Ensure category_id is integer
             $categoryId = (int) $categoryId;
-            
-            // Final check: verify category exists
-            $categoryExists = TblKategori::where('id_kategori', $categoryId)->exists();
-            if (!$categoryExists) {
-                Log::error('Category ID does not exist after validation', [
-                    'category_id' => $categoryId,
-                    'request_data' => $request->all()
-                ]);
-                $defaultCategory = TblKategori::first();
-                if (!$defaultCategory) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Kategori tidak tersedia. Silakan buat kategori terlebih dahulu.'
-                    ], 422);
-                }
-                $categoryId = $defaultCategory->id_kategori;
-            }
 
             $validator = Validator::make(array_merge($request->all(), ['category_id' => $categoryId]), [
                 'name' => 'required|string|max:100',
@@ -223,9 +206,15 @@ class StockController extends Controller
 
             if ($existingStock) {
                 // Update stok yang sudah ada - tambahkan quantity baru
-                $oldData = $existingStock->toArray();
+                $oldData = [
+                    'nama_bahan' => $existingStock->nama_bahan,
+                    'stok_bahan' => $existingStock->stok_bahan,
+                    'harga_beli' => $existingStock->harga_beli,
+                    'min_stok' => $existingStock->min_stok,
+                ];
                 $oldQuantity = (float)$existingStock->stok_bahan;
                 $newQuantity = $oldQuantity + (float)$request->quantity;
+                $isStockIncrease = $newQuantity > $oldQuantity;
                 
                 // Lock row untuk update (dalam transaction)
                 $existingStock = TblBahan::lockForUpdate()->find($existingStock->id_bahan);
@@ -243,17 +232,22 @@ class StockController extends Controller
                     'updated_by' => $request->user()->id_user
                 ]);
 
-                // Reload untuk mendapatkan relasi kategori
-                $existingStock->refresh();
-                $existingStock->load('kategori');
+                // Load kategori hanya jika diperlukan (optimize query - select specific fields)
+                $existingStock->load('kategori:id_kategori,nama_kategori');
 
-                // Log history untuk stock addition
+                // Log history untuk stock addition (non-blocking, tidak perlu toArray yang berat)
                 try {
+                    $newData = [
+                        'nama_bahan' => $existingStock->nama_bahan,
+                        'stok_bahan' => $existingStock->stok_bahan,
+                        'harga_beli' => $existingStock->harga_beli,
+                        'min_stok' => $existingStock->min_stok,
+                    ];
                     $this->logStockHistory(
                         $existingStock->id_bahan,
                         'stock_in',
                         $oldData,
-                        $existingStock->toArray(),
+                        $newData,
                         "Menambahkan stok: +{$request->quantity} {$request->unit}. Total stok: {$oldQuantity} → {$newQuantity}",
                         $request->user()->id_user
                     );
@@ -263,32 +257,17 @@ class StockController extends Controller
 
                 DB::commit();
 
-                // Kirim notifikasi jika stok menipis
-                $this->sendStockNotification($existingStock);
+                // Dispatch jobs untuk operasi berat (non-blocking, async)
+                $skipExpiredPrediction = $request->has('skip_expired_prediction') && $request->skip_expired_prediction === true;
+                
+                // Kirim notifikasi via job (background)
+                if ($existingStock->stok_bahan < $existingStock->min_stok) {
+                    SendStockNotificationJob::dispatch($existingStock->id_bahan)->afterCommit();
+                }
 
-                // Smart update expired prediction setelah restock (non-blocking, async)
-                // Run in background to prevent blocking the response
-                try {
-                    // Set execution time limit untuk proses ini
-                    set_time_limit(30); // 30 seconds max for this operation
-                    
-                    $notificationController = app(NotificationController::class);
-                    $predictionResult = $notificationController->smartUpdateExpiredPrediction($existingStock->id_bahan);
-                    if ($predictionResult['success']) {
-                        Log::info('Expired prediction smart updated after restock', [
-                            'bahan_id' => $existingStock->id_bahan,
-                            'action' => $predictionResult['action'] ?? 'unknown'
-                        ]);
-                    }
-                } catch (\Exception $e) {
-                    // Non-blocking: log error tapi tidak gagalkan restock
-                    Log::warning('Failed to smart update expired prediction after restock', [
-                        'bahan_id' => $existingStock->id_bahan,
-                        'error' => $e->getMessage()
-                    ]);
-                } finally {
-                    // Reset time limit
-                    set_time_limit(ini_get('max_execution_time'));
+                // Update expired prediction via job (background) - hanya jika stok bertambah dan tidak skip
+                if (($isStockIncrease || $newQuantity > 0) && $newQuantity > 0 && !$skipExpiredPrediction) {
+                    UpdateExpiredPredictionJob::dispatch($existingStock->id_bahan)->afterCommit();
                 }
 
                 // Reset time limit before returning
@@ -319,9 +298,15 @@ class StockController extends Controller
                 
                 if ($doubleCheck) {
                     // Jika ternyata sudah ada (race condition), gunakan yang sudah ada
-                    $oldData = $doubleCheck->toArray();
+                    $oldData = [
+                        'nama_bahan' => $doubleCheck->nama_bahan,
+                        'stok_bahan' => $doubleCheck->stok_bahan,
+                        'harga_beli' => $doubleCheck->harga_beli,
+                        'min_stok' => $doubleCheck->min_stok,
+                    ];
                     $oldQuantity = (float)$doubleCheck->stok_bahan;
                     $newQuantity = $oldQuantity + (float)$request->quantity;
+                    $isStockIncrease = $newQuantity > $oldQuantity;
                     
                     $doubleCheck->update([
                         'nama_bahan' => trim($request->name),
@@ -333,15 +318,21 @@ class StockController extends Controller
                         'updated_by' => $request->user()->id_user
                     ]);
                     
-                    $doubleCheck->refresh();
-                    $doubleCheck->load('kategori');
+                    // Load kategori hanya jika diperlukan (optimize query)
+                    $doubleCheck->load('kategori:id_kategori,nama_kategori');
                     
                     try {
+                        $newData = [
+                            'nama_bahan' => $doubleCheck->nama_bahan,
+                            'stok_bahan' => $doubleCheck->stok_bahan,
+                            'harga_beli' => $doubleCheck->harga_beli,
+                            'min_stok' => $doubleCheck->min_stok,
+                        ];
                         $this->logStockHistory(
                             $doubleCheck->id_bahan,
                             'stock_in',
                             $oldData,
-                            $doubleCheck->toArray(),
+                            $newData,
                             "Menambahkan stok: +{$request->quantity} {$request->unit}. Total stok: {$oldQuantity} → {$newQuantity}",
                             $request->user()->id_user
                         );
@@ -351,39 +342,19 @@ class StockController extends Controller
                     
                     DB::commit();
 
-                    // Kirim notifikasi jika stok menipis
-                    $this->sendStockNotification($doubleCheck);
-
-                    // Smart update expired prediction setelah restock (non-blocking, async)
-                    // Skip untuk batch operations
+                    // Dispatch jobs untuk operasi berat (non-blocking, async)
                     $skipExpiredPrediction = $request->has('skip_expired_prediction') && $request->skip_expired_prediction === true;
                     
-                    if (!$skipExpiredPrediction) {
-                        // Run in background to prevent blocking the response
-                        try {
-                            // Set execution time limit untuk proses ini
-                            set_time_limit(20); // 20 seconds max for this operation
-                            
-                        $notificationController = app(NotificationController::class);
-                        $predictionResult = $notificationController->smartUpdateExpiredPrediction($doubleCheck->id_bahan);
-                        if ($predictionResult['success']) {
-                            Log::info('Expired prediction smart updated after restock (double check)', [
-                                'bahan_id' => $doubleCheck->id_bahan,
-                                'action' => $predictionResult['action'] ?? 'unknown'
-                            ]);
-                        }
-                    } catch (\Exception $e) {
-                        // Non-blocking: log error tapi tidak gagalkan restock
-                        Log::warning('Failed to smart update expired prediction after restock (double check)', [
-                            'bahan_id' => $doubleCheck->id_bahan,
-                            'error' => $e->getMessage()
-                        ]);
-                        } finally {
-                            // Reset time limit
-                            set_time_limit($originalTimeLimit);
-                        }
+                    // Kirim notifikasi via job (background)
+                    if ($doubleCheck->stok_bahan < $doubleCheck->min_stok) {
+                        SendStockNotificationJob::dispatch($doubleCheck->id_bahan)->afterCommit();
                     }
-                    
+
+                    // Update expired prediction via job (background)
+                    if (($isStockIncrease || $newQuantity > 0) && $newQuantity > 0 && !$skipExpiredPrediction) {
+                        UpdateExpiredPredictionJob::dispatch($doubleCheck->id_bahan)->afterCommit();
+                    }
+
                     // Reset time limit before returning
                     set_time_limit($originalTimeLimit);
                     
@@ -420,16 +391,22 @@ class StockController extends Controller
                 'updated_by' => $request->user() ? $request->user()->id_user : null
             ]);
 
-                // Reload untuk mendapatkan relasi kategori
-                $stock->load('kategori');
+                // Load kategori hanya jika diperlukan (optimize query)
+                $stock->load('kategori:id_kategori,nama_kategori');
 
-            // Log history untuk create
+            // Log history untuk create (non-blocking, hanya field penting)
             try {
+                $newData = [
+                    'nama_bahan' => $stock->nama_bahan,
+                    'stok_bahan' => $stock->stok_bahan,
+                    'harga_beli' => $stock->harga_beli,
+                    'min_stok' => $stock->min_stok,
+                ];
                 $this->logStockHistory(
                     $stock->id_bahan,
                     'create',
                     null,
-                    $stock->toArray(),
+                    $newData,
                     "Menambahkan stok baru: {$stock->nama_bahan}",
                     $request->user()->id_user
                 );
@@ -439,44 +416,17 @@ class StockController extends Controller
 
                 DB::commit();
 
-            // Kirim notifikasi jika stok menipis
-            $this->sendStockNotification($stock);
-
-            // Smart update expired prediction untuk bahan baru (non-blocking, async)
-            // Hanya jika stok > 0
-            // Skip untuk batch operations atau run in background to prevent timeout
-            // Check if this is a batch operation (skip expired prediction to prevent timeout)
+            // Dispatch jobs untuk operasi berat (non-blocking, async)
             $skipExpiredPrediction = $request->has('skip_expired_prediction') && $request->skip_expired_prediction === true;
             
+            // Kirim notifikasi via job (background) - hanya jika stok menipis
+            if ($stock->stok_bahan < $stock->min_stok) {
+                SendStockNotificationJob::dispatch($stock->id_bahan)->afterCommit();
+            }
+
+            // Update expired prediction via job (background) - hanya jika stok > 0 dan tidak skip
             if ($stock->stok_bahan > 0 && !$skipExpiredPrediction) {
-                // Run in background to prevent blocking the response
-                // Use shorter timeout to prevent PHP execution timeout
-                try {
-                    // Set execution time limit untuk proses ini
-                    set_time_limit(20); // 20 seconds max for this operation
-                    
-                    $notificationController = app(NotificationController::class);
-                    $predictionResult = $notificationController->smartUpdateExpiredPrediction($stock->id_bahan);
-                    if ($predictionResult['success']) {
-                        Log::info('Expired prediction created for new bahan', [
-                            'bahan_id' => $stock->id_bahan,
-                            'action' => $predictionResult['action'] ?? 'created'
-                        ]);
-                    }
-                } catch (\Exception $e) {
-                    // Non-blocking: log error tapi tidak gagalkan create
-                    Log::warning('Failed to create expired prediction for new bahan', [
-                        'bahan_id' => $stock->id_bahan,
-                        'error' => $e->getMessage()
-                    ]);
-                } finally {
-                    // Reset time limit
-                    set_time_limit($originalTimeLimit);
-                }
-            } else if ($skipExpiredPrediction) {
-                Log::info('Skipping expired prediction for batch operation', [
-                    'bahan_id' => $stock->id_bahan
-                ]);
+                UpdateExpiredPredictionJob::dispatch($stock->id_bahan)->afterCommit();
             }
 
             // Reset time limit before returning
@@ -556,8 +506,13 @@ class StockController extends Controller
                 ], 422);
             }
 
-            // Simpan data lama untuk history
-            $oldData = $stock->toArray();
+            // Simpan data lama untuk history (hanya field yang diperlukan)
+            $oldData = [
+                'nama_bahan' => $stock->nama_bahan,
+                'stok_bahan' => $stock->stok_bahan,
+                'harga_beli' => $stock->harga_beli,
+                'min_stok' => $stock->min_stok,
+            ];
             $oldQuantity = (float)$stock->stok_bahan;
             $newQuantity = (float)$request->quantity;
             $isStockIncrease = $newQuantity > $oldQuantity;
@@ -575,13 +530,17 @@ class StockController extends Controller
                 'updated_by' => $request->user()->id_user
             ]);
 
-            // Reload stock untuk mendapatkan relasi kategori
-            $stock->refresh();
-            $stock->load('kategori');
+            // Load kategori hanya jika diperlukan untuk response (optimize query - select specific fields)
+            $stock->load('kategori:id_kategori,nama_kategori');
 
-            // Log history untuk update
+            // Log history untuk update (non-blocking, hanya field penting)
             try {
-                $newData = $stock->toArray();
+                $newData = [
+                    'nama_bahan' => $stock->nama_bahan,
+                    'stok_bahan' => $stock->stok_bahan,
+                    'harga_beli' => $stock->harga_beli,
+                    'min_stok' => $stock->min_stok,
+                ];
                 $changes = $this->getChanges($oldData, $newData);
                 $description = $this->generateChangeDescription($changes, 'update');
                 
@@ -598,47 +557,17 @@ class StockController extends Controller
                 Log::error('Failed to log stock history: ' . $e->getMessage());
             }
 
-            // Kirim notifikasi jika stok menipis (non-blocking)
-            try {
-                $this->sendStockNotification($stock);
-            } catch (\Exception $e) {
-                // Log error but don't fail the update
-                Log::warning('Failed to send stock notification: ' . $e->getMessage());
-            }
-
-            // Smart update expired prediction jika stok bertambah (restock) atau stok > 0
-            // Hanya update jika stok bertambah atau sudah ada stok
-            // Skip untuk batch operations
+            // Dispatch jobs untuk operasi berat (non-blocking, async)
             $skipExpiredPrediction = $request->has('skip_expired_prediction') && $request->skip_expired_prediction === true;
             
+            // Kirim notifikasi via job (background) - hanya jika stok menipis
+            if ($stock->stok_bahan < $stock->min_stok) {
+                SendStockNotificationJob::dispatch($stock->id_bahan)->afterCommit();
+            }
+
+            // Update expired prediction via job (background) - hanya jika stok bertambah dan tidak skip
             if (($isStockIncrease || $newQuantity > 0) && $newQuantity > 0 && !$skipExpiredPrediction) {
-                try {
-                    // Set execution time limit untuk proses ini
-                    $originalTimeLimit = ini_get('max_execution_time');
-                    set_time_limit(20); // 20 seconds max for this operation
-                    
-                    $notificationController = app(NotificationController::class);
-                    $predictionResult = $notificationController->smartUpdateExpiredPrediction($stock->id_bahan);
-                    if ($predictionResult['success']) {
-                        Log::info('Expired prediction smart updated after stock update', [
-                            'bahan_id' => $stock->id_bahan,
-                            'action' => $predictionResult['action'] ?? 'unknown',
-                            'old_quantity' => $oldQuantity,
-                            'new_quantity' => $newQuantity
-                        ]);
-                    }
-                } catch (\Exception $e) {
-                    // Non-blocking: log error tapi tidak gagalkan update
-                    Log::warning('Failed to smart update expired prediction after stock update', [
-                        'bahan_id' => $stock->id_bahan,
-                        'error' => $e->getMessage()
-                    ]);
-                } finally {
-                    // Reset time limit jika sudah diset sebelumnya
-                    if (isset($originalTimeLimit)) {
-                        set_time_limit($originalTimeLimit);
-                    }
-                }
+                UpdateExpiredPredictionJob::dispatch($stock->id_bahan)->afterCommit();
             }
 
             return response()->json([
@@ -1103,8 +1032,9 @@ class StockController extends Controller
         }
 
         try {
-            // Ambil semua bahan dengan stok di bawah min_stok
-            $lowStockItems = TblBahan::with('kategori')
+            // Ambil semua bahan dengan stok di bawah min_stok (optimize query - select specific fields)
+            $lowStockItems = TblBahan::with('kategori:id_kategori,nama_kategori')
+                ->select('id_bahan', 'nama_bahan', 'stok_bahan', 'satuan', 'min_stok', 'id_kategori')
                 ->whereColumn('stok_bahan', '<', 'min_stok')
                 ->get();
 
@@ -1199,8 +1129,9 @@ class StockController extends Controller
         }
 
         try {
-            // Ambil semua bahan dengan stok di bawah min_stok
-            $lowStockItems = TblBahan::with('kategori')
+            // Ambil semua bahan dengan stok di bawah min_stok (optimize query - select specific fields)
+            $lowStockItems = TblBahan::with('kategori:id_kategori,nama_kategori')
+                ->select('id_bahan', 'nama_bahan', 'stok_bahan', 'satuan', 'min_stok', 'id_kategori')
                 ->whereColumn('stok_bahan', '<', 'min_stok')
                 ->get();
 
