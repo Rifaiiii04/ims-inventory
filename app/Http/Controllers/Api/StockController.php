@@ -575,9 +575,13 @@ class StockController extends Controller
                 'updated_by' => $request->user()->id_user
             ]);
 
+            // Reload stock untuk mendapatkan relasi kategori
+            $stock->refresh();
+            $stock->load('kategori');
+
             // Log history untuk update
             try {
-                $newData = $stock->fresh()->toArray();
+                $newData = $stock->toArray();
                 $changes = $this->getChanges($oldData, $newData);
                 $description = $this->generateChangeDescription($changes, 'update');
                 
@@ -594,8 +598,13 @@ class StockController extends Controller
                 Log::error('Failed to log stock history: ' . $e->getMessage());
             }
 
-            // Kirim notifikasi jika stok menipis
-            $this->sendStockNotification($stock);
+            // Kirim notifikasi jika stok menipis (non-blocking)
+            try {
+                $this->sendStockNotification($stock);
+            } catch (\Exception $e) {
+                // Log error but don't fail the update
+                Log::warning('Failed to send stock notification: ' . $e->getMessage());
+            }
 
             // Smart update expired prediction jika stok bertambah (restock) atau stok > 0
             // Hanya update jika stok bertambah atau sudah ada stok
@@ -605,6 +614,7 @@ class StockController extends Controller
             if (($isStockIncrease || $newQuantity > 0) && $newQuantity > 0 && !$skipExpiredPrediction) {
                 try {
                     // Set execution time limit untuk proses ini
+                    $originalTimeLimit = ini_get('max_execution_time');
                     set_time_limit(20); // 20 seconds max for this operation
                     
                     $notificationController = app(NotificationController::class);
@@ -624,13 +634,12 @@ class StockController extends Controller
                         'error' => $e->getMessage()
                     ]);
                 } finally {
-                    // Reset time limit
-                    set_time_limit($originalTimeLimit);
+                    // Reset time limit jika sudah diset sebelumnya
+                    if (isset($originalTimeLimit)) {
+                        set_time_limit($originalTimeLimit);
+                    }
                 }
             }
-
-            // Reset time limit before returning
-            set_time_limit($originalTimeLimit);
 
             return response()->json([
                 'success' => true,
@@ -650,10 +659,15 @@ class StockController extends Controller
             ], 200);
 
         } catch (\Exception $e) {
+            Log::error('Error updating stock: ' . $e->getMessage(), [
+                'stock_id' => $id,
+                'trace' => $e->getTraceAsString()
+            ]);
+            
             return response()->json([
                 'success' => false,
                 'message' => 'Terjadi kesalahan saat memperbarui stok',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
             ], 500);
         }
     }
